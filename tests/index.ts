@@ -4,12 +4,8 @@ import { describe, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 
 const gitPublish = path.resolve('./dist/index.js');
-const repoShorthandPattern = /^git@github\.com:(.+)\.git$/;
 
-describe('git-publish', async ({ describe, test }) => {
-	const { stdout: originUrl } = await execa('git', ['remote', 'get-url', 'origin']);
-	const repoShorthand = originUrl.match(repoShorthandPattern)!;
-
+describe('git-publish', ({ describe, test }) => {
 	describe('Error cases', ({ test }) => {
 		test('Fails if not in git repository', async () => {
 			const fixture = await createFixture();
@@ -46,11 +42,15 @@ describe('git-publish', async ({ describe, test }) => {
 		test('Dirty working tree', async () => {
 			const fixture = await createFixture();
 
-			await execa('git', ['clone', originUrl, '.'], {
+			await execa('git', ['init'], {
 				cwd: fixture.path,
 			});
 
 			await fixture.writeFile('package.json', '{}');
+
+			await execa('git', ['add', 'package.json'], {
+				cwd: fixture.path,
+			});
 
 			const gitPublishProcess = await execa(gitPublish, {
 				cwd: fixture.path,
@@ -65,20 +65,12 @@ describe('git-publish', async ({ describe, test }) => {
 	});
 
 	test('Publishes', async () => {
-		const fixture = await createFixture();
-
-		await execa('git', ['clone', originUrl, '.'], {
-			cwd: fixture.path,
-		});
-
 		const gitPublishProcess = await execa(gitPublish, {
-			cwd: fixture.path,
 			reject: false,
 		});
 
 		expect(gitPublishProcess.exitCode).toBe(0);
-		expect(gitPublishProcess.stdout).toMatch(`npm i '${repoShorthand[1]}#npm/develop'`);
-
-		await fixture.rm();
+		expect(gitPublishProcess.stderr).toBe('');
+		expect(gitPublishProcess.stdout).toMatch('✔');
 	});
 });

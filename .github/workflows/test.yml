@@ -2,7 +2,7 @@ name: Test
 
 on:
   push:
-    branches: [develop]
+    branches: [develop,debug-test]
   pull_request:
     branches: [master, develop]
 
@@ -28,6 +28,11 @@ jobs:
 
     - name: Lint
       run: npm run lint
+
+    - name: Setup Git
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "<>"
 
     - name: Test
       run: npm test
