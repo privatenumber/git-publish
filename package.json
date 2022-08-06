@@ -1,0 +1,64 @@
+{
+	"name": "git-publish",
+	"version": "0.0.0-semantic-release",
+	"description": "Publish your npm package to a GitHub repository branch",
+	"keywords": [
+		"npm",
+		"publish",
+		"git",
+		"github",
+		"branch",
+		"branches"
+	],
+	"license": "MIT",
+	"repository": "privatenumber/git-publish",
+	"funding": "https://github.com/privatenumber/git-publish?sponsor=1",
+	"author": {
+		"name": "Hiroki Osame",
+		"email": "hiroki.osame@gmail.com"
+	},
+	"files": [
+		"bin",
+		"dist"
+	],
+	"bin": "dist/index.js",
+	"scripts": {
+		"build": "pkgroll --minify --target=node12.19",
+		"lint": "eslint .",
+		"prepack": "npm run build",
+		"pretest": "npm run build",
+		"test": "tsx tests"
+	},
+	"dependencies": {
+		"yoga-layout-prebuilt": "^1.10.0"
+	},
+	"devDependencies": {
+		"@pvtnbr/eslint-config": "^0.26.2",
+		"@types/node": "^18.6.4",
+		"@types/npm-packlist": "^3.0.0",
+		"cleye": "^1.2.1",
+		"eslint": "^8.21.0",
+		"execa": "^6.1.0",
+		"fs-fixture": "^1.1.0",
+		"manten": "^0.2.1",
+		"npm-packlist": "^5.1.1",
+		"pkgroll": "^1.4.0",
+		"tasuku": "^2.0.0",
+		"tsx": "^3.8.0",
+		"typescript": "^4.7.4"
+	},
+	"eslintConfig": {
+		"extends": "@pvtnbr",
+		"rules": {
+			"@typescript-eslint/no-shadow": [
+				"error",
+				{
+					"allow": [
+						"task",
+						"setTitle"
+					]
+				}
+			]
+		}
+	}
+}
