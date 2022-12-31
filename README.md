@@ -6,32 +6,32 @@ Publish your npm package to a Git branch.
 
 ## Why?
 
-For testing published packages without publishing to npm.
+To test a package without publishing to npm.
 
-Making a prerelease to npm using `npm publish` has the following drawbacks:
+When using `npm publish` to make a pre-release, you have the following drawbacks:
 
-- Needs a unique version for every release.
+- **Versioning concerns:** even though you're just testing, you still need to version bump
+- **Undeleteable:** releases are hard to remove due to npm's [strict unpublish policy](https://docs.npmjs.com/policies/unpublish)
+- **Unverifyable:** npm does not offer a great way to browse the contents of a package
+- **Risky:** Publishing tests to a production environment can be dangerous (eg. accidentally publish as stable)
 
-- Hard to remove due to npm's [strict unpublish policy](https://docs.npmjs.com/policies/unpublish).
-
-- Cumbersome to verify the contents of the published package.
-
-- Production environment—risky if you make a mistake (eg. accidentally publish as stable).
-
-Using `npm link` has the drawback of not running [npm life cycle scripts](https://docs.npmjs.com/cli/v8/using-npm/scripts#life-cycle-scripts) and including non-publishable assets.
+When using `npm link`, you have the following drawbacks:
+- No [npm life cycle scripts](https://docs.npmjs.com/cli/v8/using-npm/scripts#life-cycle-scripts)
+- Includes non-publishable assets
+- Doesn't install dependencies
 
 
 In contrast, `git-publish` has the following benefits:
 
-- **Unversioned** Instead of versions, branch names are used. Branches can be updated to reflect latest change.
+- **No versions:** Instead of versions, branch names are used. Branches can be updated to reflect latest change.
 
-- **Deletable** Simply delete the branch when you're done with it.
+- **Deletable:** Simply delete the branch when you're done with it.
 
-- **Browsable** Use GitHub to verify the contents of the branch. You can even share a link for others to see.
+- **Browsable:** Use GitHub to easily verify the contents of the branch. You can even share a link for others to see.
 
-- **Dev environment** Low risk of mistakes.
+- **Dev environment:** Low risk of mistakes.
 
-- **Simulates `npm publish`** Runs npm life cycle scripts and only includes publishable assets.
+- **Simulates `npm publish`:** Runs npm life cycle scripts and only includes publishable assets.
 
 ## Usage
 
@@ -79,7 +79,7 @@ git-publish
 
 ### How can I include a build step?
 
-Call the build command it in the [`prepack` script](https://docs.npmjs.com/cli/v8/using-npm/scripts#:~:text=on%20npm%20publish.-,prepack,-Runs%20BEFORE%20a).
+Like `npm publish`, you can call the build command it in the [`prepack` script](https://docs.npmjs.com/cli/v8/using-npm/scripts#:~:text=on%20npm%20publish.-,prepack,-Runs%20BEFORE%20a).
 
 ### What does this script do?
 
