@@ -64,9 +64,13 @@ describe('git-publish', ({ describe, test }) => {
 		});
 	});
 
-	test('Publishes', async () => {
+	test('Publishes', async ({ onTestFail }) => {
 		const gitPublishProcess = await execa(gitPublish, {
 			reject: false,
+		});
+
+		onTestFail(() => {
+			console.log(gitPublishProcess);
 		});
 
 		expect(gitPublishProcess.exitCode).toBe(0);
