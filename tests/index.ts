@@ -1,9 +1,39 @@
 import path from 'path';
-import { execa } from 'execa';
+import { execa, type Options } from 'execa';
 import { describe, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 
 const gitPublish = path.resolve('./dist/index.js');
+
+const createGit = async (cwd: string) => {
+	const git = (
+		command: string,
+		args?: string[],
+		options?: Options,
+	) => (
+		execa(
+			'git',
+			[command, ...(args || [])],
+			{
+				cwd,
+				...options,
+			},
+		)
+	);
+
+	await git(
+		'init',
+		[
+			// In case of different default branch name
+			'--initial-branch=master',
+		],
+	);
+
+	await git('config', ['user.name', 'name']);
+	await git('config', ['user.email', 'email']);
+
+	return git;
+};
 
 describe('git-publish', ({ describe, test }) => {
 	describe('Error cases', ({ test }) => {
@@ -24,9 +54,7 @@ describe('git-publish', ({ describe, test }) => {
 		test('Fails if no package.json found', async () => {
 			const fixture = await createFixture();
 
-			await execa('git', ['init'], {
-				cwd: fixture.path,
-			});
+			await createGit(fixture.path);
 
 			const gitPublishProcess = await execa(gitPublish, {
 				cwd: fixture.path,
@@ -40,17 +68,12 @@ describe('git-publish', ({ describe, test }) => {
 		});
 
 		test('Dirty working tree', async () => {
-			const fixture = await createFixture();
-
-			await execa('git', ['init'], {
-				cwd: fixture.path,
+			const fixture = await createFixture({
+				'package.json': '{}',
 			});
 
-			await fixture.writeFile('package.json', '{}');
-
-			await execa('git', ['add', 'package.json'], {
-				cwd: fixture.path,
-			});
+			const git = await createGit(fixture.path);
+			await git('add', ['package.json']);
 
 			const gitPublishProcess = await execa(gitPublish, {
 				cwd: fixture.path,
