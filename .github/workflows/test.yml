@@ -24,9 +24,7 @@ jobs:
       uses: pnpm/action-setup@v2.2.2
       with:
         version: 7
-
-    - name: Build
-      run: pnpm build
+        run_install: true
 
     - name: Lint
       run: pnpm lint
@@ -35,6 +33,9 @@ jobs:
       run: |
         git config --global user.name "GitHub Actions"
         git config --global user.email "<>"
+
+    - name: Build
+      run: pnpm build
 
     - name: Test
       run: pnpm test

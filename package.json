@@ -24,9 +24,8 @@
 	"scripts": {
 		"build": "pkgroll --minify --target=node12.19",
 		"lint": "eslint --cache .",
-		"prepack": "npm run build && clean-pkg-json",
-		"pretest": "npm run build",
-		"test": "tsx tests"
+		"test": "tsx tests",
+		"prepack": "pnpm build && clean-pkg-json"
 	},
 	"dependencies": {
 		"yoga-layout-prebuilt": "^1.10.0"
