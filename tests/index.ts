@@ -88,6 +88,9 @@ describe('git-publish', ({ describe, test }) => {
 	});
 
 	test('Publishes', async ({ onTestFail }) => {
+		await execa('git', ['config', 'user.name', 'GitHub Actions']);
+		await execa('git', ['config', 'user.email', '<>']);
+
 		const gitPublishProcess = await execa(gitPublish, {
 			reject: false,
 		});

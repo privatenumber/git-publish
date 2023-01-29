@@ -29,11 +29,6 @@ jobs:
     - name: Lint
       run: pnpm lint
 
-    - name: Setup Git
-      run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "<>"
-
     - name: Build
       run: pnpm build
 
