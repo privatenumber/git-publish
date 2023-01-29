@@ -40,7 +40,7 @@ export async function getCurrentBranchOrTagName() {
 		return getTag.stdout;
 	}
 
-	throw new Error('Failed to get current branch name');
+	throw new Error(`Failed to get current branch name: ${getBranch.stderr} ${getTag.stderr}`);
 }
 
 export async function readJson(path: string) {
