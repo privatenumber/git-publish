@@ -16,25 +16,24 @@ export async function assertCleanTree() {
 }
 
 export async function getCurrentBranchOrTagName() {
-	// eslint-disable-next-line @typescript-eslint/no-empty-function
-	const silenceError = () => {};
-
 	/**
 	 * This commands supports older versions of Git, but since v2.22, you can do:
 	 * git branch --show-current
 	 */
-	const branch = await execa('git', ['symbolic-ref', '--short', '-q', 'HEAD']).then(
-		({ stdout }) => stdout,
-		silenceError,
+	const { stdout: branch } = await execa(
+		'git',
+		['symbolic-ref', '--short', '-q', 'HEAD'],
+		{ reject: false },
 	);
 
 	if (branch) {
 		return branch;
 	}
 
-	const tag = await execa('git', ['describe', '--tags']).then(
-		({ stdout }) => stdout,
-		silenceError,
+	const { stdout: tag } = await execa(
+		'git',
+		['describe', '--tags'],
+		{ reject: false },
 	);
 
 	if (tag) {
