@@ -20,14 +20,16 @@ jobs:
       with:
         node-version-file: '.nvmrc'
 
-    - name: Install dependencies
-      run: npx ci
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v2.2.2
+      with:
+        version: 7
 
     - name: Build
-      run: npm run build
+      run: pnpm build
 
     - name: Lint
-      run: npm run lint
+      run: pnpm lint
 
     - name: Setup Git
       run: |
@@ -35,4 +37,4 @@ jobs:
         git config --global user.email "<>"
 
     - name: Test
-      run: npm test
+      run: pnpm test
