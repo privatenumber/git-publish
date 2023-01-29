@@ -184,7 +184,7 @@ const { stringify } = JSON;
 					}
 
 					await execa('git', ['add', '-f', ...publishFiles]);
-					await execa('git', ['commit', '-nm', `Published branch ${stringify(currentBranch)}`]);
+					await execa('git', ['commit', '--no-verify', '-m', `Published branch ${stringify(currentBranch)}`]);
 				});
 
 				if (!dry) {
@@ -199,7 +199,7 @@ const { stringify } = JSON;
 							return;
 						}
 
-						await execa('git', ['push', '-f', remote, `${localTemporaryBranch}:${publishBranch}`]);
+						await execa('git', ['push', '--no-verify', '-f', remote, `${localTemporaryBranch}:${publishBranch}`]);
 
 						success = true;
 					},
