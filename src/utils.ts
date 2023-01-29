@@ -20,24 +20,24 @@ export async function getCurrentBranchOrTagName() {
 	 * This commands supports older versions of Git, but since v2.22, you can do:
 	 * git branch --show-current
 	 */
-	const { stdout: branch } = await execa(
+	const getBranch = await execa(
 		'git',
 		['symbolic-ref', '--short', '-q', 'HEAD'],
 		{ reject: false },
 	);
 
-	if (branch) {
-		return branch;
+	if (getBranch.stdout) {
+		return getBranch.stdout;
 	}
 
-	const { stdout: tag } = await execa(
+	const getTag = await execa(
 		'git',
 		['describe', '--tags'],
 		{ reject: false },
 	);
 
-	if (tag) {
-		return tag;
+	if (getTag.stdout) {
+		return getTag.stdout;
 	}
 
 	throw new Error('Failed to get current branch name');
