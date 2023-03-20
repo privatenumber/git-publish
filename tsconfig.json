@@ -5,8 +5,8 @@
 		"moduleResolution": "node",
 		"resolveJsonModule": true,
 		"strict": true,
-		"lib": ["ESNext"],
+		"noEmit": true,
+		"skipLibCheck": true,
 		"target": "ESNext",
 	},
-	"include": ["src"]
 }

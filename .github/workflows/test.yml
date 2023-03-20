@@ -32,6 +32,9 @@ jobs:
     - name: Lint
       run: pnpm lint
 
+    - name: Type check
+      run: pnpm type-check
+
     - name: Setup Git # Only used by the last test
       run: |
         git config --global user.name "GitHub Actions"
