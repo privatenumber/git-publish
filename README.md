@@ -8,20 +8,22 @@ Publish your npm package to a Git branch.
 
 To test a package without publishing to npm.
 
-When using `npm publish` to make a pre-release, you have the following drawbacks:
+#### Why not use `npm publish` to make a pre-release?
+
+Because of the following drawbacks:
 
 - **Versioning concerns:** even though you're just testing, you still need to version bump
 - **Undeleteable:** releases are hard to remove due to npm's [strict unpublish policy](https://docs.npmjs.com/policies/unpublish)
 - **Unverifyable:** npm does not offer a great way to browse the contents of a package
 - **Risky:** Publishing tests to a production environment can be dangerous (eg. accidentally publish as stable)
 
-When using `npm link`, you have the following drawbacks:
+#### What about `npm link`?
 - No [npm life cycle scripts](https://docs.npmjs.com/cli/v8/using-npm/scripts#life-cycle-scripts)
 - Includes non-publishable assets
 - Doesn't install dependencies
 
 
-In contrast, `git-publish` has the following benefits:
+#### So why `git-publish`?
 
 - **No versions:** Instead of versions, branch names are used. Branches can be updated to reflect latest change.
 
