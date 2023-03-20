@@ -86,12 +86,19 @@ Like `npm publish`, you can call the build command it in the [`prepack` script](
 
 ### What does this script do?
 
-1. Run [npm  hooks](https://docs.npmjs.com/cli/v8/using-npm/scripts) `prepare` & `prepack`
-2. Create a temporary branch by prefixing the current branch with the `npm/` namespace
+1. If publish branch exists on remote, check it out to apply changes on top. Otherwise, create a new branch.
+2. Run [npm  hooks](https://docs.npmjs.com/cli/v8/using-npm/scripts) `prepare` & `prepack`
 3. Detect and commit only the [npm publish files](https://github.com/npm/npm-packlist)
 4. Push the branch to remote
-5. Delete local branch from Step 2
 6. Print the installation command for the branch
+
+### Why is the commit history preserved in the publish branch?
+
+When pushing an npm installable commit to Git, it's important that it's an attached commit.
+
+This is because npm lock references the commit hash, and not the branch name. So if the commit is detached, it will be removed upon reference loss and any subsequent npm installations referencing that commit hash will fail.
+
+If you'd like a publish branch with a clean commit history despite these drawbacks, you can use the `--fresh` flag to force-push a single-commit branch to the remote.
 
 ### How is this different from simply committing the files to a branch?
 
