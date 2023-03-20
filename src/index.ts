@@ -134,25 +134,6 @@ const { stringify } = JSON;
 					runHooks.clear();
 				}
 
-				// Move to commit
-				let publishFiles: string[];
-				const getPublishFiles = await task('Getting publish files', async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					publishFiles = await packlist();
-
-					if (publishFiles.length === 0) {
-						throw new Error('No publish files found');
-					}
-				});
-
-				if (!dry) {
-					getPublishFiles.clear();
-				}
-
 				const removeHooks = await task('Removing "prepare" & "prepack" hooks', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
@@ -210,6 +191,11 @@ const { stringify } = JSON;
 					if (dry) {
 						setWarning('');
 						return;
+					}
+
+					const publishFiles = await packlist();
+					if (publishFiles.length === 0) {
+						throw new Error('No publish files found');
 					}
 
 					await execa('git', ['add', '-f', ...publishFiles]);
