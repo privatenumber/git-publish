@@ -34,7 +34,7 @@ const { stringify } = JSON;
 
 			fresh: {
 				type: Boolean,
-				alias: 'f',
+				alias: 'o',
 				description: 'Publish without a commit history. Warning: Force-pushes to remote',
 			},
 
