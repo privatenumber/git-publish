@@ -63,7 +63,7 @@ git-publish
 | - | - |
 | `-b, --branch <branch name>` | The branch to publish the package to. Defaults to prefixing "npm/" to the current branch or tag name. |
 | `-r, --remote <remote>` | The remote to push to. (default: `origin`) |
-| `-f, --fresh` | Publish without a commit history. Warning: Force-pushes to remote |
+| `-o, --fresh` | Publish without a commit history. Warning: Force-pushes to remote |
 | `-d, --dry` | Dry run mode. Will not commit or push to the remote. |
 | `-h, --help` | Show help |
 | `--version` | Show version |
