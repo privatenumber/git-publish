@@ -4,7 +4,9 @@ import task from 'tasuku';
 import { cli } from 'cleye';
 import packlist from 'npm-packlist';
 import { name, version, description } from '../package.json';
-import { assertCleanTree, getCurrentBranchOrTagName, readJson, gitStatusTracked } from './utils';
+import {
+	assertCleanTree, getCurrentBranchOrTagName, readJson, gitStatusTracked,
+} from './utils';
 
 const { stringify } = JSON;
 
@@ -65,14 +67,14 @@ const { stringify } = JSON;
 			if (dry) {
 				setStatus('Dry run');
 			}
-			
+
 			const localTemporaryBranch = `git-publish/${publishBranch}-${Date.now()}`;
 			let success = false;
 
 			// In the try-finally block in case it modifies the working tree
 			// On failure, they will be reverted by the hard reset
 			try {
-				const checkoutBranch = await task('Checking out branch', async ({ setWarning, setTitle }) => {
+				const checkoutBranch = await task('Checking out branch', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
@@ -85,12 +87,13 @@ const { stringify } = JSON;
 					if (gitFetch.failed) {
 						await execa('git', ['checkout', '-b', localTemporaryBranch]);
 					} else {
-						await execa('git', ['checkout', '-b', localTemporaryBranch, remote + '/' + publishBranch]);
+						await execa('git', ['checkout', '-b', localTemporaryBranch, `${remote}/${publishBranch}`]);
 					}
 
 					// Remove all files from Git
 					await execa('git', ['rm', '--cached', '-r', ':/'], {
-						reject: false, // Can fail if tree is empty: fatal: pathspec ':/' did not match any files
+						// Can fail if tree is empty: fatal: pathspec ':/' did not match any files
+						reject: false,
 					});
 
 					// Restore the files tree from the previous branch
@@ -240,7 +243,8 @@ const { stringify } = JSON;
 
 					// Delete local branch
 					await execa('git', ['branch', '-D', localTemporaryBranch], {
-						reject: false, // Ignore failures (e.g. in case it didin't even succeed to create this branch)
+						// Ignore failures (e.g. in case it didin't even succeed to create this branch)
+						reject: false,
 					});
 				});
 
