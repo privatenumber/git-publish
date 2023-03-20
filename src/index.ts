@@ -32,6 +32,12 @@ const { stringify } = JSON;
 				default: 'origin',
 			},
 
+			fresh: {
+				type: Boolean,
+				alias: 'f',
+				description: 'Publish without a commit history. Warning: Force-pushes to remote',
+			},
+
 			dry: {
 				type: Boolean,
 				alias: 'd',
@@ -56,6 +62,7 @@ const { stringify } = JSON;
 	const {
 		branch: publishBranch = `npm/${currentBranch}`,
 		remote,
+		fresh,
 		dry,
 	} = argv.flags;
 
@@ -80,17 +87,21 @@ const { stringify } = JSON;
 						return;
 					}
 
-					const gitFetch = await execa('git', ['fetch', '--depth=1', remote, `${publishBranch}:${localTemporaryBranch}`], {
-						reject: false,
-					});
-
-					if (gitFetch.failed) {
-						await execa('git', ['checkout', '-b', localTemporaryBranch]);
+					if (fresh) {
+						await execa('git', ['checkout', '--orphan', localTemporaryBranch]);
 					} else {
-						await execa('git', ['checkout', localTemporaryBranch]);
+						const gitFetch = await execa('git', ['fetch', '--depth=1', remote, `${publishBranch}:${localTemporaryBranch}`], {
+							reject: false,
+						});
+
+						await execa('git', [
+							'checkout',
+							...(gitFetch.failed ? ['-b'] : []),
+							localTemporaryBranch,
+						]);
 					}
 
-					// Remove all files from Git
+					// Remove all files from Git tree
 					await execa('git', ['rm', '--cached', '-r', ':/'], {
 						// Can fail if tree is empty: fatal: pathspec ':/' did not match any files
 						reject: false,
@@ -221,7 +232,13 @@ const { stringify } = JSON;
 							return;
 						}
 
-						await execa('git', ['push', '--no-verify', remote, `${localTemporaryBranch}:${publishBranch}`]);
+						await execa('git', [
+							'push',
+							...(fresh ? ['--force'] : []),
+							'--no-verify',
+							remote,
+							`${localTemporaryBranch}:${publishBranch}`,
+						]);
 						success = true;
 					},
 				);
