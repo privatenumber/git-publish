@@ -4,7 +4,9 @@ import task from 'tasuku';
 import { cli } from 'cleye';
 import packlist from 'npm-packlist';
 import { name, version, description } from '../package.json';
-import { assertCleanTree, getCurrentBranchOrTagName, readJson } from './utils';
+import {
+	assertCleanTree, getCurrentBranchOrTagName, readJson, gitStatusTracked,
+} from './utils';
 
 const { stringify } = JSON;
 
@@ -28,6 +30,12 @@ const { stringify } = JSON;
 				placeholder: '<remote>',
 				description: 'The remote to push to.',
 				default: 'origin',
+			},
+
+			fresh: {
+				type: Boolean,
+				alias: 'f',
+				description: 'Publish without a commit history. Warning: Force-pushes to remote',
 			},
 
 			dry: {
@@ -54,6 +62,7 @@ const { stringify } = JSON;
 	const {
 		branch: publishBranch = `npm/${currentBranch}`,
 		remote,
+		fresh,
 		dry,
 	} = argv.flags;
 
@@ -72,7 +81,34 @@ const { stringify } = JSON;
 			// In the try-finally block in case it modifies the working tree
 			// On failure, they will be reverted by the hard reset
 			try {
-				let publishFiles: string[] = [];
+				const checkoutBranch = await task('Checking out branch', async ({ setWarning }) => {
+					if (dry) {
+						setWarning('');
+						return;
+					}
+
+					if (fresh) {
+						await execa('git', ['checkout', '--orphan', localTemporaryBranch]);
+					} else {
+						const gitFetch = await execa('git', ['fetch', '--depth=1', remote, `${publishBranch}:${localTemporaryBranch}`], {
+							reject: false,
+						});
+
+						await execa('git', [
+							'checkout',
+							...(gitFetch.failed ? ['-b'] : []),
+							localTemporaryBranch,
+						]);
+					}
+
+					// Checkout the files tree from the previous branch
+					// This also applies any file deletions from the source branch
+					await execa('git', ['restore', '--source', currentBranch, ':/']);
+				});
+
+				if (!dry) {
+					checkoutBranch.clear();
+				}
 
 				const runHooks = await task('Running hooks', async ({ setWarning, setTitle }) => {
 					if (dry) {
@@ -89,23 +125,6 @@ const { stringify } = JSON;
 
 				if (!dry) {
 					runHooks.clear();
-				}
-
-				const getPublishFiles = await task('Getting publish files', async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					publishFiles = await packlist();
-
-					if (publishFiles.length === 0) {
-						throw new Error('No publish files found');
-					}
-				});
-
-				if (!dry) {
-					getPublishFiles.clear();
 				}
 
 				const removeHooks = await task('Removing "prepare" & "prepack" hooks', async ({ setWarning }) => {
@@ -161,30 +180,33 @@ const { stringify } = JSON;
 					removeHooks.clear();
 				}
 
-				const checkoutBranch = await task(`Checking out branch ${stringify(publishBranch)}`, async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					await execa('git', ['checkout', '--orphan', localTemporaryBranch]);
-
-					// Unstage all files
-					await execa('git', ['reset']);
-				});
-
-				if (!dry) {
-					checkoutBranch.clear();
-				}
-
 				const commit = await task('Commiting publish assets', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
 					}
 
+					const publishFiles = await packlist();
+					if (publishFiles.length === 0) {
+						throw new Error('No publish files found');
+					}
+
+					// Remove all files from Git tree
+					// This removes all files from the branch so only the publish files will be added
+					await execa('git', ['rm', '--cached', '-r', ':/'], {
+						// Can fail if tree is empty: fatal: pathspec ':/' did not match any files
+						reject: false,
+					});
+
 					await execa('git', ['add', '-f', ...publishFiles]);
-					await execa('git', ['commit', '--no-verify', '-m', `Published branch ${stringify(currentBranch)}`]);
+
+					const { stdout: trackedFiles } = await gitStatusTracked();
+					if (trackedFiles.length === 0) {
+						console.warn('⚠️  No new changes found to commit.');
+					} else {
+						// -a is passed in so it can stage deletions from `git restore`
+						await execa('git', ['commit', '--no-verify', '-am', `Published branch ${stringify(currentBranch)}`]);
+					}
 				});
 
 				if (!dry) {
@@ -192,15 +214,20 @@ const { stringify } = JSON;
 				}
 
 				const push = await task(
-					`Force pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
+					`Pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
 					async ({ setWarning }) => {
 						if (dry) {
 							setWarning('');
 							return;
 						}
 
-						await execa('git', ['push', '--no-verify', '-f', remote, `${localTemporaryBranch}:${publishBranch}`]);
-
+						await execa('git', [
+							'push',
+							...(fresh ? ['--force'] : []),
+							'--no-verify',
+							remote,
+							`${localTemporaryBranch}:${publishBranch}`,
+						]);
 						success = true;
 					},
 				);
@@ -221,7 +248,10 @@ const { stringify } = JSON;
 					await execa('git', ['checkout', '-f', currentBranch]);
 
 					// Delete local branch
-					await execa('git', ['branch', '-D', localTemporaryBranch]);
+					await execa('git', ['branch', '-D', localTemporaryBranch], {
+						// Ignore failures (e.g. in case it didin't even succeed to create this branch)
+						reject: false,
+					});
 				});
 
 				revertBranch.clear();

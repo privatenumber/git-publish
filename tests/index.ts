@@ -100,7 +100,6 @@ describe('git-publish', ({ describe, test }) => {
 		});
 
 		expect(gitPublishProcess.exitCode).toBe(0);
-		expect(gitPublishProcess.stderr).toBe('');
 		expect(gitPublishProcess.stdout).toMatch('✔');
 	});
 });

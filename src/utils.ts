@@ -1,8 +1,10 @@
 import fs from 'fs';
 import { execa } from 'execa';
 
+export const gitStatusTracked = () => execa('git', ['status', '--porcelain', '--untracked-files=no']);
+
 export async function assertCleanTree() {
-	const { stdout } = await execa('git', ['status', '--porcelain', '--untracked-files=no']).catch((error) => {
+	const { stdout } = await gitStatusTracked().catch((error) => {
 		if (error.stderr.includes('not a git repository')) {
 			throw new Error('Not in a git repository');
 		}

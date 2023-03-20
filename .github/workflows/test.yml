@@ -14,6 +14,9 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v3
+      with:
+        ref: ${{ github.head_ref }}
+        repository: ${{ github.repository }} # For the tests to be able to publish current branch
 
     - name: Setup Node.js
       uses: actions/setup-node@v3
