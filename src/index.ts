@@ -101,14 +101,16 @@ const { stringify } = JSON;
 						]);
 					}
 
+					// Checkout the files tree from the previous branch
+					// This also applies any file deletions from the source branch
+					await execa('git', ['restore', '--source', currentBranch, ':/']);
+
 					// Remove all files from Git tree
+					// This unstages all files to so only the publish files will be staged later
 					await execa('git', ['rm', '--cached', '-r', ':/'], {
 						// Can fail if tree is empty: fatal: pathspec ':/' did not match any files
 						reject: false,
 					});
-
-					// Restore the files tree from the previous branch
-					await execa('git', ['restore', '--source', currentBranch, ':/']);
 				});
 
 				if (!dry) {
@@ -132,6 +134,7 @@ const { stringify } = JSON;
 					runHooks.clear();
 				}
 
+				// Move to commit
 				let publishFiles: string[];
 				const getPublishFiles = await task('Getting publish files', async ({ setWarning }) => {
 					if (dry) {
