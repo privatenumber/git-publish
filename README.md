@@ -41,7 +41,7 @@ Publish your npm package to a branch on the Git repository:
 npx git-publish
 ```
 
-> **⚠️ Warning:** This command will force-push to the remote branch `npm/<current branch>`. Make sure there are no unsaved changes there.
+This command will publish to the remote branch `npm/<current branch>`.
 
 
 ### Global install
@@ -61,6 +61,7 @@ git-publish
 | - | - |
 | `-b, --branch <branch name>` | The branch to publish the package to. Defaults to prefixing "npm/" to the current branch or tag name. |
 | `-r, --remote <remote>` | The remote to push to. (default: `origin`) |
+| `-f, --fresh` | Publish without a commit history. Warning: Force-pushes to remote |
 | `-d, --dry` | Dry run mode. Will not commit or push to the remote. |
 | `-h, --help` | Show help |
 | `--version` | Show version |
@@ -85,8 +86,8 @@ Like `npm publish`, you can call the build command it in the [`prepack` script](
 
 1. Run [npm  hooks](https://docs.npmjs.com/cli/v8/using-npm/scripts) `prepare` & `prepack`
 2. Create a temporary branch by prefixing the current branch with the `npm/` namespace
-3. Detect and commit the [npm publish files](https://github.com/npm/npm-packlist)
-4. Force push the branch to remote
+3. Detect and commit only the [npm publish files](https://github.com/npm/npm-packlist)
+4. Push the branch to remote
 5. Delete local branch from Step 2
 6. Print the installation command for the branch
 
