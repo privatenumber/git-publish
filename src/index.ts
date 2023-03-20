@@ -4,7 +4,7 @@ import task from 'tasuku';
 import { cli } from 'cleye';
 import packlist from 'npm-packlist';
 import { name, version, description } from '../package.json';
-import { assertCleanTree, getCurrentBranchOrTagName, readJson } from './utils';
+import { assertCleanTree, getCurrentBranchOrTagName, readJson, gitStatusTracked } from './utils';
 
 const { stringify } = JSON;
 
@@ -65,14 +65,41 @@ const { stringify } = JSON;
 			if (dry) {
 				setStatus('Dry run');
 			}
-
+			
 			const localTemporaryBranch = `git-publish/${publishBranch}-${Date.now()}`;
 			let success = false;
 
 			// In the try-finally block in case it modifies the working tree
 			// On failure, they will be reverted by the hard reset
 			try {
-				let publishFiles: string[] = [];
+				const checkoutBranch = await task('Checking out branch', async ({ setWarning, setTitle }) => {
+					if (dry) {
+						setWarning('');
+						return;
+					}
+
+					const gitFetch = await execa('git', ['fetch', remote, publishBranch], {
+						reject: false,
+					});
+
+					if (gitFetch.failed) {
+						await execa('git', ['checkout', '-b', localTemporaryBranch]);
+					} else {
+						await execa('git', ['checkout', '-b', localTemporaryBranch, remote + '/' + publishBranch]);
+					}
+
+					// Remove all files from Git
+					await execa('git', ['rm', '--cached', '-r', ':/'], {
+						reject: false, // Can fail if tree is empty: fatal: pathspec ':/' did not match any files
+					});
+
+					// Restore the files tree from the previous branch
+					await execa('git', ['restore', '--source', currentBranch, ':/']);
+				});
+
+				if (!dry) {
+					checkoutBranch.clear();
+				}
 
 				const runHooks = await task('Running hooks', async ({ setWarning, setTitle }) => {
 					if (dry) {
@@ -91,6 +118,7 @@ const { stringify } = JSON;
 					runHooks.clear();
 				}
 
+				let publishFiles: string[];
 				const getPublishFiles = await task('Getting publish files', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
@@ -161,22 +189,6 @@ const { stringify } = JSON;
 					removeHooks.clear();
 				}
 
-				const checkoutBranch = await task(`Checking out branch ${stringify(publishBranch)}`, async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					await execa('git', ['checkout', '--orphan', localTemporaryBranch]);
-
-					// Unstage all files
-					await execa('git', ['reset']);
-				});
-
-				if (!dry) {
-					checkoutBranch.clear();
-				}
-
 				const commit = await task('Commiting publish assets', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
@@ -184,7 +196,14 @@ const { stringify } = JSON;
 					}
 
 					await execa('git', ['add', '-f', ...publishFiles]);
-					await execa('git', ['commit', '--no-verify', '-m', `Published branch ${stringify(currentBranch)}`]);
+
+					const { stdout: trackedFiles } = await gitStatusTracked();
+					if (trackedFiles.length === 0) {
+						console.warn('⚠️  No new changes found to commit.');
+					} else {
+						// -a is passed in so it can stage deletions from `git restore`
+						await execa('git', ['commit', '--no-verify', '-am', `Published branch ${stringify(currentBranch)}`]);
+					}
 				});
 
 				if (!dry) {
@@ -192,15 +211,14 @@ const { stringify } = JSON;
 				}
 
 				const push = await task(
-					`Force pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
+					`Pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
 					async ({ setWarning }) => {
 						if (dry) {
 							setWarning('');
 							return;
 						}
 
-						await execa('git', ['push', '--no-verify', '-f', remote, `${localTemporaryBranch}:${publishBranch}`]);
-
+						await execa('git', ['push', '--no-verify', remote, `${localTemporaryBranch}:${publishBranch}`]);
 						success = true;
 					},
 				);
@@ -221,7 +239,9 @@ const { stringify } = JSON;
 					await execa('git', ['checkout', '-f', currentBranch]);
 
 					// Delete local branch
-					await execa('git', ['branch', '-D', localTemporaryBranch]);
+					await execa('git', ['branch', '-D', localTemporaryBranch], {
+						reject: false, // Ignore failures (e.g. in case it didin't even succeed to create this branch)
+					});
 				});
 
 				revertBranch.clear();
