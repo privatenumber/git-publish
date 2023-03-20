@@ -88,8 +88,8 @@ describe('git-publish', ({ describe, test }) => {
 	});
 
 	test('Publishes', async ({ onTestFail }) => {
-		await execa('git', ['config', 'user.name', 'GitHub Actions']);
-		await execa('git', ['config', 'user.email', '<>']);
+		// Requires git config author to be set
+		// This is set on the GitHub Action because locally, an author already exists
 
 		const gitPublishProcess = await execa(gitPublish, {
 			reject: false,
