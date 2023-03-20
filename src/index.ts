@@ -104,13 +104,6 @@ const { stringify } = JSON;
 					// Checkout the files tree from the previous branch
 					// This also applies any file deletions from the source branch
 					await execa('git', ['restore', '--source', currentBranch, ':/']);
-
-					// Remove all files from Git tree
-					// This unstages all files to so only the publish files will be staged later
-					await execa('git', ['rm', '--cached', '-r', ':/'], {
-						// Can fail if tree is empty: fatal: pathspec ':/' did not match any files
-						reject: false,
-					});
 				});
 
 				if (!dry) {
@@ -197,6 +190,13 @@ const { stringify } = JSON;
 					if (publishFiles.length === 0) {
 						throw new Error('No publish files found');
 					}
+
+					// Remove all files from Git tree
+					// This removes all files from the branch so only the publish files will be added
+					await execa('git', ['rm', '--cached', '-r', ':/'], {
+						// Can fail if tree is empty: fatal: pathspec ':/' did not match any files
+						reject: false,
+					});
 
 					await execa('git', ['add', '-f', ...publishFiles]);
 
