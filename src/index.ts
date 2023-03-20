@@ -80,14 +80,14 @@ const { stringify } = JSON;
 						return;
 					}
 
-					const gitFetch = await execa('git', ['fetch', remote, publishBranch], {
+					const gitFetch = await execa('git', ['fetch', '--depth=1', remote, `${publishBranch}:${localTemporaryBranch}`], {
 						reject: false,
 					});
 
 					if (gitFetch.failed) {
 						await execa('git', ['checkout', '-b', localTemporaryBranch]);
 					} else {
-						await execa('git', ['checkout', '-b', localTemporaryBranch, `${remote}/${publishBranch}`]);
+						await execa('git', ['checkout', localTemporaryBranch]);
 					}
 
 					// Remove all files from Git
