@@ -202,9 +202,9 @@ const { stringify } = JSON;
 
 					const { stdout: trackedFiles } = await gitStatusTracked();
 					if (trackedFiles.length === 0) {
-						await execa('ls', {
+						await execa('ls', [], {
 							stdout: 'inherit',
-						});
+						}).catch(() => {});
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
 						// -a is passed in so it can stage deletions from `git restore`
