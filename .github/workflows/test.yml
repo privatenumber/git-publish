@@ -12,36 +12,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-      with:
-        ref: ${{ github.head_ref }}
-        repository: ${{ github.repository }} # For the tests to be able to publish current branch
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}
+          repository: ${{ github.repository }} # For the tests to be able to publish current branch
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version-file: '.nvmrc'
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: .nvmrc
 
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v2.2.2
-      with:
-        version: 7
-        run_install: true
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2.2.2
+        with:
+          version: 7
+          run_install: true
 
-    - name: Lint
-      run: pnpm lint
+      - name: Lint
+        run: pnpm lint
 
-    - name: Type check
-      run: pnpm type-check
+      - name: Type check
+        run: pnpm type-check
 
-    - name: Setup Git # Only used by the last test
-      run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "<>"
+      - name: Setup Git # Only used by the last test
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "<>"
 
-    - name: Build
-      run: pnpm build
+      - name: Build
+        run: pnpm build
 
-    - name: Test
-      run: pnpm test
+      - name: Test
+        run: pnpm test

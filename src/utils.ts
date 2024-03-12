@@ -3,7 +3,7 @@ import { execa } from 'execa';
 
 export const gitStatusTracked = () => execa('git', ['status', '--porcelain', '--untracked-files=no']);
 
-export async function assertCleanTree() {
+export const assertCleanTree = async () => {
 	const { stdout } = await gitStatusTracked().catch((error) => {
 		if (error.stderr.includes('not a git repository')) {
 			throw new Error('Not in a git repository');
@@ -15,9 +15,9 @@ export async function assertCleanTree() {
 	if (stdout) {
 		throw new Error('Working tree is not clean');
 	}
-}
+};
 
-export async function getCurrentBranchOrTagName() {
+export const getCurrentBranchOrTagName = async () => {
 	/**
 	 * This commands supports older versions of Git, but since v2.22, you can do:
 	 * git branch --show-current
@@ -43,13 +43,13 @@ export async function getCurrentBranchOrTagName() {
 	}
 
 	throw new Error(`Failed to get current branch name: ${getBranch.stderr} ${getTag.stderr}`);
-}
+};
 
-export async function readJson(path: string) {
+export const readJson = async (path: string) => {
 	const jsonString = await fs.promises.readFile(path, 'utf8');
 	try {
 		return JSON.parse(jsonString);
 	} catch {
 		throw new Error(`Failed to parse JSON file: ${path}`);
 	}
-}
+};

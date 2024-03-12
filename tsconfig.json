@@ -1,12 +1,12 @@
 {
 	"compilerOptions": {
-		"isolatedModules": true,
-		"esModuleInterop": true,
+		"target": "ESNext",
 		"moduleResolution": "node",
 		"resolveJsonModule": true,
 		"strict": true,
 		"noEmit": true,
+		"esModuleInterop": true,
+		"isolatedModules": true,
 		"skipLibCheck": true,
-		"target": "ESNext",
 	},
 }
