@@ -86,9 +86,13 @@ describe('git-publish', ({ describe }) => {
 			console.log(process.env);
 			const gitPublishProcess = await gitPublish(fixture.path);
 
-			console.log('STDOUT', gitPublishProcess.stdout);
+			console.dir({
+				stdout: gitPublishProcess.stdout,
+			}, { colors: true, depth: null, maxArrayLength: null });
 
-			console.log('STDERR', gitPublishProcess.stderr);
+			console.dir({
+				stderr: gitPublishProcess.stderr,
+			}, { colors: true, depth: null, maxArrayLength: null });
 			console.log('=====');
 			// onTestFail(() => {
 			// 	console.log(gitPublishProcess.all);
