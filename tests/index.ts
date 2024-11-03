@@ -1,23 +1,9 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { execa } from 'execa';
 import { describe, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { createGit } from './utils/create-git.js';
-
-const gitPublishPath = path.resolve('./dist/index.js');
-
-const gitPublish = (
-	cwd: string,
-) => execa(gitPublishPath, {
-	cwd,
-	reject: false,
-	// Remove CI env var which prevents Ink from rendering
-	env: {
-		PATH: process.env.PATH,
-	},
-	extendEnv: false,
-});
+import { gitPublish } from './utils/git-publish.js';
 
 describe('git-publish', ({ describe, test }) => {
 	describe('Error cases', ({ test }) => {
