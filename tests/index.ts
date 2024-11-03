@@ -80,6 +80,7 @@ describe('git-publish', ({ describe }) => {
 		// await git('remote', ['add', 'origin', originRemote]);
 
 		await test('Publishes', async ({ onTestFail }) => {
+			console.log(process.env);
 			const gitPublishProcess = await gitPublish(fixture.path);
 
 			console.log('STDOUT', gitPublishProcess.stdout);
