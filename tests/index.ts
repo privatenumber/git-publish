@@ -65,7 +65,7 @@ describe('git-publish', ({ describe }) => {
 				|| path.basename(cpPath) === 'dist'
 			),
 		});
-		
+
 		await fs.symlink(path.resolve('node_modules'), fixture.getPath('node_modules'), 'dir');
 
 		console.log(fixture.path);
@@ -83,7 +83,7 @@ describe('git-publish', ({ describe }) => {
 		const { stdout: originRemote } = await execa('git', ['remote', 'get-url', 'origin']);
 		await git('remote', ['add', 'origin', originRemote]);
 
-		await test('Publishes', async ({ onTestFail }) => {			
+		await test('Publishes', async ({ onTestFail }) => {
 			const gitPublishProcess = await gitPublish(fixture.path);
 
 			console.log(gitPublishProcess);
