@@ -84,6 +84,7 @@ describe('git-publish', ({ describe }) => {
 			const gitPublishProcess = await gitPublish(fixture.path);
 
 			console.log(gitPublishProcess.all);
+			console.log('=====');
 			// onTestFail(() => {
 			// 	console.log(gitPublishProcess.all);
 			// });

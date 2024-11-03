@@ -196,6 +196,9 @@ const { stringify } = JSON;
 					}
 
 					const publishFiles = await packlist();
+					console.log({
+						publishFiles,
+					});
 					if (publishFiles.length === 0) {
 						throw new Error('No publish files found');
 					}
@@ -210,6 +213,7 @@ const { stringify } = JSON;
 					await execa('git', ['add', '-f', ...publishFiles]);
 
 					const { stdout: trackedFiles } = await gitStatusTracked();
+					console.log({ trackedFiles });
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
