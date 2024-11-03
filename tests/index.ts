@@ -12,7 +12,6 @@ const gitPublish = (
 ) => execa(gitPublishPath, {
 	cwd,
 	reject: false,
-	all: true,
 });
 
 describe('git-publish', ({ describe }) => {
@@ -83,9 +82,10 @@ describe('git-publish', ({ describe }) => {
 		await test('Publishes', async ({ onTestFail }) => {
 			const gitPublishProcess = await gitPublish(fixture.path);
 
-			console.log(gitPublishProcess.all);
+			console.log('STDOUT', gitPublishProcess.stdout);
+
+			console.log('STDERR', gitPublishProcess.stderr);
 			console.log('=====');
-			console.log(gitPublishProcess);
 			// onTestFail(() => {
 			// 	console.log(gitPublishProcess.all);
 			// });
