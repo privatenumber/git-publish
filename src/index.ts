@@ -79,8 +79,10 @@ const { stringify } = JSON;
 			let success = false;
 
 			// Validate remote exists
+			let remoteUrl;
 			try {
-				await execa('git', ['remote', 'get-url', remote]);
+				const getRemoteUrl = await execa('git', ['remote', 'get-url', remote]);
+				remoteUrl = getRemoteUrl.stdout.trim();
 			} catch {
 				throw new Error(`Git remote ${stringify(remote)} does not exist`);
 			}
@@ -271,14 +273,6 @@ const { stringify } = JSON;
 			}
 
 			if (success) {
-				let remoteUrl = remote;
-
-				// If the "remote" flag contains an alias, resolve it to a URL
-				try {
-					const { stdout } = await execa('git', ['remote', 'get-url', remoteUrl]);
-					remoteUrl = stdout.trim();
-				} catch {}
-
 				const parsedGitUrl = remoteUrl.match(/github\.com:(.+)\.git$/);
 
 				if (parsedGitUrl) {

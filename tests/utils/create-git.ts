@@ -29,7 +29,7 @@ export const createGit = async (
 				// In case of different default branch name
 				'--initial-branch=master',
 			],
-		);	
+		);
 	}
 
 	await git('config', ['user.name', 'name']);
