@@ -12,6 +12,9 @@ const gitPublish = (
 ) => execa(gitPublishPath, {
 	cwd,
 	reject: false,
+	env: {
+		FORCE_COLOR: 'true',
+	}
 });
 
 describe('git-publish', ({ describe }) => {
