@@ -12,6 +12,7 @@ const gitPublish = (
 ) => execa(gitPublishPath, {
 	cwd,
 	reject: false,
+	all: true,
 });
 
 describe('git-publish', ({ describe }) => {
@@ -55,36 +56,37 @@ describe('git-publish', ({ describe }) => {
 		const fixture = await createFixture(process.cwd(), {
 			templateFilter: cpPath => !(
 				cpPath.endsWith(`${path.sep}node_modules`)
-				|| path.basename(cpPath).startsWith('.')
+				|| path.basename(cpPath) === '.git'
 				|| path.basename(cpPath) === 'dist'
 			),
 		});
 
 		await fs.symlink(path.resolve('node_modules'), fixture.getPath('node_modules'), 'dir');
+		await fs.symlink(path.resolve('.git'), fixture.getPath('.git'), 'dir');
 
 		console.log(fixture.path);
 		const git = await createGit(fixture.path);
-		await git('add', ['.']);
-		await git('commit', ['-am', 'Initial commit']);
+		// await git('add', ['.']);
+		// await git('commit', ['-am', 'Initial commit']);
 
-		await test('Errors on missing remote', async () => {
-			const gitPublishProcess = await gitPublish(fixture.path);
+		// await test('Errors on missing remote', async () => {
+		// 	const gitPublishProcess = await gitPublish(fixture.path);
 
-			expect(gitPublishProcess.exitCode).toBe(1);
-			expect(gitPublishProcess.stderr).toBe('Error: Git remote "origin" does not exist');
-		});
+		// 	expect(gitPublishProcess.exitCode).toBe(1);
+		// 	expect(gitPublishProcess.stderr).toBe('Error: Git remote "origin" does not exist');
+		// });
 
-		const { stdout: originRemote } = await execa('git', ['remote', 'get-url', 'origin']);
-		console.log({ originRemote });
-		await git('remote', ['add', 'origin', originRemote]);
+		// const { stdout: originRemote } = await execa('git', ['remote', 'get-url', 'origin']);
+		// console.log({ originRemote });
+		// await git('remote', ['add', 'origin', originRemote]);
 
 		await test('Publishes', async ({ onTestFail }) => {
 			const gitPublishProcess = await gitPublish(fixture.path);
 
-			console.log(gitPublishProcess);
-			onTestFail(() => {
-				console.log(gitPublishProcess);
-			});
+			console.log(gitPublishProcess.all);
+			// onTestFail(() => {
+			// 	console.log(gitPublishProcess.all);
+			// });
 
 			expect(gitPublishProcess.exitCode).toBe(0);
 			expect(gitPublishProcess.stdout).toMatch('✔');

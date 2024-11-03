@@ -1,3 +1,5 @@
+import path from 'node:path';
+import fs from 'node:fs/promises';
 import { execa, type Options } from 'execa';
 
 export const createGit = async (
@@ -18,13 +20,17 @@ export const createGit = async (
 		)
 	);
 
-	await git(
-		'init',
-		[
-			// In case of different default branch name
-			'--initial-branch=master',
-		],
-	);
+	const gitExists = await fs.access(path.join(cwd, '.git')).then(() => true, () => false);
+
+	if (!gitExists) {
+		await git(
+			'init',
+			[
+				// In case of different default branch name
+				'--initial-branch=master',
+			],
+		);	
+	}
 
 	await git('config', ['user.name', 'name']);
 	await git('config', ['user.email', 'email']);
