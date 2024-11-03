@@ -13,9 +13,9 @@ const gitPublish = (
 	cwd,
 	reject: false,
 	env: {
-		FORCE_COLOR: 'true',
-		CI: '0'
+		PATH: process.env.PATH,
 	},
+	extendEnv: false,
 });
 
 describe('git-publish', ({ describe }) => {
