@@ -84,8 +84,12 @@ describe('git-publish', ({ describe }) => {
 				reject: false,
 			});
 
-			onTestFail(() => {
+			onTestFail(async () => {
 				console.log(gitPublishProcess);
+				const ls = await execa('ls', ['-R'], {
+					cwd: fixture.path,
+				});
+				console.log(ls);
 			});
 
 			expect(gitPublishProcess.exitCode).toBe(0);
