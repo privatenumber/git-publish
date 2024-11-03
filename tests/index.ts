@@ -14,6 +14,7 @@ const gitPublish = (
 	reject: false,
 	env: {
 		FORCE_COLOR: 'true',
+		CI: '1'
 	}
 });
 
