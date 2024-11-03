@@ -57,7 +57,7 @@ describe('git-publish', ({ describe, test }) => {
 		const gitPublishProcess = await gitPublish(fixture.path);
 
 		onTestFail(() => {
-			console.log(gitPublishProcess.all);
+			console.log(gitPublishProcess);
 		});
 
 		expect(gitPublishProcess.exitCode).toBe(0);
