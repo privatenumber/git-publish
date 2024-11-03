@@ -200,6 +200,8 @@ const { stringify } = JSON;
 						throw new Error('No publish files found');
 					}
 
+					console.log({ publishFiles });
+
 					// Remove all files from Git tree
 					// This removes all files from the branch so only the publish files will be added
 					await execa('git', ['rm', '--cached', '-r', ':/'], {
@@ -210,6 +212,7 @@ const { stringify } = JSON;
 					await execa('git', ['add', '-f', ...publishFiles]);
 
 					const { stdout: trackedFiles } = await gitStatusTracked();
+					console.log({ trackedFiles });
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
