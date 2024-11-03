@@ -7,17 +7,11 @@ import { createGit } from './utils/create-git.js';
 
 const gitPublishPath = path.resolve('./dist/index.js');
 
-// Remove node_modules/.bin from PATH added by pnpm
-// const PATH = process.env.PATH?.split(':').filter(p => !p.includes('node_modules/.bin')).join(':');
-
 const gitPublish = (
 	cwd: string,
 ) => execa(gitPublishPath, {
 	cwd,
 	reject: false,
-	// env: {
-	// 	PATH,
-	// },
 });
 
 describe('git-publish', ({ describe }) => {
@@ -81,6 +75,7 @@ describe('git-publish', ({ describe }) => {
 		});
 
 		const { stdout: originRemote } = await execa('git', ['remote', 'get-url', 'origin']);
+		console.log({ originRemote });
 		await git('remote', ['add', 'origin', originRemote]);
 
 		await test('Publishes', async ({ onTestFail }) => {
