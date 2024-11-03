@@ -78,6 +78,13 @@ const { stringify } = JSON;
 			const localTemporaryBranch = `git-publish/${publishBranch}-${Date.now()}`;
 			let success = false;
 
+			// Validate remote exists
+			try {
+				await execa('git', ['remote', 'get-url', remote]);
+			} catch {
+				throw new Error(`Git remote ${stringify(remote)} does not exist`);
+			}
+
 			// In the try-finally block in case it modifies the working tree
 			// On failure, they will be reverted by the hard reset
 			try {

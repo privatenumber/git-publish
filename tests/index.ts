@@ -1,44 +1,15 @@
-import path from 'path';
-import { execa, type Options } from 'execa';
+import path from 'node:path';
+import { execa } from 'execa';
 import { describe, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
+import { createGit } from './utils/create-git.js';
 
 const gitPublish = path.resolve('./dist/index.js');
 
-const createGit = async (cwd: string) => {
-	const git = (
-		command: string,
-		args?: string[],
-		options?: Options,
-	) => (
-		execa(
-			'git',
-			[command, ...(args || [])],
-			{
-				cwd,
-				...options,
-			},
-		)
-	);
-
-	await git(
-		'init',
-		[
-			// In case of different default branch name
-			'--initial-branch=master',
-		],
-	);
-
-	await git('config', ['user.name', 'name']);
-	await git('config', ['user.email', 'email']);
-
-	return git;
-};
-
-describe('git-publish', ({ describe, test }) => {
+describe('git-publish', ({ describe }) => {
 	describe('Error cases', ({ test }) => {
 		test('Fails if not in git repository', async () => {
-			const fixture = await createFixture();
+			await using fixture = await createFixture();
 
 			const gitPublishProcess = await execa(gitPublish, {
 				cwd: fixture.path,
@@ -47,12 +18,10 @@ describe('git-publish', ({ describe, test }) => {
 
 			expect(gitPublishProcess.exitCode).toBe(1);
 			expect(gitPublishProcess.stderr).toBe('Error: Not in a git repository');
-
-			await fixture.rm();
 		});
 
 		test('Fails if no package.json found', async () => {
-			const fixture = await createFixture();
+			await using fixture = await createFixture();
 
 			await createGit(fixture.path);
 
@@ -63,12 +32,10 @@ describe('git-publish', ({ describe, test }) => {
 
 			expect(gitPublishProcess.exitCode).toBe(1);
 			expect(gitPublishProcess.stderr).toBe('Error: No package.json found in current working directory');
-
-			await fixture.rm();
 		});
 
 		test('Dirty working tree', async () => {
-			const fixture = await createFixture({
+			await using fixture = await createFixture({
 				'package.json': '{}',
 			});
 
@@ -82,24 +49,47 @@ describe('git-publish', ({ describe, test }) => {
 
 			expect(gitPublishProcess.exitCode).toBe(1);
 			expect(gitPublishProcess.stderr).toBe('Error: Working tree is not clean');
-
-			await fixture.rm();
 		});
 	});
 
-	test('Publishes', async ({ onTestFail }) => {
-		// Requires git config author to be set
-		// This is set on the GitHub Action because locally, an author already exists
-
-		const gitPublishProcess = await execa(gitPublish, {
-			reject: false,
+	describe('Current project', async ({ test }) => {
+		await using fixture = await createFixture(process.cwd(), {
+			templateFilter: cpPath => !(
+				cpPath.endsWith(`${path.sep}node_modules`)
+				|| path.basename(cpPath).startsWith('.')
+				|| path.basename(cpPath) === 'dist'
+			),
 		});
 
-		onTestFail(() => {
-			console.log(gitPublishProcess);
+		const git = await createGit(fixture.path);
+		await git('add', ['.']);
+		await git('commit', ['-am', 'Initial commit']);
+
+		await test('Errors on missing remote', async () => {
+			const gitPublishProcess = await execa(gitPublish, {
+				cwd: fixture.path,
+				reject: false,
+			});
+
+			expect(gitPublishProcess.exitCode).toBe(1);
+			expect(gitPublishProcess.stderr).toBe('Error: Git remote "origin" does not exist');
 		});
 
-		expect(gitPublishProcess.exitCode).toBe(0);
-		expect(gitPublishProcess.stdout).toMatch('✔');
+		const { stdout: originRemote } = await execa('git', ['remote', 'get-url', 'origin']);
+		await git('remote', ['add', 'origin', originRemote]);
+
+		await test('Publishes', async ({ onTestFail }) => {
+			const gitPublishProcess = await execa(gitPublish, {
+				cwd: fixture.path,
+				reject: false,
+			});
+
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			expect(gitPublishProcess.exitCode).toBe(0);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+		});
 	});
 });

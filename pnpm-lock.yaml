@@ -28,8 +28,8 @@ importers:
         specifier: ^8.0.1
         version: 8.0.1
       fs-fixture:
-        specifier: ^2.5.0
-        version: 2.5.0
+        specifier: ^2.6.0
+        version: 2.6.0
       lintroll:
         specifier: ^1.10.0
         version: 1.10.0(eslint-plugin-import@2.29.1(@typescript-eslint/parser@8.12.2(eslint@9.14.0)(typescript@5.6.3))(eslint@9.14.0))(typescript@5.6.3)
@@ -1213,8 +1213,8 @@ packages:
     resolution: {integrity: sha512-Ld2g8rrAyMYFXBhEqMz8ZAHBi4J4uS1i/CxGMDnjyFWddMXLVcDp051DZfu+t7+ab7Wv6SMqpWmyFIj5UbfFvg==}
     engines: {node: '>=14'}
 
-  fs-fixture@2.5.0:
-    resolution: {integrity: sha512-AzCSCaChZORdNcSa9w9IBnGWhDP2Bv/lOso0P9mAl5nJw2s7pjSEoDaHtzZ9VGIHQlSXR2fuTPO7ln1dM4HTNQ==}
+  fs-fixture@2.6.0:
+    resolution: {integrity: sha512-XQNHBGYgth08BSgThjQNrUuzE9XUmr7CDgGFStKaAeB9Oq+kxUHd1zS6hp1YO11B501Sjv9Jq+B2VFn+CdwmIg==}
     engines: {node: '>=18.0.0'}
 
   fs.realpath@1.0.0:
@@ -3658,7 +3658,7 @@ snapshots:
       cross-spawn: 7.0.3
       signal-exit: 4.1.0
 
-  fs-fixture@2.5.0: {}
+  fs-fixture@2.6.0: {}
 
   fs.realpath@1.0.0: {}
 
