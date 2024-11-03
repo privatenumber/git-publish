@@ -238,13 +238,14 @@ const { stringify } = JSON;
 
 						console.log('pushing...');
 						try {
-							await execa('git', [
+							const asdf = await execa('git', [
 								'push',
 								...(fresh ? ['--force'] : []),
 								'--no-verify',
 								remote,
 								`${localTemporaryBranch}:${publishBranch}`,
 							]);
+							console.log(asdf);
 						}
 						catch (error) {
 							console.log('ERROR', error);
