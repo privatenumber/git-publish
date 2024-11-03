@@ -124,10 +124,12 @@ const { stringify } = JSON;
 					}
 
 					setTitle('Running hook "prepare"');
-					await execa('npm', ['run', '--if-present', 'prepare']);
+					const a = await execa('npm', ['run', '--if-present', 'prepare']);
+					console.log('a', a);
 
 					setTitle('Running hook "prepack"');
-					await execa('npm', ['run', '--if-present', 'prepack']);
+					const b = await execa('npm', ['run', '--if-present', 'prepack']);
+					console.log('b', b);
 				});
 
 				if (!dry) {
