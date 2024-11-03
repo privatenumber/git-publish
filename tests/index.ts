@@ -1,99 +1,60 @@
-import path from 'path';
-import { execa, type Options } from 'execa';
+import path from 'node:path';
+import fs from 'node:fs/promises';
 import { describe, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
-
-const gitPublish = path.resolve('./dist/index.js');
-
-const createGit = async (cwd: string) => {
-	const git = (
-		command: string,
-		args?: string[],
-		options?: Options,
-	) => (
-		execa(
-			'git',
-			[command, ...(args || [])],
-			{
-				cwd,
-				...options,
-			},
-		)
-	);
-
-	await git(
-		'init',
-		[
-			// In case of different default branch name
-			'--initial-branch=master',
-		],
-	);
-
-	await git('config', ['user.name', 'name']);
-	await git('config', ['user.email', 'email']);
-
-	return git;
-};
+import { createGit } from './utils/create-git.js';
+import { gitPublish } from './utils/git-publish.js';
 
 describe('git-publish', ({ describe, test }) => {
 	describe('Error cases', ({ test }) => {
 		test('Fails if not in git repository', async () => {
-			const fixture = await createFixture();
+			await using fixture = await createFixture();
 
-			const gitPublishProcess = await execa(gitPublish, {
-				cwd: fixture.path,
-				reject: false,
-			});
+			const gitPublishProcess = await gitPublish(fixture.path);
 
 			expect(gitPublishProcess.exitCode).toBe(1);
 			expect(gitPublishProcess.stderr).toBe('Error: Not in a git repository');
-
-			await fixture.rm();
 		});
 
 		test('Fails if no package.json found', async () => {
-			const fixture = await createFixture();
+			await using fixture = await createFixture();
 
 			await createGit(fixture.path);
 
-			const gitPublishProcess = await execa(gitPublish, {
-				cwd: fixture.path,
-				reject: false,
-			});
+			const gitPublishProcess = await gitPublish(fixture.path);
 
 			expect(gitPublishProcess.exitCode).toBe(1);
 			expect(gitPublishProcess.stderr).toBe('Error: No package.json found in current working directory');
-
-			await fixture.rm();
 		});
 
 		test('Dirty working tree', async () => {
-			const fixture = await createFixture({
+			await using fixture = await createFixture({
 				'package.json': '{}',
 			});
 
 			const git = await createGit(fixture.path);
 			await git('add', ['package.json']);
 
-			const gitPublishProcess = await execa(gitPublish, {
-				cwd: fixture.path,
-				reject: false,
-			});
+			const gitPublishProcess = await gitPublish(fixture.path);
 
 			expect(gitPublishProcess.exitCode).toBe(1);
 			expect(gitPublishProcess.stderr).toBe('Error: Working tree is not clean');
-
-			await fixture.rm();
 		});
 	});
 
 	test('Publishes', async ({ onTestFail }) => {
-		// Requires git config author to be set
-		// This is set on the GitHub Action because locally, an author already exists
-
-		const gitPublishProcess = await execa(gitPublish, {
-			reject: false,
+		const fixture = await createFixture(process.cwd(), {
+			templateFilter: cpPath => !(
+				cpPath.endsWith(`${path.sep}node_modules`)
+				|| path.basename(cpPath) === '.git'
+				|| path.basename(cpPath) === 'dist'
+			),
 		});
+
+		await fs.symlink(path.resolve('node_modules'), fixture.getPath('node_modules'), 'dir');
+		await fs.symlink(path.resolve('.git'), fixture.getPath('.git'), 'dir');
+
+		const gitPublishProcess = await gitPublish(fixture.path);
 
 		onTestFail(() => {
 			console.log(gitPublishProcess);

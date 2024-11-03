@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [master, develop]
 
+permissions:
+  contents: write
+
 jobs:
   test:
     name: Test
@@ -33,11 +36,6 @@ jobs:
 
       - name: Type check
         run: pnpm type-check
-
-      - name: Setup Git # Only used by the last test
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "<>"
 
       - name: Build
         run: pnpm build

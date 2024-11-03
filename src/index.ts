@@ -78,6 +78,15 @@ const { stringify } = JSON;
 			const localTemporaryBranch = `git-publish/${publishBranch}-${Date.now()}`;
 			let success = false;
 
+			// Validate remote exists
+			let remoteUrl;
+			try {
+				const getRemoteUrl = await execa('git', ['remote', 'get-url', remote]);
+				remoteUrl = getRemoteUrl.stdout.trim();
+			} catch {
+				throw new Error(`Git remote ${stringify(remote)} does not exist`);
+			}
+
 			// In the try-finally block in case it modifies the working tree
 			// On failure, they will be reverted by the hard reset
 			try {
@@ -258,14 +267,6 @@ const { stringify } = JSON;
 			}
 
 			if (success) {
-				let remoteUrl = remote;
-
-				// If the "remote" flag contains an alias, resolve it to a URL
-				try {
-					const { stdout } = await execa('git', ['remote', 'get-url', remoteUrl]);
-					remoteUrl = stdout.trim();
-				} catch {}
-
 				const parsedGitUrl = remoteUrl.match(/github\.com:(.+)\.git$/);
 
 				if (parsedGitUrl) {
