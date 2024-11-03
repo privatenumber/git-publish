@@ -126,12 +126,10 @@ const { stringify } = JSON;
 					}
 
 					setTitle('Running hook "prepare"');
-					const a = await execa('npm', ['run', '--if-present', 'prepare']);
-					console.log('a', a);
+					await execa('npm', ['run', '--if-present', 'prepare']);
 
 					setTitle('Running hook "prepack"');
-					const b = await execa('npm', ['run', '--if-present', 'prepack']);
-					console.log('b', b);
+					await execa('npm', ['run', '--if-present', 'prepack']);
 				});
 
 				if (!dry) {
@@ -198,9 +196,6 @@ const { stringify } = JSON;
 					}
 
 					const publishFiles = await packlist();
-					console.log({
-						publishFiles,
-					});
 					if (publishFiles.length === 0) {
 						throw new Error('No publish files found');
 					}
@@ -215,7 +210,6 @@ const { stringify } = JSON;
 					await execa('git', ['add', '-f', ...publishFiles]);
 
 					const { stdout: trackedFiles } = await gitStatusTracked();
-					console.log({ trackedFiles });
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
@@ -236,21 +230,13 @@ const { stringify } = JSON;
 							return;
 						}
 
-						console.log('pushing...');
-						try {
-							const asdf = await execa('git', [
-								'push',
-								...(fresh ? ['--force'] : []),
-								'--no-verify',
-								remote,
-								`${localTemporaryBranch}:${publishBranch}`,
-							]);
-							console.log(asdf);
-						}
-						catch (error) {
-							console.log('ERROR', error);
-							throw error;
-						}
+						await execa('git', [
+							'push',
+							...(fresh ? ['--force'] : []),
+							'--no-verify',
+							remote,
+							`${localTemporaryBranch}:${publishBranch}`,
+						]);
 						success = true;
 					},
 				);
@@ -259,7 +245,6 @@ const { stringify } = JSON;
 					push.clear();
 				}
 			} finally {
-				console.log('reverting...');
 				const revertBranch = await task(`Switching branch back to ${stringify(currentBranch)}`, async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');

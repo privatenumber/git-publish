@@ -12,13 +12,14 @@ const gitPublish = (
 ) => execa(gitPublishPath, {
 	cwd,
 	reject: false,
+	// Remove CI env var which prevents Ink from rendering
 	env: {
 		PATH: process.env.PATH,
 	},
 	extendEnv: false,
 });
 
-describe('git-publish', ({ describe }) => {
+describe('git-publish', ({ describe, test }) => {
 	describe('Error cases', ({ test }) => {
 		test('Fails if not in git repository', async () => {
 			await using fixture = await createFixture();
@@ -55,7 +56,7 @@ describe('git-publish', ({ describe }) => {
 		});
 	});
 
-	describe('Current project', async ({ test }) => {
+	test('Publishes', async ({ onTestFail }) => {
 		const fixture = await createFixture(process.cwd(), {
 			templateFilter: cpPath => !(
 				cpPath.endsWith(`${path.sep}node_modules`)
@@ -67,40 +68,13 @@ describe('git-publish', ({ describe }) => {
 		await fs.symlink(path.resolve('node_modules'), fixture.getPath('node_modules'), 'dir');
 		await fs.symlink(path.resolve('.git'), fixture.getPath('.git'), 'dir');
 
-		console.log(fixture.path);
-		const git = await createGit(fixture.path);
-		// await git('add', ['.']);
-		// await git('commit', ['-am', 'Initial commit']);
+		const gitPublishProcess = await gitPublish(fixture.path);
 
-		// await test('Errors on missing remote', async () => {
-		// 	const gitPublishProcess = await gitPublish(fixture.path);
-
-		// 	expect(gitPublishProcess.exitCode).toBe(1);
-		// 	expect(gitPublishProcess.stderr).toBe('Error: Git remote "origin" does not exist');
-		// });
-
-		// const { stdout: originRemote } = await execa('git', ['remote', 'get-url', 'origin']);
-		// console.log({ originRemote });
-		// await git('remote', ['add', 'origin', originRemote]);
-
-		await test('Publishes', async ({ onTestFail }) => {
-			console.log(process.env);
-			const gitPublishProcess = await gitPublish(fixture.path);
-
-			console.dir({
-				stdout: gitPublishProcess.stdout,
-			}, { colors: true, depth: null, maxArrayLength: null });
-
-			console.dir({
-				stderr: gitPublishProcess.stderr,
-			}, { colors: true, depth: null, maxArrayLength: null });
-			console.log('=====');
-			// onTestFail(() => {
-			// 	console.log(gitPublishProcess.all);
-			// });
-
-			expect(gitPublishProcess.exitCode).toBe(0);
-			expect(gitPublishProcess.stdout).toMatch('✔');
+		onTestFail(() => {
+			console.log(gitPublishProcess.all);
 		});
+
+		expect(gitPublishProcess.exitCode).toBe(0);
+		expect(gitPublishProcess.stdout).toMatch('✔');
 	});
 });
