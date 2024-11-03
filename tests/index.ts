@@ -61,6 +61,7 @@ describe('git-publish', ({ describe }) => {
 		});
 
 		await fs.symlink(path.resolve('node_modules'), fixture.getPath('node_modules'), 'dir');
+		await fs.symlink(path.resolve('.git'), fixture.getPath('.git'), 'dir');
 
 		console.log(fixture.path);
 		const git = await createGit(fixture.path);
