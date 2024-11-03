@@ -14,8 +14,8 @@ const gitPublish = (
 	reject: false,
 	env: {
 		FORCE_COLOR: 'true',
-		CI: '1'
-	}
+		CI: '0'
+	},
 });
 
 describe('git-publish', ({ describe }) => {
