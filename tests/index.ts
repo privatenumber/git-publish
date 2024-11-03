@@ -85,6 +85,7 @@ describe('git-publish', ({ describe }) => {
 
 			console.log(gitPublishProcess.all);
 			console.log('=====');
+			console.log(gitPublishProcess);
 			// onTestFail(() => {
 			// 	console.log(gitPublishProcess.all);
 			// });
