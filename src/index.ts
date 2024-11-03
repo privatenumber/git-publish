@@ -236,13 +236,20 @@ const { stringify } = JSON;
 							return;
 						}
 
-						await execa('git', [
-							'push',
-							...(fresh ? ['--force'] : []),
-							'--no-verify',
-							remote,
-							`${localTemporaryBranch}:${publishBranch}`,
-						]);
+						console.log('pushing...');
+						try {
+							await execa('git', [
+								'push',
+								...(fresh ? ['--force'] : []),
+								'--no-verify',
+								remote,
+								`${localTemporaryBranch}:${publishBranch}`,
+							]);
+						}
+						catch (error) {
+							console.log('ERROR', error);
+							throw error;
+						}
 						success = true;
 					},
 				);
@@ -251,6 +258,7 @@ const { stringify } = JSON;
 					push.clear();
 				}
 			} finally {
+				console.log('reverting...');
 				const revertBranch = await task(`Switching branch back to ${stringify(currentBranch)}`, async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
