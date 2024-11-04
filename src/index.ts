@@ -1,12 +1,14 @@
-import fs from 'fs';
+import fs from 'node:fs/promises';
 import { execa } from 'execa';
 import task from 'tasuku';
 import { cli } from 'cleye';
-import packlist from 'npm-packlist';
+import type { PackageJson } from '@npmcli/package-json';
 import { name, version, description } from '../package.json';
 import {
-	assertCleanTree, getCurrentBranchOrTagName, readJson, gitStatusTracked,
-} from './utils';
+	assertCleanTree, getCurrentBranchOrTagName, gitStatusTracked,
+} from './utils/git.js';
+import { getNpmPacklist } from './utils/npm-packlist.js';
+import { readJson } from './utils/read-json.js';
 
 const { stringify } = JSON;
 
@@ -55,7 +57,7 @@ const { stringify } = JSON;
 	const currentBranch = await getCurrentBranchOrTagName();
 	const packageJsonPath = 'package.json';
 
-	await fs.promises.access(packageJsonPath).catch(() => {
+	await fs.access(packageJsonPath).catch(() => {
 		throw new Error('No package.json found in current working directory');
 	});
 
@@ -136,6 +138,7 @@ const { stringify } = JSON;
 					runHooks.clear();
 				}
 
+				const packageJson = await readJson(packageJsonPath) as PackageJson;
 				const removeHooks = await task('Removing "prepare" & "prepack" hooks', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
@@ -143,12 +146,15 @@ const { stringify } = JSON;
 					}
 
 					// Re-read incase hooks modified the package.json
-					const packageJson = await readJson(packageJsonPath);
 					if (!('scripts' in packageJson)) {
 						return;
 					}
 
 					const { scripts } = packageJson;
+					if (!scripts) {
+						return;
+					}
+
 					let mutated = false;
 
 					/**
@@ -178,7 +184,7 @@ const { stringify } = JSON;
 					}
 
 					if (mutated) {
-						await fs.promises.writeFile(
+						await fs.writeFile(
 							packageJsonPath,
 							stringify(packageJson, null, 2),
 						);
@@ -195,7 +201,10 @@ const { stringify } = JSON;
 						return;
 					}
 
-					const publishFiles = await packlist();
+					const publishFiles = await getNpmPacklist(
+						process.cwd(),
+						packageJson,
+					);
 					if (publishFiles.length === 0) {
 						throw new Error('No publish files found');
 					}
