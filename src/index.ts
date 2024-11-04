@@ -109,16 +109,23 @@ const { stringify } = JSON;
 					} else {
 						const gitFetch = await spawn('git', ['fetch', '--depth=1', remote, `${publishBranch}:${localTemporaryBranch}`]).catch(error => error as SubprocessError);
 
-						await spawn('git', [
-							'checkout',
-							...('exitCode' in gitFetch ? ['-b'] : []),
-							localTemporaryBranch,
-						]);
+						// If the branch does not exist, create a new one
+						if ('exitCode' in gitFetch) {
+							await spawn('git', [
+								'checkout',
+								'-b',
+								localTemporaryBranch,
+							]);
+						} else {
+							// Point HEAD to localTemporaryBranch without changing the working directory files
+							// This sets HEAD to the specified branch but doesn't check out its content
+							await spawn('git', [
+								'symbolic-ref',
+								'HEAD',
+								`refs/heads/${localTemporaryBranch}`,
+							]);
+						}
 					}
-
-					// Checkout the files tree from the previous branch
-					// This also applies any file deletions from the source branch
-					await spawn('git', ['restore', '--source', currentBranch, ':/']);
 				});
 
 				if (!dry) {
