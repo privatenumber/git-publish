@@ -124,6 +124,14 @@ const { stringify } = JSON;
 								'HEAD',
 								`refs/heads/${localTemporaryBranch}`,
 							]);
+
+							// Remove all files from the tree but keeps them on disk
+							await spawn('git', [
+								'rm',
+								'-r',
+								'--cached',
+								'.',
+							]);
 						}
 					}
 				});
