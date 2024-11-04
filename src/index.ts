@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import { promisify } from 'node:util';
+import childProcess from 'node:child_process';
 import spawn, { type SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
@@ -13,6 +15,8 @@ import {
 import { getNpmPacklist } from './utils/npm-packlist.js';
 import { readJson } from './utils/read-json.js';
 import { detectPackageManager } from './utils/detect-package-manager.js';
+
+const exec = promisify(childProcess.exec);
 
 const { stringify } = JSON;
 
@@ -48,6 +52,15 @@ const { stringify } = JSON;
 				type: Boolean,
 				alias: 'd',
 				description: 'Dry run mode. Will not commit or push to the remote.',
+			},
+
+			prepare: {
+				type: String,
+				description: 'Custom "prepare" hook to run in addition to package.json#script.prepare',
+			},
+			prepack: {
+				type: String,
+				description: 'Custom "prepack" hook to run in addition to package.json#script.prepack',
 			},
 		},
 
@@ -131,11 +144,19 @@ const { stringify } = JSON;
 						return;
 					}
 
+					const { prepare, prepack } = argv.flags;
+
 					setTitle('Running hook "prepare"');
 					await spawn('npm', ['run', '--if-present', 'prepare']);
+					if (prepare) {
+						await exec(prepare);
+					}
 
 					setTitle('Running hook "prepack"');
 					await spawn('npm', ['run', '--if-present', 'prepack']);
+					if (prepack) {
+						await exec(prepack);
+					}
 				});
 
 				if (!dry) {
