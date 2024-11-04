@@ -26,7 +26,7 @@
 		"build": "pkgroll --minify --export-condition=node --target=node12.19",
 		"lint": "lintroll --cache .",
 		"type-check": "tsc --noEmit",
-		"test": "tsx tests",
+		"test": "tsx -C import tests",
 		"prepack": "pnpm build && clean-pkg-json"
 	},
 	"dependencies": {
