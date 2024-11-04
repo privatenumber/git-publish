@@ -40,5 +40,10 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Setup Git # Only used by the Publish test
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "<>"
+
       - name: Test
         run: pnpm test
