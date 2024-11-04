@@ -48,6 +48,7 @@
 		"npm-packlist": "^9.0.0",
 		"pkgroll": "^2.5.1",
 		"tasuku": "^2.0.1",
+		"terminal-link": "^3.0.0",
 		"tsx": "^4.19.2",
 		"typescript": "^5.6.3"
 	}

@@ -4,13 +4,15 @@ import task from 'tasuku';
 import { cli } from 'cleye';
 import type { PackageJson } from '@npmcli/package-json';
 import byteSize from 'byte-size';
-import { dim, lightBlue } from 'kolorist';
+import { cyan, dim, lightBlue } from 'kolorist';
+import terminalLink from 'terminal-link';
 import { name, version, description } from '../package.json';
 import {
-	assertCleanTree, getCurrentBranchOrTagName, gitStatusTracked,
+	assertCleanTree, getCurrentBranchOrTagName, gitStatusTracked, getCurrentCommit,
 } from './utils/git.js';
 import { getNpmPacklist } from './utils/npm-packlist.js';
 import { readJson } from './utils/read-json.js';
+import { detectPackageManager } from './utils/detect-package-manager.js';
 
 const { stringify } = JSON;
 
@@ -90,6 +92,8 @@ const { stringify } = JSON;
 			} catch {
 				throw new Error(`Git remote ${stringify(remote)} does not exist`);
 			}
+
+			let commitSha: string;
 
 			// In the try-finally block in case it modifies the working tree
 			// On failure, they will be reverted by the hard reset
@@ -242,6 +246,8 @@ const { stringify } = JSON;
 						// -a is passed in so it can stage deletions from `git restore`
 						await execa('git', ['commit', '--no-verify', '-am', `Published branch ${stringify(currentBranch)}`]);
 					}
+
+					commitSha = await getCurrentCommit();
 				});
 
 				if (!dry) {
@@ -294,11 +300,17 @@ const { stringify } = JSON;
 
 			if (success) {
 				const parsedGitUrl = remoteUrl.match(/github\.com:(.+)\.git$/);
-
 				if (parsedGitUrl) {
 					const [, repo] = parsedGitUrl;
-					setTitle('Successfully published branch! Install with command:');
-					setOutput(`npm i '${repo}#${publishBranch}'`);
+					setTitle(`Successfully published branch: ${terminalLink(`${cyan(publishBranch)} ${dim(`(${commitSha!})`)}`, `https://github.com/${repo}/tree/${publishBranch}`)}`);
+
+					const packageManager = await detectPackageManager();
+					const output = [
+						'Install command',
+						`${packageManager} i '${repo}#${publishBranch}'`,
+					].join('\n');
+
+					setOutput(output);
 				}
 			}
 		},

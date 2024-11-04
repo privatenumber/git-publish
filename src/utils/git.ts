@@ -43,3 +43,8 @@ export const getCurrentBranchOrTagName = async () => {
 
 	throw new Error(`Failed to get current branch name: ${getBranch.stderr} ${getTag.stderr}`);
 };
+
+export const getCurrentCommit = async () => {
+	const getCommit = await execa('git', ['rev-parse', '--short', 'HEAD']);
+	return getCommit.stdout.trim();
+};
