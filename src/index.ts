@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { execa } from 'execa';
+import spawn, { type SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
 import type { PackageJson } from '@npmcli/package-json';
@@ -87,7 +87,7 @@ const { stringify } = JSON;
 			// Validate remote exists
 			let remoteUrl;
 			try {
-				const getRemoteUrl = await execa('git', ['remote', 'get-url', remote]);
+				const getRemoteUrl = await spawn('git', ['remote', 'get-url', remote]);
 				remoteUrl = getRemoteUrl.stdout.trim();
 			} catch {
 				throw new Error(`Git remote ${stringify(remote)} does not exist`);
@@ -105,22 +105,20 @@ const { stringify } = JSON;
 					}
 
 					if (fresh) {
-						await execa('git', ['checkout', '--orphan', localTemporaryBranch]);
+						await spawn('git', ['checkout', '--orphan', localTemporaryBranch]);
 					} else {
-						const gitFetch = await execa('git', ['fetch', '--depth=1', remote, `${publishBranch}:${localTemporaryBranch}`], {
-							reject: false,
-						});
+						const gitFetch = await spawn('git', ['fetch', '--depth=1', remote, `${publishBranch}:${localTemporaryBranch}`]).catch(error => error as SubprocessError);
 
-						await execa('git', [
+						await spawn('git', [
 							'checkout',
-							...(gitFetch.failed ? ['-b'] : []),
+							...('exitCode' in gitFetch ? ['-b'] : []),
 							localTemporaryBranch,
 						]);
 					}
 
 					// Checkout the files tree from the previous branch
 					// This also applies any file deletions from the source branch
-					await execa('git', ['restore', '--source', currentBranch, ':/']);
+					await spawn('git', ['restore', '--source', currentBranch, ':/']);
 				});
 
 				if (!dry) {
@@ -134,10 +132,10 @@ const { stringify } = JSON;
 					}
 
 					setTitle('Running hook "prepare"');
-					await execa('npm', ['run', '--if-present', 'prepare']);
+					await spawn('npm', ['run', '--if-present', 'prepare']);
 
 					setTitle('Running hook "prepack"');
-					await execa('npm', ['run', '--if-present', 'prepack']);
+					await spawn('npm', ['run', '--if-present', 'prepack']);
 				});
 
 				if (!dry) {
@@ -232,19 +230,19 @@ const { stringify } = JSON;
 
 					// Remove all files from Git tree
 					// This removes all files from the branch so only the publish files will be added
-					await execa('git', ['rm', '--cached', '-r', ':/'], {
+					await spawn('git', ['rm', '--cached', '-r', ':/']).catch(
 						// Can fail if tree is empty: fatal: pathspec ':/' did not match any files
-						reject: false,
-					});
+						() => {},
+					);
 
-					await execa('git', ['add', '-f', ...publishFiles]);
+					await spawn('git', ['add', '-f', ...publishFiles]);
 
 					const { stdout: trackedFiles } = await gitStatusTracked();
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
 						// -a is passed in so it can stage deletions from `git restore`
-						await execa('git', ['commit', '--no-verify', '-am', `Published branch ${stringify(currentBranch)}`]);
+						await spawn('git', ['commit', '--no-verify', '-am', `Published branch ${stringify(currentBranch)}`]);
 					}
 
 					commitSha = await getCurrentCommit();
@@ -262,7 +260,7 @@ const { stringify } = JSON;
 							return;
 						}
 
-						await execa('git', [
+						await spawn('git', [
 							'push',
 							...(fresh ? ['--force'] : []),
 							'--no-verify',
@@ -284,15 +282,15 @@ const { stringify } = JSON;
 					}
 
 					// In case commit failed and there are uncommitted changes
-					await execa('git', ['reset', '--hard']);
+					await spawn('git', ['reset', '--hard']);
 
-					await execa('git', ['checkout', '-f', currentBranch]);
+					await spawn('git', ['checkout', '-f', currentBranch]);
 
 					// Delete local branch
-					await execa('git', ['branch', '-D', localTemporaryBranch], {
+					await spawn('git', ['branch', '-D', localTemporaryBranch]).catch(
 						// Ignore failures (e.g. in case it didin't even succeed to create this branch)
-						reject: false,
-					});
+						() => {},
+					);
 				});
 
 				revertBranch.clear();
