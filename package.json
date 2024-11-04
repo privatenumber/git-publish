@@ -23,7 +23,7 @@
 	"bin": "dist/index.js",
 	"packageManager": "pnpm@9.12.1",
 	"scripts": {
-		"build": "pkgroll --minify --target=node12.19",
+		"build": "pkgroll --minify",
 		"lint": "lintroll --cache .",
 		"type-check": "tsc --noEmit",
 		"test": "tsx tests",
