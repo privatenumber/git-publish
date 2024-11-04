@@ -3,6 +3,8 @@ import { execa } from 'execa';
 import task from 'tasuku';
 import { cli } from 'cleye';
 import type { PackageJson } from '@npmcli/package-json';
+import byteSize from 'byte-size';
+import { dim, lightBlue } from 'kolorist';
 import { name, version, description } from '../package.json';
 import {
 	assertCleanTree, getCurrentBranchOrTagName, gitStatusTracked,
@@ -208,6 +210,21 @@ const { stringify } = JSON;
 					if (publishFiles.length === 0) {
 						throw new Error('No publish files found');
 					}
+
+					const fileSizes = await Promise.all(
+						publishFiles.map(async (file) => {
+							const { size } = await fs.stat(file);
+							return {
+								file,
+								size,
+							};
+						}),
+					);
+					const totalSize = fileSizes.reduce((accumulator, { size }) => accumulator + size, 0);
+
+					console.log(lightBlue('Publishing files'));
+					console.log(fileSizes.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
+					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
 					// Remove all files from Git tree
 					// This removes all files from the branch so only the publish files will be added
