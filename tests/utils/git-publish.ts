@@ -10,6 +10,5 @@ export const gitPublish = (
 	// Remove CI env var which prevents Ink from rendering
 	env: {
 		PATH: process.env.PATH,
-		CI: undefined,
 	},
 }).catch(error => error as SubprocessError);
