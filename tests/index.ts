@@ -12,7 +12,7 @@ describe('git-publish', ({ describe, test }) => {
 
 			const gitPublishProcess = await gitPublish(fixture.path);
 
-			expect(gitPublishProcess.exitCode).toBe(1);
+			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
 			expect(gitPublishProcess.stderr).toBe('Error: Not in a git repository');
 		});
 
@@ -23,7 +23,7 @@ describe('git-publish', ({ describe, test }) => {
 
 			const gitPublishProcess = await gitPublish(fixture.path);
 
-			expect(gitPublishProcess.exitCode).toBe(1);
+			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
 			expect(gitPublishProcess.stderr).toBe('Error: No package.json found in current working directory');
 		});
 
@@ -37,7 +37,7 @@ describe('git-publish', ({ describe, test }) => {
 
 			const gitPublishProcess = await gitPublish(fixture.path);
 
-			expect(gitPublishProcess.exitCode).toBe(1);
+			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
 			expect(gitPublishProcess.stderr).toBe('Error: Working tree is not clean');
 		});
 	});
@@ -60,7 +60,7 @@ describe('git-publish', ({ describe, test }) => {
 			console.log(gitPublishProcess);
 		});
 
-		expect(gitPublishProcess.exitCode).toBe(0);
+		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(gitPublishProcess.stdout).toMatch('✔');
 	});
 });

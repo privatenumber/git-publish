@@ -1,4 +1,4 @@
-import { execa, type Options } from 'execa';
+import spawn from 'nano-spawn';
 
 export const createGit = async (
 	cwd: string,
@@ -6,14 +6,12 @@ export const createGit = async (
 	const git = (
 		command: string,
 		args?: string[],
-		options?: Options,
 	) => (
-		execa(
+		spawn(
 			'git',
 			[command, ...(args || [])],
 			{
 				cwd,
-				...options,
 			},
 		)
 	);

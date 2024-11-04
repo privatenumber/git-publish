@@ -1,16 +1,14 @@
 import path from 'node:path';
-import { execa } from 'execa';
+import spawn, { type SubprocessError } from 'nano-spawn';
 
 const gitPublishPath = path.resolve('./dist/index.js');
 
 export const gitPublish = (
 	cwd: string,
-) => execa(gitPublishPath, {
+) => spawn(gitPublishPath, [], {
 	cwd,
-	reject: false,
 	// Remove CI env var which prevents Ink from rendering
 	env: {
 		PATH: process.env.PATH,
 	},
-	extendEnv: false,
-});
+}).catch(error => error as SubprocessError);
