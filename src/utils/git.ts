@@ -1,6 +1,6 @@
-import { execa } from 'execa';
+import spawn, { type SubprocessError } from 'nano-spawn';
 
-export const gitStatusTracked = () => execa('git', ['status', '--porcelain', '--untracked-files=no']);
+export const gitStatusTracked = () => spawn('git', ['status', '--porcelain', '--untracked-files=no']);
 
 export const assertCleanTree = async () => {
 	const { stdout } = await gitStatusTracked().catch((error) => {
@@ -21,21 +21,19 @@ export const getCurrentBranchOrTagName = async () => {
 	 * This commands supports older versions of Git, but since v2.22, you can do:
 	 * git branch --show-current
 	 */
-	const getBranch = await execa(
+	const getBranch = await spawn(
 		'git',
 		['symbolic-ref', '--short', '-q', 'HEAD'],
-		{ reject: false },
-	);
+	).catch(error => error as SubprocessError);
 
 	if (getBranch.stdout) {
 		return getBranch.stdout;
 	}
 
-	const getTag = await execa(
+	const getTag = await spawn(
 		'git',
 		['describe', '--tags'],
-		{ reject: false },
-	);
+	).catch(error => error as SubprocessError);
 
 	if (getTag.stdout) {
 		return getTag.stdout;
@@ -45,6 +43,6 @@ export const getCurrentBranchOrTagName = async () => {
 };
 
 export const getCurrentCommit = async () => {
-	const getCommit = await execa('git', ['rev-parse', '--short', 'HEAD']);
+	const getCommit = await spawn('git', ['rev-parse', '--short', 'HEAD']);
 	return getCommit.stdout.trim();
 };
