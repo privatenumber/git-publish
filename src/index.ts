@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import spawn, { type SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
@@ -13,6 +14,7 @@ import {
 import { getNpmPacklist } from './utils/npm-packlist.js';
 import { readJson } from './utils/read-json.js';
 import { detectPackageManager } from './utils/detect-package-manager.js';
+import * as os from "node:os";
 
 const { stringify } = JSON;
 
@@ -49,6 +51,13 @@ const { stringify } = JSON;
 				alias: 'd',
 				description: 'Dry run mode. Will not commit or push to the remote.',
 			},
+
+			directory: {
+				type: String,
+				alias: 'D',
+				description: 'Base directory to set the packages files',
+				default: '.',
+			},
 		},
 
 		help: {
@@ -58,8 +67,16 @@ const { stringify } = JSON;
 
 	await assertCleanTree();
 
+	const {directory} = argv.flags;
+
+	if (await path.isAbsolute(directory)) {
+		throw new Error('Directory must be a path relative to the current working directory');
+	}
+
+	const workingDirectory = path.join(process.cwd(), directory);
+
 	const currentBranch = await getCurrentBranchOrTagName();
-	const packageJsonPath = 'package.json';
+	const packageJsonPath = path.join(directory, 'package.json');
 
 	await fs.access(packageJsonPath).catch(() => {
 		throw new Error('No package.json found in current working directory');
@@ -71,6 +88,7 @@ const { stringify } = JSON;
 		fresh,
 		dry,
 	} = argv.flags;
+
 
 	await task(
 		`Publishing branch ${stringify(currentBranch)} → ${stringify(publishBranch)}`,
@@ -140,6 +158,7 @@ const { stringify } = JSON;
 					checkoutBranch.clear();
 				}
 
+
 				const runHooks = await task('Running hooks', async ({ setWarning, setTitle }) => {
 					if (dry) {
 						setWarning('');
@@ -147,10 +166,14 @@ const { stringify } = JSON;
 					}
 
 					setTitle('Running hook "prepare"');
-					await spawn('npm', ['run', '--if-present', 'prepare']);
+					await spawn('npm', ['run', '--if-present', 'prepare'], {
+						cwd: workingDirectory,
+					});
 
 					setTitle('Running hook "prepack"');
-					await spawn('npm', ['run', '--if-present', 'prepack']);
+					await spawn('npm', ['run', '--if-present', 'prepack'], {
+						cwd: workingDirectory,
+					});
 				});
 
 				if (!dry) {
@@ -158,6 +181,7 @@ const { stringify } = JSON;
 				}
 
 				const packageJson = await readJson(packageJsonPath) as PackageJson;
+
 				const removeHooks = await task('Removing "prepare" & "prepack" hooks', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
@@ -221,16 +245,17 @@ const { stringify } = JSON;
 					}
 
 					const publishFiles = await getNpmPacklist(
-						process.cwd(),
+						workingDirectory,
 						packageJson,
 					);
+
 					if (publishFiles.length === 0) {
 						throw new Error('No publish files found');
 					}
 
 					const fileSizes = await Promise.all(
 						publishFiles.map(async (file) => {
-							const { size } = await fs.stat(file);
+							const { size } = await fs.stat(path.join(workingDirectory,file));
 							return {
 								file,
 								size,
@@ -250,7 +275,24 @@ const { stringify } = JSON;
 						() => {},
 					);
 
-					await spawn('git', ['add', '-f', ...publishFiles]);
+					// Move files to repo root and update publishFiles array
+					const finalPublishFiles: string[] = [];
+					await Promise.all(publishFiles.map( async file => {
+						const relativePath = path.relative(directory, path.join(workingDirectory, file));
+						const newPath = path.join(process.cwd(), relativePath);
+						const newDir = path.dirname(newPath);
+						const originalPath = path.join(workingDirectory, file)
+						// Create the directories if they don't exist
+						await fs.mkdir(newDir, { recursive: true });
+
+						// Move the file
+						if (originalPath !== newPath) {
+							await fs.rename(originalPath, newPath);
+						}
+						finalPublishFiles.push(newPath)
+					}))
+
+					await spawn('git', ['add', '-f', ...finalPublishFiles]);
 
 					const { stdout: trackedFiles } = await gitStatusTracked();
 					if (trackedFiles.length === 0) {
@@ -317,7 +359,8 @@ const { stringify } = JSON;
 					const [, repo] = parsedGitUrl;
 					setTitle(`Successfully published branch: ${terminalLink(`${cyan(publishBranch)} ${dim(`(${commitSha!})`)}`, `https://github.com/${repo}/tree/${publishBranch}`)}`);
 
-					const packageManager = await detectPackageManager();
+					const packageManager = await detectPackageManager(workingDirectory);
+
 					const output = [
 						'Install command',
 						`${packageManager} i '${repo}#${publishBranch}'`,

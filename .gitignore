@@ -27,3 +27,5 @@ dist
 
 # Cache
 .eslintcache
+
+.idea
