@@ -21,7 +21,7 @@
 		"dist"
 	],
 	"bin": "dist/index.js",
-	"packageManager": "pnpm@9.12.1",
+	"packageManager": "pnpm@10.14.0",
 	"scripts": {
 		"build": "pkgroll --minify",
 		"lint": "lintroll --cache .",
