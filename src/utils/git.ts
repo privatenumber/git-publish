@@ -1,9 +1,20 @@
-import spawn, { type SubprocessError } from 'nano-spawn';
+import spawn, { type SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 
-export const gitStatusTracked = () => spawn('git', ['status', '--porcelain', '--untracked-files=no']);
+const simpleSpawn = async (
+	command: string,
+	args: string[],
+	options?: SpawnOptions,
+) => {
+	const result = await spawn(command, args, options);
+	return result.stdout.trim();
+};
+
+export const gitStatusTracked = (
+	options?: SpawnOptions,
+) => simpleSpawn('git', ['status', '--porcelain', '--untracked-files=no'], options);
 
 export const assertCleanTree = async () => {
-	const { stdout } = await gitStatusTracked().catch((error) => {
+	const stdout = await gitStatusTracked().catch((error) => {
 		if (error.stderr.includes('not a git repository')) {
 			throw new Error('Not in a git repository');
 		}
@@ -17,32 +28,27 @@ export const assertCleanTree = async () => {
 };
 
 export const getCurrentBranchOrTagName = async () => {
-	/**
-	 * This commands supports older versions of Git, but since v2.22, you can do:
-	 * git branch --show-current
-	 */
-	const getBranch = await spawn(
-		'git',
-		['symbolic-ref', '--short', '-q', 'HEAD'],
-	).catch(error => error as SubprocessError);
-
-	if (getBranch.stdout) {
-		return getBranch.stdout;
+	try {
+		return await simpleSpawn(
+			'git',
+			['branch', '--show-current'],
+		);
+	} catch (error) {
+		try {
+			// Fallback to describing the tag/commit if not on a branch
+			return await simpleSpawn(
+				'git',
+				['describe', '--tags'],
+			);
+		} catch (fallbackError) {
+			throw new Error(`Failed to get current branch name: ${(error as SubprocessError).stderr} ${(fallbackError as SubprocessError).stderr}`);
+		}
 	}
-
-	const getTag = await spawn(
-		'git',
-		['describe', '--tags'],
-	).catch(error => error as SubprocessError);
-
-	if (getTag.stdout) {
-		return getTag.stdout;
-	}
-
-	throw new Error(`Failed to get current branch name: ${getBranch.stderr} ${getTag.stderr}`);
 };
 
-export const getCurrentCommit = async () => {
-	const getCommit = await spawn('git', ['rev-parse', '--short', 'HEAD']);
-	return getCommit.stdout.trim();
-};
+export const getCurrentCommit = async (
+	options?: SpawnOptions,
+) => (
+	// Can be empty if new git repository with no commits
+	simpleSpawn('git', ['rev-parse', '--short', 'HEAD'], options).catch(() => {})
+);

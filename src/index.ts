@@ -1,4 +1,6 @@
+import path from 'node:path';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import spawn, { type SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
@@ -19,9 +21,7 @@ const { stringify } = JSON;
 (async () => {
 	const argv = cli({
 		name,
-
 		version,
-
 		flags: {
 			branch: {
 				type: String,
@@ -29,7 +29,6 @@ const { stringify } = JSON;
 				placeholder: '<branch name>',
 				description: 'The branch to publish the package to. Defaults to prefixing "npm/" to the current branch or tag name.',
 			},
-
 			remote: {
 				type: String,
 				alias: 'r',
@@ -37,20 +36,17 @@ const { stringify } = JSON;
 				description: 'The remote to push to.',
 				default: 'origin',
 			},
-
 			fresh: {
 				type: Boolean,
 				alias: 'o',
 				description: 'Publish without a commit history. Warning: Force-pushes to remote',
 			},
-
 			dry: {
 				type: Boolean,
 				alias: 'd',
 				description: 'Dry run mode. Will not commit or push to the remote.',
 			},
 		},
-
 		help: {
 			description,
 		},
@@ -59,11 +55,14 @@ const { stringify } = JSON;
 	await assertCleanTree();
 
 	const currentBranch = await getCurrentBranchOrTagName();
+	const currentBranchSha = await getCurrentCommit();
 	const packageJsonPath = 'package.json';
 
 	await fs.access(packageJsonPath).catch(() => {
 		throw new Error('No package.json found in current working directory');
 	});
+
+	const packageManager = await detectPackageManager();
 
 	const {
 		branch: publishBranch = `npm/${currentBranch}`,
@@ -81,10 +80,10 @@ const { stringify } = JSON;
 				setStatus('Dry run');
 			}
 
-			const localTemporaryBranch = `git-publish/${publishBranch}-${Date.now()}`;
+			const localTemporaryBranch = `git-publish-${Date.now()}`;
+			const workDirectory = path.join(os.tmpdir(), localTemporaryBranch);
 			let success = false;
 
-			// Validate remote exists
 			let remoteUrl;
 			try {
 				const getRemoteUrl = await spawn('git', ['remote', 'get-url', remote]);
@@ -95,8 +94,21 @@ const { stringify } = JSON;
 
 			let commitSha: string;
 
-			// In the try-finally block in case it modifies the working tree
-			// On failure, they will be reverted by the hard reset
+			const creatingWorkTree = await task('Creating worktree', async ({ setWarning }) => {
+				if (dry) {
+					setWarning('');
+					return;
+				}
+
+				// TODO: maybe delete all worktrees starting with `git-publish-`?
+
+				await spawn('git', ['worktree', 'add', '--force', workDirectory, 'HEAD']);
+			});
+
+			if (!dry) {
+				creatingWorkTree.clear();
+			}
+
 			try {
 				const checkoutBranch = await task('Checking out branch', async ({ setWarning }) => {
 					if (dry) {
@@ -104,36 +116,33 @@ const { stringify } = JSON;
 						return;
 					}
 
+					await fs.symlink(path.resolve('node_modules'), path.join(workDirectory, 'node_modules'), 'dir');
+
+					let orphan = false;
 					if (fresh) {
-						await spawn('git', ['checkout', '--orphan', localTemporaryBranch]);
+						orphan = true;
 					} else {
-						const gitFetch = await spawn('git', ['fetch', '--depth=1', remote, `${publishBranch}:${localTemporaryBranch}`]).catch(error => error as SubprocessError);
+						const fetchResult = await spawn('git', [
+							'fetch',
+							'--depth=1',
+							remote,
+							`${publishBranch}:${localTemporaryBranch}`,
+						], { cwd: workDirectory }).catch(error => error as SubprocessError);
 
-						// If the branch does not exist, create a new one
-						if ('exitCode' in gitFetch) {
-							await spawn('git', [
-								'checkout',
-								'-b',
-								localTemporaryBranch,
-							]);
-						} else {
-							// Point HEAD to localTemporaryBranch without changing the working directory files
-							// This sets HEAD to the specified branch but doesn't check out its content
-							await spawn('git', [
-								'symbolic-ref',
-								'HEAD',
-								`refs/heads/${localTemporaryBranch}`,
-							]);
-
-							// Remove all files from the tree but keeps them on disk
-							await spawn('git', [
-								'rm',
-								'-r',
-								'--cached',
-								'.',
-							]);
-						}
+						// If fetch fails, remote branch doesnt exist yet, so fallback to orphan
+						orphan = 'exitCode' in fetchResult;
 					}
+
+					if (orphan) {
+						// Fresh orphan branch with no history
+						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], { cwd: workDirectory });
+					} else {
+						// Repoint HEAD to the fetched branch without checkout
+						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: workDirectory });
+					}
+
+					// Remove all tracked files from index
+					await spawn('git', ['rm', '--cached', '-r', ':/'], { cwd: workDirectory });
 				});
 
 				if (!dry) {
@@ -146,34 +155,31 @@ const { stringify } = JSON;
 						return;
 					}
 
+					// Using the deteced package manager might add packageManager to package.json
 					setTitle('Running hook "prepare"');
-					await spawn('npm', ['run', '--if-present', 'prepare']);
+					await spawn('npm', ['run', '--if-present', 'prepare'].filter(Boolean), { cwd: workDirectory });
 
 					setTitle('Running hook "prepack"');
-					await spawn('npm', ['run', '--if-present', 'prepack']);
+					await spawn('npm', ['run', '--if-present', 'prepack'].filter(Boolean), { cwd: workDirectory });
 				});
 
 				if (!dry) {
 					runHooks.clear();
 				}
 
-				const packageJson = await readJson(packageJsonPath) as PackageJson;
+				const workTreePackageJsonPath = path.join(workDirectory, packageJsonPath);
+				const packageJson = await readJson(workTreePackageJsonPath) as PackageJson;
+
 				const removeHooks = await task('Removing "prepare" & "prepack" hooks', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
 					}
-
-					// Re-read incase hooks modified the package.json
-					if (!('scripts' in packageJson)) {
+					if (!('scripts' in packageJson) || !packageJson.scripts) {
 						return;
 					}
 
 					const { scripts } = packageJson;
-					if (!scripts) {
-						return;
-					}
-
 					let mutated = false;
 
 					/**
@@ -204,7 +210,7 @@ const { stringify } = JSON;
 
 					if (mutated) {
 						await fs.writeFile(
-							packageJsonPath,
+							workTreePackageJsonPath,
 							stringify(packageJson, null, 2),
 						);
 					}
@@ -221,7 +227,7 @@ const { stringify } = JSON;
 					}
 
 					const publishFiles = await getNpmPacklist(
-						process.cwd(),
+						workDirectory,
 						packageJson,
 					);
 					if (publishFiles.length === 0) {
@@ -230,7 +236,7 @@ const { stringify } = JSON;
 
 					const fileSizes = await Promise.all(
 						publishFiles.map(async (file) => {
-							const { size } = await fs.stat(file);
+							const { size } = await fs.stat(path.join(workDirectory, file));
 							return {
 								file,
 								size,
@@ -243,24 +249,35 @@ const { stringify } = JSON;
 					console.log(fileSizes.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
-					// Remove all files from Git tree
-					// This removes all files from the branch so only the publish files will be added
-					await spawn('git', ['rm', '--cached', '-r', ':/']).catch(
-						// Can fail if tree is empty: fatal: pathspec ':/' did not match any files
-						() => {},
-					);
+					await spawn('git', ['add', '-f', ...publishFiles], { cwd: workDirectory });
 
-					await spawn('git', ['add', '-f', ...publishFiles]);
-
-					const { stdout: trackedFiles } = await gitStatusTracked();
+					const trackedFiles = await gitStatusTracked({ cwd: workDirectory });
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
-						// -a is passed in so it can stage deletions from `git restore`
-						await spawn('git', ['commit', '--no-verify', '-am', `Published branch ${stringify(currentBranch)}`]);
+						let commitMessage = `Published from "${currentBranch}"`;
+						if (currentBranchSha) {
+							commitMessage += ` (${currentBranchSha})`;
+						}
+
+						await spawn(
+							'git',
+							[
+								'-c',
+								'user.name=git-publish',
+								'-c',
+								'user.email=bot@git-publish',
+								'commit',
+								'--no-verify',
+								'-m',
+								commitMessage,
+								'--author=git-publish <bot@git-publish>',
+							],
+							{ cwd: workDirectory },
+						);
 					}
 
-					commitSha = await getCurrentCommit();
+					commitSha = (await getCurrentCommit({ cwd: workDirectory }))!;
 				});
 
 				if (!dry) {
@@ -280,8 +297,8 @@ const { stringify } = JSON;
 							...(fresh ? ['--force'] : []),
 							'--no-verify',
 							remote,
-							`${localTemporaryBranch}:${publishBranch}`,
-						]);
+							`HEAD:${publishBranch}`,
+						], { cwd: workDirectory });
 						success = true;
 					},
 				);
@@ -290,34 +307,30 @@ const { stringify } = JSON;
 					push.clear();
 				}
 			} finally {
-				const revertBranch = await task(`Switching branch back to ${stringify(currentBranch)}`, async ({ setWarning }) => {
+				const cleanup = await task('Cleaning up', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
 					}
 
-					// In case commit failed and there are uncommitted changes
-					await spawn('git', ['reset', '--hard']);
-
-					await spawn('git', ['checkout', '-f', currentBranch]);
-
-					// Delete local branch
-					await spawn('git', ['branch', '-D', localTemporaryBranch]).catch(
-						// Ignore failures (e.g. in case it didin't even succeed to create this branch)
-						() => {},
-					);
+					await spawn('git', ['worktree', 'remove', '--force', workDirectory]);
+					await spawn('git', ['branch', '-D', localTemporaryBranch]);
 				});
 
-				revertBranch.clear();
+				cleanup.clear();
 			}
 
 			if (success) {
 				const parsedGitUrl = remoteUrl.match(/github\.com:(.+)\.git$/);
 				if (parsedGitUrl) {
 					const [, repo] = parsedGitUrl;
-					setTitle(`Successfully published branch: ${terminalLink(`${cyan(publishBranch)} ${dim(`(${commitSha!})`)}`, `https://github.com/${repo}/tree/${publishBranch}`)}`);
 
-					const packageManager = await detectPackageManager();
+					const successLink = terminalLink(
+						`${cyan(publishBranch)} ${dim(`(${commitSha!})`)}`,
+						`https://github.com/${repo}/tree/${publishBranch!}`,
+					);
+					setTitle(`Successfully published branch: ${successLink}`);
+
 					const output = [
 						'Install command',
 						`${packageManager} i '${repo}#${publishBranch}'`,
@@ -330,6 +343,5 @@ const { stringify } = JSON;
 	);
 })().catch((error) => {
 	console.error('Error:', error.message);
-
 	process.exit(1);
 });
