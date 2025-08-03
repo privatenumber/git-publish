@@ -5,7 +5,8 @@ const gitPublishPath = path.resolve('./dist/index.js');
 
 export const gitPublish = (
 	cwd: string,
-) => spawn(gitPublishPath, [], {
+	args: string[] = [],
+) => spawn(gitPublishPath, args, {
 	cwd,
 	// Remove CI env var which prevents Ink from rendering
 	env: {
