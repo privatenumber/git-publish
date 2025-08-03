@@ -3,7 +3,7 @@ import { createFixture } from 'fs-fixture';
 import { createGit, gitWorktree } from './utils/create-git.js';
 import { gitPublish } from './utils/git-publish.js';
 
-describe('git-publish', ({ describe, test }) => {
+describe('git-publish', ({ describe }) => {
 	describe('Error cases', ({ test }) => {
 		test('Fails if not in git repository', async () => {
 			await using fixture = await createFixture();
@@ -43,54 +43,56 @@ describe('git-publish', ({ describe, test }) => {
 		});
 	});
 
-	test('Publishes', async ({ onTestFail }) => {
-		const preBranch = 'develop';
+	describe('Publish', ({ test }) => {
+		test('preserves history', async ({ onTestFail }) => {
+			const preBranch = 'develop';
 
-		const git = createGit(process.cwd());
-		await git('fetch', ['origin', preBranch]);
-		await using worktree = await gitWorktree(process.cwd(), preBranch);
+			const git = createGit(process.cwd());
+			await git('fetch', ['origin', preBranch]);
+			await using worktree = await gitWorktree(process.cwd(), preBranch);
 
-		const gitPublishProcess = await gitPublish(worktree.path);
-		onTestFail(() => {
-			console.log(gitPublishProcess);
+			const gitPublishProcess = await gitPublish(worktree.path);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+
+			// The branch should remain unchanged
+			const afterBranch = await worktree.git('branch', ['--show-current']);
+			expect(afterBranch).toBe(preBranch);
+
+			// Assert that the published branch has multiple commits
+			const publishedBranch = `npm/${preBranch}`;
+			await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
+			const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
+			expect(Number(commitCount)).toBeGreaterThan(1);
 		});
 
-		expect('exitCode' in gitPublishProcess).toBe(false);
-		expect(gitPublishProcess.stdout).toMatch('✔');
+		test('--fresh', async ({ onTestFail }) => {
+			const git = createGit(process.cwd());
+			const preBranch = await git('branch', ['--show-current']);
 
-		// The branch should remain unchanged
-		const afterBranch = await worktree.git('branch', ['--show-current']);
-		expect(afterBranch).toBe(preBranch);
+			await using worktree = await gitWorktree(process.cwd(), preBranch);
 
-		// Assert that the published branch has multiple commits
-		const publishedBranch = `npm/${preBranch}`;
-		await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
-		const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
-		expect(Number(commitCount)).toBeGreaterThan(1);
-	});
+			const gitPublishProcess = await gitPublish(worktree.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
 
-	test('Publishes with -o', async ({ onTestFail }) => {
-		const git = createGit(process.cwd());
-		const preBranch = await git('branch', ['--show-current']);
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
 
-		await using worktree = await gitWorktree(process.cwd(), preBranch);
+			// The branch should remain unchanged
+			const afterBranch = await worktree.git('branch', ['--show-current']);
+			expect(afterBranch).toBe(preBranch);
 
-		const gitPublishProcess = await gitPublish(worktree.path, ['--fresh']);
-		onTestFail(() => {
-			console.log(gitPublishProcess);
+			// Published branch should include the development commit
+			const publishedBranch = `npm/${preBranch}`;
+			await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
+			const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
+			expect(Number(commitCount)).toBe(1);
 		});
-
-		expect('exitCode' in gitPublishProcess).toBe(false);
-		expect(gitPublishProcess.stdout).toMatch('✔');
-
-		// The branch should remain unchanged
-		const afterBranch = await worktree.git('branch', ['--show-current']);
-		expect(afterBranch).toBe(preBranch);
-
-		// Published branch should include the development commit
-		const publishedBranch = `npm/${preBranch}`;
-		await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
-		const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
-		expect(Number(commitCount)).toBe(1);
 	});
 });
