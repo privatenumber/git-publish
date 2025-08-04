@@ -1,13 +1,5 @@
-import spawn, { type SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
-
-const simpleSpawn = async (
-	command: string,
-	args: string[],
-	options?: SpawnOptions,
-) => {
-	const result = await spawn(command, args, options);
-	return result.stdout.trim();
-};
+import type { SubprocessError, Options as SpawnOptions } from 'nano-spawn';
+import { simpleSpawn } from './simple-spawn.js';
 
 export const gitStatusTracked = (
 	options?: SpawnOptions,
@@ -16,14 +8,14 @@ export const gitStatusTracked = (
 export const assertCleanTree = async () => {
 	const stdout = await gitStatusTracked().catch((error) => {
 		if (error.stderr.includes('not a git repository')) {
-			throw new Error('Not in a git repository');
+			throw new Error('Not in a git repository.');
 		}
 
 		throw error;
 	});
 
 	if (stdout) {
-		throw new Error('Working tree is not clean');
+		throw new Error('The working tree is not clean. Please commit or stash your changes before publishing.');
 	}
 };
 
