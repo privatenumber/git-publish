@@ -256,6 +256,9 @@ const { stringify } = JSON;
 					console.log(fileSizes.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
+
+					console.log(fileSizes);
+					
 					return;
 					await spawn('git', ['add', '-f', ...publishFiles], { cwd: worktreePath });
 
