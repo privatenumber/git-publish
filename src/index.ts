@@ -256,10 +256,22 @@ const { stringify } = JSON;
 					console.log(fileSizes.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
+					if (gitSubdirectory) {
+						await Promise.all(
+							publishFiles.map(async (file) => {
+								const sourceFile = path.join(workingDirectory, file);
+								const destFile = path.join(worktreePath, file);
+								await fs.mkdir(path.dirname(destFile), { recursive: true });
 
-					console.log(fileSizes);
+								try {
+									await fs.rm(destFile, { force: true });
+								} catch {}
+
+								await fs.rename(sourceFile, destFile);
+							}),
+						);
+					}
 					
-					return;
 					await spawn('git', ['add', '-f', ...publishFiles], { cwd: worktreePath });
 
 					const trackedFiles = await gitStatusTracked({ cwd: worktreePath });
@@ -295,7 +307,6 @@ const { stringify } = JSON;
 					commit.clear();
 				}
 
-				return;
 				const push = await task(
 					`Pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
 					async ({ setWarning }) => {
