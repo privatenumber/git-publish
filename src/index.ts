@@ -60,7 +60,9 @@ const { stringify } = JSON;
 
 	await assertCleanTree();
 
-	const gitSubdirectory = await simpleSpawn('git', ['rev-parse', '--show-prefix']);
+	const cwd = process.cwd();
+	const gitRootPath = await simpleSpawn('git', ['rev-parse', '--show-toplevel']);
+	const gitSubdirectory = path.relative(gitRootPath, cwd);
 	const currentBranch = await getCurrentBranchOrTagName();
 	const currentBranchSha = await getCurrentCommit();
 	const packageJsonPath = 'package.json';
@@ -129,7 +131,19 @@ const { stringify } = JSON;
 						return;
 					}
 
-					await fs.symlink(path.resolve('node_modules'), path.join(workingDirectory, 'node_modules'), 'dir');
+					await fs.symlink(
+						path.join(gitRootPath, 'node_modules'),
+						path.join(worktreePath, 'node_modules'),
+						'dir',
+					).catch(() => {});
+
+					if (gitSubdirectory) {
+						await fs.symlink(
+							path.join(worktreePath, gitSubdirectory),
+							path.join(worktreePath, 'git-publish-subdir'),
+							'dir',
+						).catch(() => {});
+					}
 
 					let orphan = false;
 					if (fresh) {
