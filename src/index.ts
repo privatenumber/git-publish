@@ -9,6 +9,7 @@ import byteSize from 'byte-size';
 import { cyan, dim, lightBlue } from 'kolorist';
 import terminalLink from 'terminal-link';
 import { name, version, description } from '../package.json';
+import { simpleSpawn } from './utils/simple-spawn';
 import {
 	assertCleanTree, getCurrentBranchOrTagName, gitStatusTracked, getCurrentCommit,
 } from './utils/git.js';
@@ -86,8 +87,7 @@ const { stringify } = JSON;
 
 			let remoteUrl;
 			try {
-				const getRemoteUrl = await spawn('git', ['remote', 'get-url', remote]);
-				remoteUrl = getRemoteUrl.stdout.trim();
+				remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]);
 			} catch {
 				throw new Error(`Git remote ${stringify(remote)} does not exist`);
 			}

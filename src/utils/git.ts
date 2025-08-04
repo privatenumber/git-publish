@@ -1,13 +1,5 @@
-import spawn, { type SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
-
-const simpleSpawn = async (
-	command: string,
-	args: string[],
-	options?: SpawnOptions,
-) => {
-	const result = await spawn(command, args, options);
-	return result.stdout.trim();
-};
+import type { SubprocessError, Options as SpawnOptions } from 'nano-spawn';
+import { simpleSpawn } from './simple-spawn.js';
 
 export const gitStatusTracked = (
 	options?: SpawnOptions,
