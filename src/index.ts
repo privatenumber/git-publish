@@ -271,6 +271,7 @@ const { stringify } = JSON;
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
 					if (gitSubdirectory) {
+						// Move files to the root of the git project
 						await Promise.all(
 							publishFiles.map(async (file) => {
 								const sourceFile = path.join(workingDirectory, file);
