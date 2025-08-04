@@ -60,6 +60,10 @@ const { stringify } = JSON;
 
 	await assertCleanTree();
 
+	// git rev-parse --show-prefix
+	const subdirectory = await simpleSpawn('git', ['rev-parse', '--show-prefix']);
+	console.log({ subdirectory });
+	
 	const currentBranch = await getCurrentBranchOrTagName();
 	const currentBranchSha = await getCurrentCommit();
 	const packageJsonPath = 'package.json';
