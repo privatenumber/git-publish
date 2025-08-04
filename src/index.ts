@@ -276,7 +276,6 @@ const { stringify } = JSON;
 					const totalSize = fileSizes.reduce((accumulator, { size }) => accumulator + size, 0);
 
 					console.log(lightBlue(`Publishing ${JSON.stringify(packageJson.name)}`));
-					console.log(lightBlue('Publishing files'));
 					console.log(fileSizes.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
