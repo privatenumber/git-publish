@@ -1,8 +1,8 @@
+import path from 'node:path';
 import { describe, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { createGit, gitWorktree } from './utils/create-git.js';
 import { gitPublish } from './utils/git-publish.js';
-import path from 'node:path';
 
 describe('git-publish', ({ describe }) => {
 	describe('Error cases', ({ test }) => {
@@ -62,60 +62,60 @@ describe('git-publish', ({ describe }) => {
 	});
 
 	describe('Publish', ({ test }) => {
-		// test('preserves history', async ({ onTestFail }) => {
-		// 	const preBranch = 'develop';
+		test('preserves history', async ({ onTestFail }) => {
+			const preBranch = 'develop';
 
-		// 	const git = createGit(process.cwd());
-		// 	await git('fetch', ['origin', preBranch]);
-		// 	await using worktree = await gitWorktree(process.cwd(), preBranch);
+			const git = createGit(process.cwd());
+			await git('fetch', ['origin', preBranch]);
+			await using worktree = await gitWorktree(process.cwd(), preBranch);
 
-		// 	const gitPublishProcess = await gitPublish(worktree.path);
-		// 	onTestFail(() => {
-		// 		console.log(gitPublishProcess);
-		// 	});
+			const gitPublishProcess = await gitPublish(worktree.path);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
 
-		// 	expect('exitCode' in gitPublishProcess).toBe(false);
-		// 	expect(gitPublishProcess.stdout).toMatch('✔');
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
 
-		// 	// The branch should remain unchanged
-		// 	const afterBranch = await worktree.git('branch', ['--show-current']);
-		// 	expect(afterBranch).toBe(preBranch);
+			// The branch should remain unchanged
+			const afterBranch = await worktree.git('branch', ['--show-current']);
+			expect(afterBranch).toBe(preBranch);
 
-		// 	// Assert that the published branch has multiple commits
-		// 	const publishedBranch = `npm/${preBranch}`;
-		// 	await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
-		// 	const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
-		// 	expect(Number(commitCount)).toBeGreaterThan(1);
-		// });
+			// Assert that the published branch has multiple commits
+			const publishedBranch = `npm/${preBranch}`;
+			await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
+			const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
+			expect(Number(commitCount)).toBeGreaterThan(1);
+		});
 
-		// test('--fresh', async ({ onTestFail }) => {
-		// 	const preBranch = 'master';
+		test('--fresh', async ({ onTestFail }) => {
+			const preBranch = 'master';
 
-		// 	const git = createGit(process.cwd());
-		// 	await git('fetch', ['origin', preBranch]);
-		// 	await using worktree = await gitWorktree(process.cwd(), preBranch);
+			const git = createGit(process.cwd());
+			await git('fetch', ['origin', preBranch]);
+			await using worktree = await gitWorktree(process.cwd(), preBranch);
 
-		// 	const gitPublishProcess = await gitPublish(worktree.path, ['--fresh']);
-		// 	onTestFail(() => {
-		// 		console.log(gitPublishProcess);
-		// 	});
+			const gitPublishProcess = await gitPublish(worktree.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
 
-		// 	expect('exitCode' in gitPublishProcess).toBe(false);
-		// 	expect(gitPublishProcess.stdout).toMatch('✔');
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
 
-		// 	// The branch should remain unchanged
-		// 	const afterBranch = await worktree.git('branch', ['--show-current']);
-		// 	expect(afterBranch).toBe(preBranch);
+			// The branch should remain unchanged
+			const afterBranch = await worktree.git('branch', ['--show-current']);
+			expect(afterBranch).toBe(preBranch);
 
-		// 	// Published branch should include the development commit
-		// 	const publishedBranch = `npm/${preBranch}`;
-		// 	await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
-		// 	const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
-		// 	expect(Number(commitCount)).toBe(1);
-		// });
+			// Published branch should include the development commit
+			const publishedBranch = `npm/${preBranch}`;
+			await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
+			const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
+			expect(Number(commitCount)).toBe(1);
+		});
 
 		test('monorepo package', async ({ onTestFail }) => {
-			const preBranch = 'monorepo'; // change to develop later
+			const preBranch = 'monorepo'; // create actual test branches later
 
 			const git = createGit(process.cwd());
 			await git('fetch', ['origin', preBranch]);
@@ -139,6 +139,13 @@ describe('git-publish', ({ describe }) => {
 			await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
 			const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
 			expect(Number(commitCount)).toBe(1);
+
+			const filesInTreeString = await worktree.git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
+			expect(filesInTree).toEqual([
+				'dist/index.js',
+				'package.json',
+			]);
 		});
 	});
 });
