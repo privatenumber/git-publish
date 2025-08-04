@@ -259,13 +259,34 @@ const { stringify } = JSON;
 						return;
 					}
 
+					// Often times the build step is not in the lifecycle scripts and is run separately
+					// In those cases, we should see if there are any build artifacts in the cwd
+					// Then copy them over to the worktree
+					const publishFilesCwd = await getNpmPacklist(cwd, packageJson);
+					if (publishFilesCwd.length > 0) {
+						await Promise.all(
+							publishFilesCwd.map(async (file) => {
+								const sourceFile = path.join(cwd, file);
+								const destinationFile = path.join(workingDirectory, file);
+								await fs.mkdir(path.dirname(destinationFile), { recursive: true });
+
+								// Copy only if the destination doesn't exist
+								await fs.copyFile(
+									sourceFile,
+									destinationFile,
+									fs.constants.COPYFILE_EXCL,
+								).catch(() => {});
+							}),
+						);
+					}
+
 					const publishFiles = await getNpmPacklist(workingDirectory, packageJson);
 					if (publishFiles.length === 0) {
 						throw new Error('No publish files found');
 					}
 
 					const fileSizes = await Promise.all(
-						publishFiles.map(async (file) => {
+						publishFiles.sort().map(async (file) => {
 							const { size } = await fs.stat(path.join(workingDirectory, file));
 							return {
 								file,
@@ -280,7 +301,7 @@ const { stringify } = JSON;
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
 					if (gitSubdirectory) {
-						// Move files to the root of the git project
+						// Move files from the subdirectory to the root of the git project
 						await Promise.all(
 							publishFiles.map(async (file) => {
 								const sourceFile = path.join(workingDirectory, file);
