@@ -60,10 +60,7 @@ const { stringify } = JSON;
 
 	await assertCleanTree();
 
-	// git rev-parse --show-prefix
-	const subdirectory = await simpleSpawn('git', ['rev-parse', '--show-prefix']);
-	console.log({ subdirectory });
-	
+	const gitSubdirectory = await simpleSpawn('git', ['rev-parse', '--show-prefix']);
 	const currentBranch = await getCurrentBranchOrTagName();
 	const currentBranchSha = await getCurrentCommit();
 	const packageJsonPath = 'package.json';
@@ -96,7 +93,9 @@ const { stringify } = JSON;
 			}
 
 			const localTemporaryBranch = `git-publish-${Date.now()}-${process.pid}`;
-			const workDirectory = path.join(os.tmpdir(), localTemporaryBranch);
+			const worktreePath = path.join(os.tmpdir(), localTemporaryBranch);
+			const workingDirectory = path.join(worktreePath, gitSubdirectory);
+
 			let success = false;
 
 			let remoteUrl;
@@ -116,7 +115,7 @@ const { stringify } = JSON;
 
 				// TODO: maybe delete all worktrees starting with `git-publish-`?
 
-				await spawn('git', ['worktree', 'add', '--force', workDirectory, 'HEAD']);
+				await spawn('git', ['worktree', 'add', '--force', worktreePath, 'HEAD']);
 			});
 
 			if (!dry) {
@@ -130,7 +129,7 @@ const { stringify } = JSON;
 						return;
 					}
 
-					await fs.symlink(path.resolve('node_modules'), path.join(workDirectory, 'node_modules'), 'dir');
+					await fs.symlink(path.resolve('node_modules'), path.join(workingDirectory, 'node_modules'), 'dir');
 
 					let orphan = false;
 					if (fresh) {
@@ -141,7 +140,7 @@ const { stringify } = JSON;
 							'--depth=1',
 							remote,
 							`${publishBranch}:${localTemporaryBranch}`,
-						], { cwd: workDirectory }).catch(error => error as SubprocessError);
+						], { cwd: worktreePath }).catch(error => error as SubprocessError);
 
 						// If fetch fails, remote branch doesnt exist yet, so fallback to orphan
 						orphan = 'exitCode' in fetchResult;
@@ -149,14 +148,14 @@ const { stringify } = JSON;
 
 					if (orphan) {
 						// Fresh orphan branch with no history
-						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], { cwd: workDirectory });
+						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], { cwd: worktreePath });
 					} else {
 						// Repoint HEAD to the fetched branch without checkout
-						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: workDirectory });
+						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: worktreePath });
 					}
 
 					// Remove all tracked files from index
-					await spawn('git', ['rm', '--cached', '-r', ':/'], { cwd: workDirectory });
+					await spawn('git', ['rm', '--cached', '-r', ':/'], { cwd: worktreePath });
 				});
 
 				if (!dry) {
@@ -171,17 +170,15 @@ const { stringify } = JSON;
 
 					// Using the deteced package manager might add packageManager to package.json
 					setTitle('Running hook "prepare"');
-					await spawn('npm', ['run', '--if-present', 'prepare'].filter(Boolean), { cwd: workDirectory });
+					await spawn('npm', ['run', '--if-present', 'prepare'].filter(Boolean), { cwd: workingDirectory });
 
 					setTitle('Running hook "prepack"');
-					await spawn('npm', ['run', '--if-present', 'prepack'].filter(Boolean), { cwd: workDirectory });
+					await spawn('npm', ['run', '--if-present', 'prepack'].filter(Boolean), { cwd: workingDirectory });
 				});
 
 				if (!dry) {
 					runHooks.clear();
 				}
-
-				const workTreePackageJsonPath = path.join(workDirectory, packageJsonPath);
 
 				const removeHooks = await task('Removing "prepare" & "prepack" hooks', async ({ setWarning }) => {
 					if (dry) {
@@ -223,7 +220,7 @@ const { stringify } = JSON;
 
 					if (mutated) {
 						await fs.writeFile(
-							workTreePackageJsonPath,
+							path.join(workingDirectory, packageJsonPath),
 							stringify(packageJson, null, 2),
 						);
 					}
@@ -239,17 +236,14 @@ const { stringify } = JSON;
 						return;
 					}
 
-					const publishFiles = await getNpmPacklist(
-						workDirectory,
-						packageJson,
-					);
+					const publishFiles = await getNpmPacklist(workingDirectory, packageJson);
 					if (publishFiles.length === 0) {
 						throw new Error('No publish files found');
 					}
 
 					const fileSizes = await Promise.all(
 						publishFiles.map(async (file) => {
-							const { size } = await fs.stat(path.join(workDirectory, file));
+							const { size } = await fs.stat(path.join(workingDirectory, file));
 							return {
 								file,
 								size,
@@ -262,9 +256,10 @@ const { stringify } = JSON;
 					console.log(fileSizes.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
-					await spawn('git', ['add', '-f', ...publishFiles], { cwd: workDirectory });
+					return;
+					await spawn('git', ['add', '-f', ...publishFiles], { cwd: worktreePath });
 
-					const trackedFiles = await gitStatusTracked({ cwd: workDirectory });
+					const trackedFiles = await gitStatusTracked({ cwd: worktreePath });
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
@@ -286,17 +281,18 @@ const { stringify } = JSON;
 								commitMessage,
 								'--author=git-publish <bot@git-publish>',
 							],
-							{ cwd: workDirectory },
+							{ cwd: worktreePath },
 						);
 					}
 
-					commitSha = (await getCurrentCommit({ cwd: workDirectory }))!;
+					commitSha = (await getCurrentCommit({ cwd: worktreePath }))!;
 				});
 
 				if (!dry) {
 					commit.clear();
 				}
 
+				return;
 				const push = await task(
 					`Pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
 					async ({ setWarning }) => {
@@ -311,7 +307,7 @@ const { stringify } = JSON;
 							'--no-verify',
 							remote,
 							`HEAD:${publishBranch}`,
-						], { cwd: workDirectory });
+						], { cwd: worktreePath });
 						success = true;
 					},
 				);
@@ -326,7 +322,7 @@ const { stringify } = JSON;
 						return;
 					}
 
-					await spawn('git', ['worktree', 'remove', '--force', workDirectory]);
+					await spawn('git', ['worktree', 'remove', '--force', worktreePath]);
 					await spawn('git', ['branch', '-D', localTemporaryBranch]);
 				});
 
