@@ -260,18 +260,18 @@ const { stringify } = JSON;
 						await Promise.all(
 							publishFiles.map(async (file) => {
 								const sourceFile = path.join(workingDirectory, file);
-								const destFile = path.join(worktreePath, file);
-								await fs.mkdir(path.dirname(destFile), { recursive: true });
+								const destinationFile = path.join(worktreePath, file);
+								await fs.mkdir(path.dirname(destinationFile), { recursive: true });
 
 								try {
-									await fs.rm(destFile, { force: true });
+									await fs.rm(destinationFile, { force: true });
 								} catch {}
 
-								await fs.rename(sourceFile, destFile);
+								await fs.rename(sourceFile, destinationFile);
 							}),
 						);
 					}
-					
+
 					await spawn('git', ['add', '-f', ...publishFiles], { cwd: worktreePath });
 
 					const trackedFiles = await gitStatusTracked({ cwd: worktreePath });
