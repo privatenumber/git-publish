@@ -71,9 +71,10 @@ describe('git-publish', ({ describe }) => {
 		});
 
 		test('--fresh', async ({ onTestFail }) => {
-			const git = createGit(process.cwd());
-			const preBranch = await git('branch', ['--show-current']);
+			const preBranch = 'master';
 
+			const git = createGit(process.cwd());
+			await git('fetch', ['origin', preBranch]);
 			await using worktree = await gitWorktree(process.cwd(), preBranch);
 
 			const gitPublishProcess = await gitPublish(worktree.path, ['--fresh']);

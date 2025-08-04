@@ -81,7 +81,7 @@ const { stringify } = JSON;
 				setStatus('Dry run');
 			}
 
-			const localTemporaryBranch = `git-publish-${Date.now()}`;
+			const localTemporaryBranch = `git-publish-${Date.now()}-${process.pid}`;
 			const workDirectory = path.join(os.tmpdir(), localTemporaryBranch);
 			let success = false;
 
