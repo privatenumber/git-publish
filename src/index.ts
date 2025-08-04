@@ -47,6 +47,11 @@ const { stringify } = JSON;
 				alias: 'd',
 				description: 'Dry run mode. Will not commit or push to the remote.',
 			},
+			force: {
+				type: Boolean,
+				alias: 'f',
+				description: 'Skip checks and force publish.',
+			},
 		},
 		help: {
 			description,
@@ -59,11 +64,16 @@ const { stringify } = JSON;
 	const currentBranchSha = await getCurrentCommit();
 	const packageJsonPath = 'package.json';
 
-	await fs.access(packageJsonPath).catch(() => {
-		throw new Error('No package.json found in current working directory');
-	});
+	try {
+		await fs.access(packageJsonPath);
+	} catch {
+		throw new Error('No package.json found in current working directory.');
+	}
 
-	const packageManager = await detectPackageManager();
+	const packageJson = await readJson(packageJsonPath) as PackageJson;
+	if (packageJson.private && !argv.flags.force) {
+		throw new Error('This package is marked as private. Use --force to publish it anyway.');
+	}
 
 	const {
 		branch: publishBranch = `npm/${currentBranch}`,
@@ -168,7 +178,6 @@ const { stringify } = JSON;
 				}
 
 				const workTreePackageJsonPath = path.join(workDirectory, packageJsonPath);
-				const packageJson = await readJson(workTreePackageJsonPath) as PackageJson;
 
 				const removeHooks = await task('Removing "prepare" & "prepack" hooks', async ({ setWarning }) => {
 					if (dry) {
@@ -331,6 +340,7 @@ const { stringify } = JSON;
 					);
 					setTitle(`Successfully published branch: ${successLink}`);
 
+					const packageManager = await detectPackageManager();
 					const output = [
 						'Install command',
 						`${packageManager} i '${repo}#${publishBranch}'`,

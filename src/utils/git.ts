@@ -8,14 +8,14 @@ export const gitStatusTracked = (
 export const assertCleanTree = async () => {
 	const stdout = await gitStatusTracked().catch((error) => {
 		if (error.stderr.includes('not a git repository')) {
-			throw new Error('Not in a git repository');
+			throw new Error('Not in a git repository.');
 		}
 
 		throw error;
 	});
 
 	if (stdout) {
-		throw new Error('Working tree is not clean');
+		throw new Error('The working tree is not clean. Please commit or stash your changes before publishing.');
 	}
 };
 

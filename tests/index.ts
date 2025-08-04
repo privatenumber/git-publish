@@ -11,7 +11,7 @@ describe('git-publish', ({ describe }) => {
 			const gitPublishProcess = await gitPublish(fixture.path);
 
 			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-			expect(gitPublishProcess.stderr).toBe('Error: Not in a git repository');
+			expect(gitPublishProcess.stderr).toBe('Error: Not in a git repository.');
 		});
 
 		test('Fails if no package.json found', async () => {
@@ -23,7 +23,7 @@ describe('git-publish', ({ describe }) => {
 			const gitPublishProcess = await gitPublish(fixture.path);
 
 			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-			expect(gitPublishProcess.stderr).toBe('Error: No package.json found in current working directory');
+			expect(gitPublishProcess.stderr).toBe('Error: No package.json found in current working directory.');
 		});
 
 		test('Dirty working tree', async () => {
@@ -39,7 +39,24 @@ describe('git-publish', ({ describe }) => {
 			const gitPublishProcess = await gitPublish(fixture.path);
 
 			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-			expect(gitPublishProcess.stderr).toBe('Error: Working tree is not clean');
+			expect(gitPublishProcess.stderr).toBe('Error: The working tree is not clean. Please commit or stash your changes before publishing.');
+		});
+
+		test('Private npm package', async () => {
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({ private: true }),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init();
+
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+
+			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+			expect(gitPublishProcess.stderr).toBe('Error: This package is marked as private. Use --force to publish it anyway.');
 		});
 	});
 
