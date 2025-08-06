@@ -1,8 +1,14 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { createGit, gitWorktree } from './utils/create-git.js';
 import { gitPublish } from './utils/git-publish.js';
+
+const readJson = async (filePath: string) => {
+	const content = await fs.readFile(filePath, 'utf8');
+	return JSON.parse(content);
+};
 
 describe('git-publish', ({ describe }) => {
 	describe('Error cases', ({ test }) => {
@@ -135,7 +141,8 @@ describe('git-publish', ({ describe }) => {
 			expect(afterBranch).toBe(preBranch);
 
 			// Published branch should include the development commit
-			const publishedBranch = `npm/${preBranch}`;
+			const { name } = await readJson(path.join(monorepoPackagePath, 'package.json'));
+			const publishedBranch = `npm/${preBranch}-${name}`;
 			await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
 			const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
 			expect(Number(commitCount)).toBe(1);
