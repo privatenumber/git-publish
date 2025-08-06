@@ -23,7 +23,7 @@ node_modules/
 .vscode
 
 # Distribution
-dist
+/dist
 
 # Cache
 .eslintcache

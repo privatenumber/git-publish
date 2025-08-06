@@ -118,6 +118,11 @@ Yes, if using a Git client authorized to access the private repository.
 
 If it must be publicly accessible, you can set the `--remote <remote>` flag to push the publish assets to a public repository. It's recommended to compile and minify the code if doing this with private code.
 
+### Can I publish a package from a monorepo?
+
+Yes, just run `git-publish` from inside the package directory you want to publish (e.g. `packages/my-lib`). It will detect that package's `package.json` and publish its contents to the root of the published Git branch.
+
+However, be aware that it doesn't currently resolve `workspace:` protocol dependencies, so you'll need to avoid or pre-resolve those if you're using them.
 
 #### User story
 You want to test a branch on a private repository _Repo A_, but GitHub Actions on the consuming project _Repo B_ doesn't have access to the private repository so `npm install` fails.
