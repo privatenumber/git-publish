@@ -69,7 +69,7 @@ describe('git-publish', ({ describe }) => {
 
 	describe('Publish', ({ test }) => {
 		test('preserves history', async ({ onTestFail }) => {
-			const preBranch = 'develop';
+			const preBranch = 'test/preserve-history';
 
 			const git = createGit(process.cwd());
 			await git('fetch', ['origin', preBranch]);
@@ -95,7 +95,7 @@ describe('git-publish', ({ describe }) => {
 		});
 
 		test('--fresh', async ({ onTestFail }) => {
-			const preBranch = 'master';
+			const preBranch = 'test/fresh';
 
 			const git = createGit(process.cwd());
 			await git('fetch', ['origin', preBranch]);
@@ -121,7 +121,7 @@ describe('git-publish', ({ describe }) => {
 		});
 
 		test('monorepo package', async ({ onTestFail }) => {
-			const preBranch = 'monorepo'; // create actual test branches later
+			const preBranch = 'test/monorepo';
 
 			const git = createGit(process.cwd());
 			await git('fetch', ['origin', preBranch]);
