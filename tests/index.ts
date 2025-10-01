@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
+import spawn from 'nano-spawn';
 import { createGit, gitWorktree } from './utils/create-git.js';
 import { gitPublish } from './utils/git-publish.js';
 
@@ -153,6 +154,68 @@ describe('git-publish', ({ describe }) => {
 				'dist/index.js',
 				'package.json',
 			]);
+		});
+
+		test('npm pack is used', async ({ onTestFail }) => {
+			// This test verifies that npm pack is used (with lifecycle hooks)
+			// by creating a package with prepare/prepack scripts that generate files
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-npm-pack',
+					version: '1.0.0',
+					files: ['dist', '*.txt'],
+					scripts: {
+						prepare: 'echo "prepare-ran" > prepare.txt',
+						prepack: 'echo "prepack-ran" > prepack.txt',
+					},
+				}),
+				dist: {
+					'index.js': 'export const main = true;',
+				},
+				src: {
+					'excluded.ts': '// This should not be in the pack',
+				},
+			});
+
+			const git = createGit(fixture.path);
+			await git.init();
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', fixture.path]);
+
+			// Create a bare repo to push to
+			await using remoteFixture = await createFixture();
+			const remoteGit = createGit(remoteFixture.path);
+			await remoteGit.init(['--bare']);
+
+			// Update remote
+			await git('remote', ['set-url', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+
+			// Clone the published branch to verify
+			await using publishedClone = await createFixture();
+			const publishedGit = createGit(publishedClone.path);
+			await publishedGit('clone', ['--branch', 'npm/master', remoteFixture.path, publishedClone.path]);
+
+			// Check that lifecycle hooks ran and created files
+			const files = await fs.readdir(publishedClone.path);
+			expect(files).toContain('prepare.txt');
+			expect(files).toContain('prepack.txt');
+			expect(files).toContain('dist');
+			expect(files).not.toContain('src'); // Should be excluded
+
+			// Verify hook outputs
+			const prepareContent = await fs.readFile(path.join(publishedClone.path, 'prepare.txt'), 'utf8');
+			const prepackContent = await fs.readFile(path.join(publishedClone.path, 'prepack.txt'), 'utf8');
+			expect(prepareContent.trim()).toBe('prepare-ran');
+			expect(prepackContent.trim()).toBe('prepack-ran');
 		});
 	});
 });
