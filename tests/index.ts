@@ -293,8 +293,8 @@ describe('git-publish', ({ describe }) => {
 			expect(files).not.toContain('src'); // Should be excluded
 
 			// Verify hook outputs
-			const prepareContent = await fs.readFile(path.join(publishedClone.path, 'prepare.txt'), 'utf8');
-			const prepackContent = await fs.readFile(path.join(publishedClone.path, 'prepack.txt'), 'utf8');
+			const prepareContent = await publishedClone.readFile('prepare.txt', 'utf8');
+			const prepackContent = await publishedClone.readFile('prepack.txt', 'utf8');
 			expect(prepareContent.trim()).toBe('prepare-ran');
 			expect(prepackContent.trim()).toBe('prepack-ran');
 		});
