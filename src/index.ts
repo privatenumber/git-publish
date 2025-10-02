@@ -1,8 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
 import os from 'node:os';
-import { pipeline } from 'node:stream/promises';
 import spawn, { type SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
@@ -10,8 +8,6 @@ import type { PackageJson } from '@npmcli/package-json';
 import byteSize from 'byte-size';
 import { cyan, dim, lightBlue } from 'kolorist';
 import terminalLink from 'terminal-link';
-import tarFs from 'tar-fs';
-import gunzip from 'gunzip-maybe';
 import { name, version, description } from '../package.json';
 import { simpleSpawn } from './utils/simple-spawn';
 import {
@@ -19,6 +15,8 @@ import {
 } from './utils/git.js';
 import { readJson } from './utils/read-json.js';
 import { detectPackageManager } from './utils/detect-package-manager.js';
+import { packPackage } from './utils/pack-package.js';
+import { extractTarball, type File } from './utils/extract-tarball.js';
 
 const { stringify } = JSON;
 
@@ -181,60 +179,20 @@ const { stringify } = JSON;
 					checkoutBranch.clear();
 				}
 
-				type File = {
-					file: string;
-					size: number;
-				};
-				const publishFiles: File[] = [];
+				let publishFiles: File[];
 				const packTask = await task('Packing package', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
 					}
 
-					// Create temp directory for pack
-					await fs.mkdir(packTemporaryDirectory, { recursive: true });
-
-					// Determine pack command based on package manager
-					const packArgs = packageManager === 'bun'
-						? ['pm', 'pack', '--destination', packTemporaryDirectory]
-						: ['pack', '--pack-destination', packTemporaryDirectory];
-
-					// Run pack from the current working directory
-					await spawn(packageManager, packArgs, { cwd });
-
-					// Determine tarball filename
-					const tarballName = `${packageJson.name!.replace(/^@/, '').replace('/', '-')}-${packageJson.version}.tgz`;
-					const tarballPath = path.join(packTemporaryDirectory, tarballName);
-
-					// Extract tarball to worktree, collecting file info during extraction
-					await pipeline(
-						createReadStream(tarballPath),
-						gunzip(),
-						tarFs.extract(worktreePath, {
-							map: (header) => {
-								// Strip the 'package/' prefix
-								const parts = header.name.split('/');
-								if (parts[0] === 'package') {
-									parts.shift();
-								}
-								header.name = parts.join('/');
-
-								// Collect file info (only regular files, not directories)
-								if (header.type === 'file' && header.name) {
-									publishFiles.push({
-										file: header.name,
-										size: header.size || 0,
-									});
-								}
-
-								return header;
-							},
-						}),
+					const tarballPath = await packPackage(
+						packageManager,
+						cwd,
+						packTemporaryDirectory,
 					);
 
-					// Sort files alphabetically
-					publishFiles.sort((a, b) => (a.file < b.file ? -1 : (a.file > b.file ? 1 : 0)));
+					publishFiles = await extractTarball(tarballPath, worktreePath);
 				});
 
 				if (!dry) {

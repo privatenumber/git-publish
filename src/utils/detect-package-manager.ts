@@ -1,21 +1,26 @@
 import { findUp } from 'find-up-simple';
 
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun';
+
 export const detectPackageManager = async (
 	cwd: string,
 	stopAt: string,
-) => {
-	const config = { cwd, stopAt };
+): Promise<PackageManager> => {
+	const config = {
+		cwd,
+		stopAt,
+	};
 	if (await findUp('pnpm-lock.yaml', config)) {
-		return 'pnpm' as const;
+		return 'pnpm';
 	}
 
 	if (await findUp('yarn.lock', config)) {
-		return 'yarn' as const;
+		return 'yarn';
 	}
 
 	if (await findUp('bun.lockb', config) || await findUp('bun.lock', config)) {
-		return 'bun' as const;
+		return 'bun';
 	}
 
-	return 'npm' as const;
+	return 'npm';
 };
