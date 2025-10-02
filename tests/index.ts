@@ -234,7 +234,6 @@ describe('git-publish', ({ describe }) => {
 
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
-
 			await git('remote', ['add', 'origin', remoteFixture.path]);
 
 			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
@@ -276,15 +275,7 @@ describe('git-publish', ({ describe }) => {
 			await git.init();
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
-			await git('remote', ['add', 'origin', fixture.path]);
-
-			// Create a bare repo to push to
-			await using remoteFixture = await createFixture();
-			const remoteGit = createGit(remoteFixture.path);
-			await remoteGit.init(['--bare']);
-
-			// Update remote
-			await git('remote', ['set-url', 'origin', remoteFixture.path]);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
 
 			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
 			onTestFail(() => {
