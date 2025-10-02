@@ -179,7 +179,6 @@ const { stringify } = JSON;
 					checkoutBranch.clear();
 				}
 
-				let publishFiles: File[];
 				const packTask = await task('Packing package', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
@@ -192,7 +191,7 @@ const { stringify } = JSON;
 						packTemporaryDirectory,
 					);
 
-					publishFiles = await extractTarball(tarballPath, worktreePath);
+					return await extractTarball(tarballPath, worktreePath);
 				});
 
 				if (!dry) {
@@ -207,7 +206,8 @@ const { stringify } = JSON;
 
 					await spawn('git', ['add', '-A'], { cwd: worktreePath });
 
-					if (publishFiles.length === 0) {
+					const publishFiles = await packTask.result;
+					if (!publishFiles || publishFiles.length === 0) {
 						throw new Error('No publish files found');
 					}
 
