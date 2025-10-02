@@ -1,11 +1,26 @@
-import fs from 'node:fs/promises';
+import { findUp } from 'find-up-simple';
 
-export const detectPackageManager = () => Promise.any([
-	fs.access('package-lock.json').then(() => 'npm' as const),
-	fs.access('yarn.lock').then(() => 'yarn' as const),
-	fs.access('pnpm-lock.yaml').then(() => 'pnpm' as const),
-	fs.access('bun.lockb').then(() => 'bun' as const),
-	fs.access('bun.lock').then(() => 'bun' as const),
-]).catch(
-	() => 'npm' as const, // If no lock files are found, default to npm
-);
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun';
+
+export const detectPackageManager = async (
+	cwd: string,
+	stopAt: string,
+): Promise<PackageManager> => {
+	const config = {
+		cwd,
+		stopAt,
+	};
+	if (await findUp('pnpm-lock.yaml', config)) {
+		return 'pnpm';
+	}
+
+	if (await findUp('yarn.lock', config)) {
+		return 'yarn';
+	}
+
+	if (await findUp('bun.lockb', config) || await findUp('bun.lock', config)) {
+		return 'bun';
+	}
+
+	return 'npm';
+};
