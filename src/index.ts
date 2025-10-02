@@ -107,8 +107,9 @@ const { stringify } = JSON;
 			}
 
 			const localTemporaryBranch = `git-publish-${Date.now()}-${process.pid}`;
-			const worktreePath = path.join(os.tmpdir(), localTemporaryBranch);
-			const packTemporaryDirectory = path.join(os.tmpdir(), `${localTemporaryBranch}-pack`);
+			const gitPublishTempDir = path.join(os.tmpdir(), 'git-publish', localTemporaryBranch);
+			const worktreePath = path.join(gitPublishTempDir, 'worktree');
+			const packTemporaryDirectory = path.join(gitPublishTempDir, 'pack');
 
 			let success = false;
 
@@ -373,7 +374,7 @@ const { stringify } = JSON;
 
 					await spawn('git', ['worktree', 'remove', '--force', worktreePath]);
 					await spawn('git', ['branch', '-D', localTemporaryBranch]);
-					await fs.rm(packTemporaryDirectory, {
+					await fs.rm(gitPublishTempDir, {
 						recursive: true,
 						force: true,
 					});
