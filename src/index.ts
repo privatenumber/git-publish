@@ -16,7 +16,7 @@ import {
 import { readJson } from './utils/read-json.js';
 import { detectPackageManager } from './utils/detect-package-manager.js';
 import { packPackage } from './utils/pack-package.js';
-import { extractTarball, type File } from './utils/extract-tarball.js';
+import { extractTarball } from './utils/extract-tarball.js';
 
 const { stringify } = JSON;
 
