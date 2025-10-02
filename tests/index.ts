@@ -63,11 +63,11 @@ describe('git-publish', ({ describe }) => {
 		});
 	});
 
-	describe('Publish', async ({ test, onFinish }) => {
+	describe('Publish', async ({ test, describe, onFinish }) => {
 		const remoteFixture = await createFixture();
 		const remoteGit = createGit(remoteFixture.path);
 		await remoteGit.init(['--bare']);
-		onFinish(() => remoteFixture.rm());
+		// onFinish(() => remoteFixture.rm());
 
 		test('preserves history', async ({ onTestFail }) => {
 			const branchName = 'test-preserve-history';
@@ -209,46 +209,102 @@ describe('git-publish', ({ describe }) => {
 			]);
 		});
 
-		test('pnpm catalog protocol is resolved', async ({ onTestFail }) => {
-			const branchName = 'test-pnpm-catalog';
-			const msVersion = '2.1.3';
+		describe('pnpm', ({ test }) => {
+			test('catalog protocol is resolved', async ({ onTestFail }) => {
+				const branchName = 'test-pnpm-catalog';
+				const msVersion = '2.1.3';
 
-			await using fixture = await createFixture({
-				'pnpm-workspace.yaml': yaml.dump({
-					catalog: {
-						ms: msVersion,
-					},
-				}),
-				'package.json': JSON.stringify({
-					name: 'test-pkg',
-					version: '1.0.0',
-					dependencies: {
-						ms: 'catalog:',
-					},
-				}, null, 2),
+				await using fixture = await createFixture({
+					'pnpm-workspace.yaml': yaml.dump({
+						catalog: {
+							ms: msVersion,
+						},
+					}),
+					'package.json': JSON.stringify({
+						name: 'test-pkg',
+						version: '1.0.0',
+						dependencies: {
+							ms: 'catalog:',
+						},
+					}, null, 2),
+				});
+
+				await spawn('pnpm', ['install'], { cwd: fixture.path });
+
+				const git = createGit(fixture.path);
+				await git.init([`--initial-branch=${branchName}`]);
+
+				await git('add', ['.']);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
+
+				const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+				onTestFail(() => {
+					console.log('Git publish process:', gitPublishProcess);
+				});
+				expect('exitCode' in gitPublishProcess).toBe(false);
+				expect(gitPublishProcess.stdout).toMatch('✔');
+
+				await git('checkout', [`npm/${branchName}`]);
+
+				const packageJsonString = await fixture.readFile('package.json', 'utf8');
+				const packageJson = JSON.parse(packageJsonString);
+				expect(packageJson.dependencies.ms).toBe(msVersion);
 			});
 
-			await spawn('pnpm', ['install'], { cwd: fixture.path });
+			test('monorepo workspace structure is accessible', async ({ onTestFail }) => {
+				const branchName = 'test-pnpm-monorepo';
+				const packageName = '@org/monorepo-test';
+				const msVersion = '2.1.3';
 
-			const git = createGit(fixture.path);
-			await git.init([`--initial-branch=${branchName}`]);
+				const fixture = await createFixture({
+					'pnpm-workspace.yaml': yaml.dump({
+						packages: ['packages/*'],
+						catalog: {
+							ms: msVersion,
+						},
+					}),
+					'package.json': JSON.stringify({
+						private: true,
+					}, null, 2),
+					'packages/test-pkg': {
+						'package.json': JSON.stringify({
+							name: packageName,
+							version: '0.0.0',
+							files: ['dist'],
+							dependencies: {
+								ms: 'catalog:',
+							},
+						}, null, 2),
+					},
+				});
 
-			await git('add', ['.']);
-			await git('commit', ['-m', 'Initial commit']);
-			await git('remote', ['add', 'origin', remoteFixture.path]);
+				await spawn('pnpm', ['install'], { cwd: fixture.path });
 
-			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
-			onTestFail(() => {
-				console.log('Git publish process:', gitPublishProcess);
+				const git = createGit(fixture.path);
+				await git.init([`--initial-branch=${branchName}`]);
+				await git('add', ['.']);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
+
+				console.log(fixture);
+				const monorepoPackagePath = path.join(fixture.path, 'packages/test-pkg');
+				const gitPublishProcess = await gitPublish(monorepoPackagePath, ['--fresh']);
+				onTestFail(() => {
+					console.log(gitPublishProcess);
+				});
+
+				expect('exitCode' in gitPublishProcess).toBe(false);
+				expect(gitPublishProcess.stdout).toMatch('✔');
+
+				// Verify the package was published with catalog resolved
+				const publishedBranch = `npm/${branchName}-${packageName}`;
+				const packageJsonString = await git('show', [`origin/${publishedBranch}:package.json`]);
+				const packageJson = JSON.parse(packageJsonString);
+
+				// Catalog should be resolved to actual version
+				expect(packageJson.dependencies.ms).toBe(msVersion);
 			});
-			expect('exitCode' in gitPublishProcess).toBe(false);
-			expect(gitPublishProcess.stdout).toMatch('✔');
-
-			await git('checkout', [`npm/${branchName}`]);
-
-			const packageJsonString = await fixture.readFile('package.json', 'utf8');
-			const packageJson = JSON.parse(packageJsonString);
-			expect(packageJson.dependencies.ms).toBe(msVersion);
 		});
 
 		test('npm pack is used', async ({ onTestFail }) => {

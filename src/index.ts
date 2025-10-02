@@ -198,7 +198,16 @@ const { stringify } = JSON;
 					// For monorepos, recreate workspace structure temporarily for pack
 					if (gitSubdirectory) {
 						// Copy workspace files needed for package manager features (e.g., pnpm catalog)
-						const workspaceFiles = ['pnpm-workspace.yaml', 'package.json', '.npmrc', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'bun.lock'];
+						const workspaceFiles = [
+							'pnpm-workspace.yaml',
+							'package.json',
+							'.npmrc',
+							'package-lock.json',
+							'yarn.lock',
+							'pnpm-lock.yaml',
+							'bun.lockb',
+							'bun.lock',
+						];
 						await Promise.all(
 							workspaceFiles.map(async (file) => {
 								const sourcePath = path.join(gitRootPath, file);
