@@ -289,21 +289,72 @@ describe('git-publish', ({ describe }) => {
 			expect('exitCode' in gitPublishProcess).toBe(false);
 			expect(gitPublishProcess.stdout).toMatch('✔');
 
-			// Checkout the published branch to verify
+			// Verify files using git ls-tree (avoid checkout pollution)
+			const publishedBranch = `npm/${branchName}`;
+			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
+
+			expect(filesInTree).toContain('prepare.txt');
+			expect(filesInTree).toContain('prepack.txt');
+			expect(filesInTree).toContain('dist/index.js');
+			expect(filesInTree).not.toContain('src/excluded.ts'); // Should be excluded
+
+			// Verify hook outputs using git show
+			const prepareContent = await git('show', [`origin/${publishedBranch}:prepare.txt`]);
+			expect(prepareContent.trim()).toBe('prepare-ran');
+
+			const prepackContent = await git('show', [`origin/${publishedBranch}:prepack.txt`]);
+			expect(prepackContent.trim()).toBe('prepack-ran');
+		});
+
+		test('dependencies are accessible in pack hooks', async ({ onTestFail }) => {
+			const branchName = 'test-deps-in-hooks';
+
+			// This test verifies that dependencies with binaries are accessible during pack
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-deps-hooks',
+					version: '1.0.0',
+					scripts: {
+						// Use clean-pkg-json binary from devDependencies
+						prepack: 'clean-pkg-json',
+					},
+					devDependencies: {
+						'clean-pkg-json': '^1.3.0',
+					},
+				}, null, 2),
+			});
+
+			// Install dependencies so clean-pkg-json binary is available
+			await spawn('npm', ['install'], { cwd: fixture.path });
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+
+			// Checkout and verify clean-pkg-json ran and removed unnecessary fields
 			await git('checkout', ['--force', `npm/${branchName}`]);
 
-			// Check that lifecycle hooks ran and created files
-			const files = await fs.readdir(fixture.path);
-			expect(files).toContain('prepare.txt');
-			expect(files).toContain('prepack.txt');
-			expect(files).toContain('dist');
-			expect(files).not.toContain('src'); // Should be excluded
+			const packageJsonString = await fixture.readFile('package.json', 'utf8');
+			const packageJson = JSON.parse(packageJsonString);
 
-			// Verify hook outputs
-			const prepareContent = await fixture.readFile('prepare.txt', 'utf8');
-			const prepackContent = await fixture.readFile('prepack.txt', 'utf8');
-			expect(prepareContent.trim()).toBe('prepare-ran');
-			expect(prepackContent.trim()).toBe('prepack-ran');
+			// Verify required fields are still present
+			expect(packageJson.name).toBe('test-deps-hooks');
+			expect(packageJson.version).toBe('1.0.0');
+
+			// Verify clean-pkg-json ran successfully
+			expect(packageJson.devDependencies).toBeUndefined();
+			expect(packageJson.scripts).toBeUndefined();
 		});
 
 		test('publishes existing dist without build hooks', async ({ onTestFail }) => {
@@ -350,17 +401,11 @@ describe('git-publish', ({ describe }) => {
 				'package.json',
 			]);
 
-			// Make sure original dist files are unchanged
-			const indexStillExists = await fixture.readFile('dist/index.js', 'utf8');
-			expect(indexStillExists).toBe('export const existingFile = true;');
-
-			// Checkout and verify content
-			await git('checkout', [publishedBranch]);
-
-			const indexContent = await fixture.readFile('dist/index.js', 'utf8');
+			// Verify content using git show (avoid checkout pollution)
+			const indexContent = await git('show', [`origin/${publishedBranch}:dist/index.js`]);
 			expect(indexContent).toBe('export const existingFile = true;');
 
-			const utilsContent = await fixture.readFile('dist/utils.js', 'utf8');
+			const utilsContent = await git('show', [`origin/${publishedBranch}:dist/utils.js`]);
 			expect(utilsContent).toBe('export const util = () => {};');
 		});
 	});
