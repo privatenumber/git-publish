@@ -168,19 +168,8 @@ const { stringify } = JSON;
 						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: worktreePath });
 					}
 
-					// Remove all tracked files from index
-					await spawn('git', ['rm', '--cached', '-r', ':/'], { cwd: worktreePath });
-
-					// Delete all files from disk (except .git)
-					const files = await fs.readdir(worktreePath);
-					await Promise.all(
-						files
-							.filter(file => file !== '.git')
-							.map(file => fs.rm(path.join(worktreePath, file), {
-								recursive: true,
-								force: true,
-							})),
-					);
+					// Remove all tracked files from index and working directory
+					await spawn('git', ['rm', '-r', ':/'], { cwd: worktreePath });
 				});
 
 				if (!dry) {
