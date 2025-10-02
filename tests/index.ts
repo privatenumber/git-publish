@@ -4,13 +4,8 @@ import { describe, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
 import yaml from 'js-yaml';
-import { createGit, gitWorktree } from './utils/create-git.js';
+import { createGit } from './utils/create-git.js';
 import { gitPublish } from './utils/git-publish.js';
-
-const readJson = async (filePath: string) => {
-	const content = await fs.readFile(filePath, 'utf8');
-	return JSON.parse(content);
-};
 
 describe('git-publish', ({ describe }) => {
 	describe('Error cases', ({ test }) => {
