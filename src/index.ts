@@ -284,7 +284,7 @@ const { stringify } = JSON;
 					);
 
 					// Sort files alphabetically
-					publishFiles.sort((a, b) => a.file.localeCompare(b.file));
+					publishFiles.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
 				});
 
 				if (!dry) {
