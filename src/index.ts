@@ -186,6 +186,11 @@ const { stringify } = JSON;
 					checkoutBranch.clear();
 				}
 
+				type File = {
+					file: string;
+					size: number;
+				};
+				const publishFiles: File[] = [];
 				const packTask = await task('Packing package', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
@@ -252,7 +257,7 @@ const { stringify } = JSON;
 						);
 					}
 
-					// Extract tarball to worktree, stripping the 'package/' prefix
+					// Extract tarball to worktree, collecting file info during extraction
 					await pipeline(
 						createReadStream(tarballPath),
 						gunzip(),
@@ -264,10 +269,22 @@ const { stringify } = JSON;
 									parts.shift();
 								}
 								header.name = parts.join('/');
+
+								// Collect file info (only regular files, not directories)
+								if (header.type === 'file' && header.name) {
+									publishFiles.push({
+										file: header.name,
+										size: header.size || 0,
+									});
+								}
+
 								return header;
 							},
 						}),
 					);
+
+					// Sort files alphabetically
+					publishFiles.sort((a, b) => a.file.localeCompare(b.file));
 				});
 
 				if (!dry) {
@@ -282,31 +299,14 @@ const { stringify } = JSON;
 
 					await spawn('git', ['add', '-A'], { cwd: worktreePath });
 
-					// Get list of all tracked files for display
-					const publishFilesOutput = await simpleSpawn(
-						'git',
-						['ls-files'],
-						{ cwd: worktreePath },
-					);
-					const fileList = publishFilesOutput.split('\n').filter(Boolean).sort();
-
-					if (fileList.length === 0) {
+					if (publishFiles.length === 0) {
 						throw new Error('No publish files found');
 					}
 
-					const fileSizes = await Promise.all(
-						fileList.map(async (file) => {
-							const { size } = await fs.stat(path.join(worktreePath, file));
-							return {
-								file,
-								size,
-							};
-						}),
-					);
-					const totalSize = fileSizes.reduce((accumulator, { size }) => accumulator + size, 0);
+					const totalSize = publishFiles.reduce((accumulator, { size }) => accumulator + size, 0);
 
 					console.log(lightBlue(`Publishing ${packageJson.name}`));
-					console.log(fileSizes.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
+					console.log(publishFiles.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
 					const trackedFiles = await gitStatusTracked({ cwd: worktreePath });
