@@ -307,5 +307,58 @@ describe('git-publish', ({ describe }) => {
 			expect(prepareContent.trim()).toBe('prepare-ran');
 			expect(prepackContent.trim()).toBe('prepack-ran');
 		});
+
+		test('publishes existing dist without build hooks', async ({ onTestFail }) => {
+			const branchName = 'test-existing-dist';
+
+			// This test verifies that existing files are published even without build hooks
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-existing-dist',
+					version: '1.0.0',
+					files: ['dist'],
+				}, null, 2),
+				dist: {
+					'index.js': 'export const existingFile = true;',
+					'utils.js': 'export const util = () => {};',
+				},
+				src: {
+					'source.ts': '// This should not be published',
+				},
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+
+			// Verify published files
+			const publishedBranch = `npm/${branchName}`;
+			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
+			expect(filesInTree).toEqual([
+				'dist/index.js',
+				'dist/utils.js',
+				'package.json',
+			]);
+
+			// Checkout and verify content
+			await git('checkout', [publishedBranch]);
+
+			const indexContent = await fixture.readFile('dist/index.js', 'utf8');
+			expect(indexContent).toBe('export const existingFile = true;');
+
+			const utilsContent = await fixture.readFile('dist/utils.js', 'utf8');
+			expect(utilsContent).toBe('export const util = () => {};');
+		});
 	});
 });
