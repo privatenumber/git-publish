@@ -4,27 +4,16 @@ export const detectPackageManager = async (
 	cwd: string,
 	stopAt: string,
 ) => {
-	if (await findUp('pnpm-lock.yaml', {
-		cwd,
-		stopAt,
-	})) {
+	const config = { cwd, stopAt };
+	if (await findUp('pnpm-lock.yaml', config)) {
 		return 'pnpm' as const;
 	}
 
-	if (await findUp('yarn.lock', {
-		cwd,
-		stopAt,
-	})) {
+	if (await findUp('yarn.lock', config)) {
 		return 'yarn' as const;
 	}
 
-	if (await findUp('bun.lockb', {
-		cwd,
-		stopAt,
-	}) || await findUp('bun.lock', {
-		cwd,
-		stopAt,
-	})) {
+	if (await findUp('bun.lockb', config) || await findUp('bun.lock', config)) {
 		return 'bun' as const;
 	}
 
