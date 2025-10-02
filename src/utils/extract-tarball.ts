@@ -19,12 +19,10 @@ export const extractTarball = async (
 		gunzip(),
 		tarFs.extract(destinationPath, {
 			map: (header) => {
-				// Strip the 'package/' prefix
-				const parts = header.name.split('/');
-				if (parts[0] === 'package') {
-					parts.shift();
+				// Strip the 'package/' prefix from tarball entries
+				if (header.name.startsWith('package/')) {
+					header.name = header.name.slice(8);
 				}
-				header.name = parts.join('/');
 
 				// Collect file info (only regular files, not directories)
 				if (header.type === 'file' && header.name) {

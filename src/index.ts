@@ -79,21 +79,13 @@ const { stringify } = JSON;
 		throw new Error('This package is marked as private. Use --force to publish it anyway.');
 	}
 
-	const {
-		branch,
-		remote,
-		fresh,
-		dry,
-	} = argv.flags;
+	const { branch, remote, fresh, dry } = argv.flags;
 
-	let publishBranch = branch;
-	if (!publishBranch) {
-		let defaultBranchName = `npm/${currentBranch}`;
-		if (gitSubdirectory) {
-			defaultBranchName += `-${packageJson.name}`;
-		}
-		publishBranch = defaultBranchName;
-	}
+	const publishBranch = branch || (
+		gitSubdirectory
+			? `npm/${currentBranch}-${packageJson.name}`
+			: `npm/${currentBranch}`
+	);
 
 	await task(
 		`Publishing branch ${stringify(currentBranch)} → ${stringify(publishBranch)}`,
