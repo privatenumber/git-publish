@@ -71,6 +71,8 @@ describe('git-publish', ({ describe }) => {
 		onFinish(() => remoteFixture.rm());
 
 		test('preserves history', async ({ onTestFail }) => {
+			const branchName = 'test-preserve-history';
+
 			await using fixture = await createFixture({
 				'package.json': JSON.stringify({
 					name: 'test-pkg',
@@ -80,7 +82,7 @@ describe('git-publish', ({ describe }) => {
 			});
 
 			const git = createGit(fixture.path);
-			await git.init();
+			await git.init([`--initial-branch=${branchName}`]);
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -106,12 +108,13 @@ describe('git-publish', ({ describe }) => {
 			expect(gitPublishProcess.stdout).toMatch('✔');
 
 			// Assert that the published branch has 2 commits
-			const publishedBranch = 'npm/master';
-			const commitCount = await git('rev-list', ['--count', `origin/${publishedBranch}`]);
+			const commitCount = await git('rev-list', ['--count', `origin/npm/${branchName}`]);
 			expect(Number(commitCount)).toBe(2);
 		});
 
 		test('--fresh resets history', async ({ onTestFail }) => {
+			const branchName = 'test-fresh';
+
 			await using fixture = await createFixture({
 				'package.json': JSON.stringify({
 					name: 'test-pkg',
@@ -121,7 +124,7 @@ describe('git-publish', ({ describe }) => {
 			});
 
 			const git = createGit(fixture.path);
-			await git.init();
+			await git.init([`--initial-branch=${branchName}`]);
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -147,12 +150,14 @@ describe('git-publish', ({ describe }) => {
 			expect(gitPublishProcess.stdout).toMatch('✔');
 
 			// Published branch should have exactly 1 commit (fresh start)
-			const publishedBranch = 'npm/master';
-			const commitCount = await git('rev-list', ['--count', `origin/${publishedBranch}`]);
+			const commitCount = await git('rev-list', ['--count', `origin/npm/${branchName}`]);
 			expect(Number(commitCount)).toBe(1);
 		});
 
 		test('monorepo package', async ({ onTestFail }) => {
+			const branchName = 'test-monorepo';
+			const packageName = '@org/test-pkg';
+
 			await using fixture = await createFixture({
 				'package.json': JSON.stringify({
 					name: 'monorepo-root',
@@ -162,7 +167,7 @@ describe('git-publish', ({ describe }) => {
 				packages: {
 					'test-pkg': {
 						'package.json': JSON.stringify({
-							name: '@org/test-pkg',
+							name: packageName,
 							version: '0.0.0',
 							files: ['dist'],
 						}, null, 2),
@@ -177,7 +182,7 @@ describe('git-publish', ({ describe }) => {
 			});
 
 			const git = createGit(fixture.path);
-			await git.init();
+			await git.init([`--initial-branch=${branchName}`]);
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -192,7 +197,7 @@ describe('git-publish', ({ describe }) => {
 			expect(gitPublishProcess.stdout).toMatch('✔');
 
 			// Published branch should have exactly 1 commit
-			const publishedBranch = 'npm/master-@org/test-pkg';
+			const publishedBranch = `npm/${branchName}-${packageName}`;
 			const commitCount = await git('rev-list', ['--count', `origin/${publishedBranch}`]);
 			expect(Number(commitCount)).toBe(1);
 
@@ -225,7 +230,7 @@ describe('git-publish', ({ describe }) => {
 			await spawn('pnpm', ['install'], { cwd: fixture.path });
 
 			const git = createGit(fixture.path);
-			await git.init();
+			await git.init(['--initial-branch=test-pnpm-catalog']);
 
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
@@ -246,6 +251,8 @@ describe('git-publish', ({ describe }) => {
 		});
 
 		test('npm pack is used', async ({ onTestFail }) => {
+			const branchName = 'test-npm-pack';
+
 			// This test verifies that npm pack is used (with lifecycle hooks)
 			// by creating a package with prepare/prepack scripts that generate files
 			await using fixture = await createFixture({
@@ -267,7 +274,7 @@ describe('git-publish', ({ describe }) => {
 			});
 
 			const git = createGit(fixture.path);
-			await git.init();
+			await git.init([`--initial-branch=${branchName}`]);
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -283,7 +290,7 @@ describe('git-publish', ({ describe }) => {
 			// Clone the published branch to verify
 			await using publishedClone = await createFixture();
 			const publishedGit = createGit(publishedClone.path);
-			await publishedGit('clone', ['--branch', 'npm/master', remoteFixture.path, publishedClone.path]);
+			await publishedGit('clone', ['--branch', `npm/${branchName}`, remoteFixture.path, publishedClone.path]);
 
 			// Check that lifecycle hooks ran and created files
 			const files = await fs.readdir(publishedClone.path);

@@ -20,14 +20,7 @@ export const createGit = (
 
 	return Object.assign(git, {
 		init: async (args: string[] = []) => {
-			await git(
-				'init',
-				[
-					// In case of different default branch name
-					'--initial-branch=master',
-					...args,
-				],
-			);
+			await git('init', args);
 			await git('config', ['user.name', 'name']);
 			await git('config', ['user.email', 'email']);
 		},
