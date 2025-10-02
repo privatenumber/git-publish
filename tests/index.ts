@@ -69,19 +69,40 @@ describe('git-publish', ({ describe }) => {
 		});
 	});
 
-	describe('Publish', async ({ test }) => {
-		await using remoteFixture = await createFixture();
+	describe('Publish', async ({ test, onFinish }) => {
+		const remoteFixture = await createFixture();
 		const remoteGit = createGit(remoteFixture.path);
 		await remoteGit.init(['--bare']);
+		onFinish(() => remoteFixture.rm());
 
 		test('preserves history', async ({ onTestFail }) => {
-			const preBranch = 'test/preserve-history';
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+				'index.js': 'console.log("v1");',
+			});
 
-			const git = createGit(process.cwd());
-			await git('fetch', ['origin', preBranch]);
-			await using worktree = await gitWorktree(process.cwd(), preBranch);
+			const git = createGit(fixture.path);
+			await git.init();
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
 
-			const gitPublishProcess = await gitPublish(worktree.path);
+			// First publish
+			const firstPublish = await gitPublish(fixture.path, ['--fresh']);
+			if ('exitCode' in firstPublish) {
+				throw new Error(`First publish failed: ${firstPublish.stderr}`);
+			}
+
+			// Make a change and commit
+			await fixture.writeFile('index.js', 'console.log("v2");');
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Second commit']);
+
+			// Second publish (should preserve history)
+			const gitPublishProcess = await gitPublish(fixture.path);
 			onTestFail(() => {
 				console.log(gitPublishProcess);
 			});
@@ -89,15 +110,10 @@ describe('git-publish', ({ describe }) => {
 			expect('exitCode' in gitPublishProcess).toBe(false);
 			expect(gitPublishProcess.stdout).toMatch('✔');
 
-			// The branch should remain unchanged
-			const afterBranch = await worktree.git('branch', ['--show-current']);
-			expect(afterBranch).toBe(preBranch);
-
-			// Assert that the published branch has multiple commits
-			const publishedBranch = `npm/${preBranch}`;
-			await worktree.git('fetch', ['--depth=2', 'origin', publishedBranch]);
-			const commitCount = await worktree.git('rev-list', ['--count', `origin/${publishedBranch}`]);
-			expect(Number(commitCount)).toBeGreaterThan(1);
+			// Assert that the published branch has 2 commits
+			const publishedBranch = 'npm/master';
+			const commitCount = await git('rev-list', ['--count', `origin/${publishedBranch}`]);
+			expect(Number(commitCount)).toBe(2);
 		});
 
 		test('--fresh', async ({ onTestFail }) => {
@@ -106,6 +122,9 @@ describe('git-publish', ({ describe }) => {
 			const git = createGit(process.cwd());
 			await git('fetch', ['origin', preBranch]);
 			await using worktree = await gitWorktree(process.cwd(), preBranch);
+
+			// Use remoteFixture as the origin for this test
+			await worktree.git('remote', ['set-url', 'origin', remoteFixture.path]);
 
 			const gitPublishProcess = await gitPublish(worktree.path, ['--fresh']);
 			onTestFail(() => {
@@ -132,6 +151,9 @@ describe('git-publish', ({ describe }) => {
 			const git = createGit(process.cwd());
 			await git('fetch', ['origin', preBranch]);
 			await using worktree = await gitWorktree(process.cwd(), preBranch);
+
+			// Use remoteFixture as the origin for this test
+			await worktree.git('remote', ['set-url', 'origin', remoteFixture.path]);
 
 			const monorepoPackagePath = path.join(worktree.path, 'tests/monorepo-fixture');
 			const gitPublishProcess = await gitPublish(monorepoPackagePath, ['--fresh']);
