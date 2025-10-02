@@ -211,7 +211,9 @@ describe('git-publish', ({ describe }) => {
 		});
 
 		test('pnpm catalog protocol is resolved', async ({ onTestFail }) => {
+			const branchName = 'test-pnpm-catalog';
 			const msVersion = '2.1.3';
+
 			await using fixture = await createFixture({
 				'pnpm-workspace.yaml': yaml.dump({
 					catalog: {
@@ -230,7 +232,7 @@ describe('git-publish', ({ describe }) => {
 			await spawn('pnpm', ['install'], { cwd: fixture.path });
 
 			const git = createGit(fixture.path);
-			await git.init(['--initial-branch=test-pnpm-catalog']);
+			await git.init([`--initial-branch=${branchName}`]);
 
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
@@ -243,7 +245,7 @@ describe('git-publish', ({ describe }) => {
 			expect('exitCode' in gitPublishProcess).toBe(false);
 			expect(gitPublishProcess.stdout).toMatch('✔');
 
-			await git('checkout', ['npm/master']);
+			await git('checkout', [`npm/${branchName}`]);
 
 			const packageJsonString = await fixture.readFile('package.json', 'utf8');
 			const packageJson = JSON.parse(packageJsonString);
