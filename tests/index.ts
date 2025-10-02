@@ -289,21 +289,19 @@ describe('git-publish', ({ describe }) => {
 			expect('exitCode' in gitPublishProcess).toBe(false);
 			expect(gitPublishProcess.stdout).toMatch('✔');
 
-			// Clone the published branch to verify
-			await using publishedClone = await createFixture();
-			const publishedGit = createGit(publishedClone.path);
-			await publishedGit('clone', ['--branch', `npm/${branchName}`, remoteFixture.path, publishedClone.path]);
+			// Checkout the published branch to verify
+			await git('checkout', ['--force', `npm/${branchName}`]);
 
 			// Check that lifecycle hooks ran and created files
-			const files = await fs.readdir(publishedClone.path);
+			const files = await fs.readdir(fixture.path);
 			expect(files).toContain('prepare.txt');
 			expect(files).toContain('prepack.txt');
 			expect(files).toContain('dist');
 			expect(files).not.toContain('src'); // Should be excluded
 
 			// Verify hook outputs
-			const prepareContent = await publishedClone.readFile('prepare.txt', 'utf8');
-			const prepackContent = await publishedClone.readFile('prepack.txt', 'utf8');
+			const prepareContent = await fixture.readFile('prepare.txt', 'utf8');
+			const prepackContent = await fixture.readFile('prepack.txt', 'utf8');
 			expect(prepareContent.trim()).toBe('prepare-ran');
 			expect(prepackContent.trim()).toBe('prepack-ran');
 		});
@@ -325,6 +323,7 @@ describe('git-publish', ({ describe }) => {
 				src: {
 					'source.ts': '// This should not be published',
 				},
+				'.gitignore': 'dist',
 			});
 
 			const git = createGit(fixture.path);
@@ -350,6 +349,10 @@ describe('git-publish', ({ describe }) => {
 				'dist/utils.js',
 				'package.json',
 			]);
+
+			// Make sure original dist files are unchanged
+			const indexStillExists = await fixture.readFile('dist/index.js', 'utf8');
+			expect(indexStillExists).toBe('export const existingFile = true;');
 
 			// Checkout and verify content
 			await git('checkout', [publishedBranch]);
