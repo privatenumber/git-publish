@@ -192,18 +192,62 @@ const { stringify } = JSON;
 					// Create temp directory for pack
 					await fs.mkdir(packTemporaryDirectory, { recursive: true });
 
+					// For monorepos, recreate workspace structure temporarily for pack
+					if (gitSubdirectory) {
+						// Copy workspace files needed for package manager features (e.g., pnpm catalog)
+						const workspaceFiles = ['pnpm-workspace.yaml', 'package.json', '.npmrc', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'bun.lock'];
+						await Promise.all(
+							workspaceFiles.map(async (file) => {
+								const sourcePath = path.join(gitRootPath, file);
+								const destinationPath = path.join(worktreePath, file);
+								try {
+									await fs.copyFile(sourcePath, destinationPath);
+								} catch {
+									// File doesn't exist, skip
+								}
+							}),
+						);
+
+						// Recreate the subdirectory structure
+						const subdirPath = path.join(worktreePath, gitSubdirectory);
+						await fs.mkdir(subdirPath, { recursive: true });
+
+						// Copy package files to subdirectory
+						const packageFiles = await fs.readdir(cwd);
+						await Promise.all(
+							packageFiles.map(async (file) => {
+								const sourcePath = path.join(cwd, file);
+								const destinationPath = path.join(subdirPath, file);
+								await fs.cp(sourcePath, destinationPath, { recursive: true }).catch(() => {});
+							}),
+						);
+					}
+
 					// Determine pack command based on package manager
 					const packArgs = packageManager === 'bun'
 						? ['pm', 'pack', '--destination', packTemporaryDirectory]
 						: ['pack', '--pack-destination', packTemporaryDirectory];
 
 					// Run pack with detected package manager
-					const packCwd = gitSubdirectory ? path.join(gitRootPath, gitSubdirectory) : cwd;
+					const packCwd = gitSubdirectory ? path.join(worktreePath, gitSubdirectory) : cwd;
 					await spawn(packageManager, packArgs, { cwd: packCwd });
 
 					// Determine tarball filename
 					const tarballName = `${packageJson.name!.replace(/^@/, '').replace('/', '-')}-${packageJson.version}.tgz`;
 					const tarballPath = path.join(packTemporaryDirectory, tarballName);
+
+					// Clear worktree again before extraction
+					if (gitSubdirectory) {
+						const files = await fs.readdir(worktreePath);
+						await Promise.all(
+							files
+								.filter(file => file !== '.git')
+								.map(file => fs.rm(path.join(worktreePath, file), {
+									recursive: true,
+									force: true,
+								})),
+						);
+					}
 
 					// Extract tarball to worktree, stripping the 'package/' prefix
 					await tar.x({

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
+import yaml from 'js-yaml';
 import { createGit, gitWorktree } from './utils/create-git.js';
 import { gitPublish } from './utils/git-publish.js';
 
@@ -154,6 +155,51 @@ describe('git-publish', ({ describe }) => {
 				'dist/index.js',
 				'package.json',
 			]);
+		});
+
+		test('pnpm catalog protocol is resolved', async ({ onTestFail }) => {
+			const msVersion = '2.1.3';
+			await using fixture = await createFixture({
+				'pnpm-workspace.yaml': yaml.dump({
+					catalog: {
+						ms: msVersion,
+					},
+				}),
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+					dependencies: {
+						ms: 'catalog:',
+					},
+				}, null, 2),
+			});
+
+			await spawn('pnpm', ['install'], { cwd: fixture.path });
+
+			const git = createGit(fixture.path);
+			await git.init();
+
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+
+			// Create a bare repo to push to
+			await using remoteFixture = await createFixture();
+			const remoteGit = createGit(remoteFixture.path);
+			await remoteGit.init(['--bare']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			onTestFail(() => {
+				console.log('Git publish process:', gitPublishProcess);
+			});
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+
+			await git('checkout', ['npm/master']);
+
+			const packageJsonString = await fixture.readFile('package.json', 'utf8');
+			const packageJson = JSON.parse(packageJsonString);
+			expect(packageJson.dependencies.ms).toBe(msVersion);
 		});
 
 		test('npm pack is used', async ({ onTestFail }) => {
