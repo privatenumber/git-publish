@@ -79,7 +79,9 @@ const { stringify } = JSON;
 		throw new Error('This package is marked as private. Use --force to publish it anyway.');
 	}
 
-	const { branch, remote, fresh, dry } = argv.flags;
+	const {
+		branch, remote, fresh, dry,
+	} = argv.flags;
 
 	const publishBranch = branch || (
 		gitSubdirectory
