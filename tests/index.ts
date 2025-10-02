@@ -67,7 +67,7 @@ describe('git-publish', ({ describe }) => {
 		const remoteFixture = await createFixture();
 		const remoteGit = createGit(remoteFixture.path);
 		await remoteGit.init(['--bare']);
-		// onFinish(() => remoteFixture.rm());
+		onFinish(() => remoteFixture.rm());
 
 		test('preserves history', async ({ onTestFail }) => {
 			const branchName = 'test-preserve-history';
@@ -257,7 +257,7 @@ describe('git-publish', ({ describe }) => {
 				const packageName = '@org/monorepo-test';
 				const msVersion = '2.1.3';
 
-				const fixture = await createFixture({
+				await using fixture = await createFixture({
 					'pnpm-workspace.yaml': yaml.dump({
 						packages: ['packages/*'],
 						catalog: {
@@ -287,7 +287,6 @@ describe('git-publish', ({ describe }) => {
 				await git('commit', ['-m', 'Initial commit']);
 				await git('remote', ['add', 'origin', remoteFixture.path]);
 
-				console.log(fixture);
 				const monorepoPackagePath = path.join(fixture.path, 'packages/test-pkg');
 				const gitPublishProcess = await gitPublish(monorepoPackagePath, ['--fresh']);
 				onTestFail(() => {

@@ -121,7 +121,7 @@ const { stringify } = JSON;
 			}
 
 			let commitSha: string;
-			const packageManager = await detectPackageManager();
+			const packageManager = await detectPackageManager(cwd, gitRootPath);
 
 			const creatingWorkTree = await task('Creating worktree', async ({ setWarning }) => {
 				if (dry) {
@@ -240,9 +240,8 @@ const { stringify } = JSON;
 						? ['pm', 'pack', '--destination', packTemporaryDirectory]
 						: ['pack', '--pack-destination', packTemporaryDirectory];
 
-					// Run pack with detected package manager
-					const packCwd = gitSubdirectory ? path.join(worktreePath, gitSubdirectory) : cwd;
-					await spawn(packageManager, packArgs, { cwd: packCwd });
+					// Run pack from the current working directory
+					await spawn(packageManager, packArgs, { cwd });
 
 					// Determine tarball filename
 					const tarballName = `${packageJson.name!.replace(/^@/, '').replace('/', '-')}-${packageJson.version}.tgz`;
