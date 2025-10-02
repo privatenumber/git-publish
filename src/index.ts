@@ -1,6 +1,8 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import os from 'node:os';
+import { pipeline } from 'node:stream/promises';
 import spawn, { type SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
@@ -8,7 +10,8 @@ import type { PackageJson } from '@npmcli/package-json';
 import byteSize from 'byte-size';
 import { cyan, dim, lightBlue } from 'kolorist';
 import terminalLink from 'terminal-link';
-import * as tar from 'tar';
+import tarFs from 'tar-fs';
+import gunzip from 'gunzip-maybe';
 import { name, version, description } from '../package.json';
 import { simpleSpawn } from './utils/simple-spawn';
 import {
@@ -250,11 +253,21 @@ const { stringify } = JSON;
 					}
 
 					// Extract tarball to worktree, stripping the 'package/' prefix
-					await tar.x({
-						file: tarballPath,
-						cwd: worktreePath,
-						strip: 1,
-					});
+					await pipeline(
+						createReadStream(tarballPath),
+						gunzip(),
+						tarFs.extract(worktreePath, {
+							map: (header) => {
+								// Strip the 'package/' prefix
+								const parts = header.name.split('/');
+								if (parts[0] === 'package') {
+									parts.shift();
+								}
+								header.name = parts.join('/');
+								return header;
+							},
+						}),
+					);
 				});
 
 				if (!dry) {
