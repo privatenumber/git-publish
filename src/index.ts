@@ -107,9 +107,9 @@ const { stringify } = JSON;
 			}
 
 			const localTemporaryBranch = `git-publish-${Date.now()}-${process.pid}`;
-			const gitPublishTempDir = path.join(os.tmpdir(), 'git-publish', localTemporaryBranch);
-			const worktreePath = path.join(gitPublishTempDir, 'worktree');
-			const packTemporaryDirectory = path.join(gitPublishTempDir, 'pack');
+			const temporaryDirectory = path.join(os.tmpdir(), 'git-publish', localTemporaryBranch);
+			const worktreePath = path.join(temporaryDirectory, 'worktree');
+			const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
 
 			let success = false;
 
@@ -168,19 +168,13 @@ const { stringify } = JSON;
 						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: worktreePath });
 					}
 
-					// Remove all tracked files from index
-					await spawn('git', ['rm', '--cached', '-r', ':/'], { cwd: worktreePath });
+					// Remove all files from index and working directory
 
-					// Delete all files from working directory (except .git)
-					const files = await fs.readdir(worktreePath);
-					await Promise.all(
-						files
-							.filter(file => file !== '.git')
-							.map(file => fs.rm(path.join(worktreePath, file), {
-								recursive: true,
-								force: true,
-							})),
-					);
+					// removes tracked files from index (.catch() since it fails on empty orphan branches)
+					await spawn('git', ['rm', '--cached', '-r', ':/'], { cwd: worktreePath }).catch(() => {});
+
+					// removes all untracked files from the working directory
+					await spawn('git', ['clean', '-fdx'], { cwd: worktreePath });
 				});
 
 				if (!dry) {
@@ -285,7 +279,7 @@ const { stringify } = JSON;
 					);
 
 					// Sort files alphabetically
-					publishFiles.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+					publishFiles.sort((a, b) => (a.file < b.file ? -1 : (a.file > b.file ? 1 : 0)));
 				});
 
 				if (!dry) {
@@ -374,7 +368,7 @@ const { stringify } = JSON;
 
 					await spawn('git', ['worktree', 'remove', '--force', worktreePath]);
 					await spawn('git', ['branch', '-D', localTemporaryBranch]);
-					await fs.rm(gitPublishTempDir, {
+					await fs.rm(temporaryDirectory, {
 						recursive: true,
 						force: true,
 					});
