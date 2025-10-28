@@ -1,6 +1,7 @@
 # git-publish
 
-Publish your npm package to a Git branch. Great for pre-publishing a package for testing.
+Publish your npm package to a Git branch.
+Useful for testing packages in production-like environments before publishing to npm.
 
 <br>
 
@@ -11,122 +12,145 @@ Publish your npm package to a Git branch. Great for pre-publishing a package for
 
 ## Why?
 
-To test a package without publishing to npm.
+To test a package without publishing to the npm registry.
 
-#### Why not use `npm publish` to make a pre-release?
+### Why not use `npm publish`?
 
-Because of the following drawbacks:
+Publishing to npm just for testing has major downsides:
 
-- **Versioning concerns:** even though you're just testing, you still need to version bump
-- **Undeleteable:** releases are hard to remove due to npm's [strict unpublish policy](https://docs.npmjs.com/policies/unpublish)
-- **Unverifyable:** npm does not offer a great way to browse the contents of a package
-- **Risky:** Publishing tests to a production environment can be dangerous (eg. accidentally publish as stable)
+- **Versioning overhead:** You must bump the version, even for throwaway builds.
+- **Permanent:** npm's [strict unpublish policy](https://docs.npmjs.com/policies/unpublish) makes removing test releases difficult.
+- **Hard to inspect:** npm doesn't make it easy to view the contents of a published package.
+- **Risky:** You could accidentally publish test code as a stable release.
 
-#### What about `npm link`?
-- No [npm life cycle scripts](https://docs.npmjs.com/cli/v8/using-npm/scripts#life-cycle-scripts)
-- Includes non-publishable assets
-- Doesn't install dependencies
+### Why not use `npm link`?
 
+- Skips [npm lifecycle scripts](https://docs.npmjs.com/cli/v8/using-npm/scripts#life-cycle-scripts)
+- Links the entire project (including source, tests, configs)
+- Doesn't install dependencies automatically
 
-#### So why `git-publish`?
+### So why `git-publish`?
 
-- **No versions:** Instead of versions, branch names are used. Branches can be updated to reflect latest change.
-
-- **Deletable:** Simply delete the branch when you're done with it.
-
-- **Browsable:** Use GitHub to easily verify the contents of the branch. You can even share a link for others to see.
-
-- **Dev environment:** Low risk of mistakes.
-
-- **Simulates `npm publish`:** Runs npm life cycle scripts and only includes publishable assets.
+- **No versioning required:** Uses Git branches instead of package versions.
+- **Easy cleanup:** Delete the branch when you're done.
+- **Browsable:** View and verify the published package on GitHub.
+- **Safe:** Keeps test builds out of npm.
+- **Realistic simulation:** Runs `prepare` and `prepack`, and includes only publishable files.
 
 ## Usage
 
-Publish your npm package to a branch on the Git repository:
+Publish your npm package to a Git branch:
 
 ```sh
 npx git-publish
 ```
 
-This command will publish to the remote branch `npm/<current branch>`.
-
+This publishes the current package to the branch `npm/<current branch>` on the remote `origin`.
 
 ### Global install
-Keep the command handy by installing it globally:
 
 ```sh
 npm install -g git-publish
 ```
 
-When globally installed, you can use it without `npx`:
+Then run with:
+
 ```sh
 git-publish
 ```
 
-### Flags
-| Flag | Description |
-| - | - |
-| `-b, --branch <branch name>` | The branch to publish the package to. Defaults to prefixing "npm/" to the current branch or tag name. |
-| `-r, --remote <remote>` | The remote to push to. (default: `origin`) |
-| `-o, --fresh` | Publish without a commit history. Warning: Force-pushes to remote |
-| `-d, --dry` | Dry run mode. Will not commit or push to the remote. |
-| `-h, --help` | Show help |
-| `--version` | Show version |
+### CLI Flags
+
+| Flag                    | Description                                                   |
+| ----------------------- | ------------------------------------------------------------- |
+| `-b, --branch <name>`   | Target branch name. Defaults to `npm/<current branch or tag>` |
+| `-r, --remote <remote>` | Git remote to push to (default: `origin`)                     |
+| `-o, --fresh`           | Create a fresh single-commit branch. Force-pushes to remote   |
+| `-d, --dry`             | Simulate the process. Does not commit or push                 |
+| `-h, --help`            | Show CLI help                                                 |
+| `--version`             | Show CLI version                                              |
 
 ## FAQ
 
-### What are some use-cases where this is useful?
-- When you want to test a new package that isn't ready to be published on npm.
+### What are some use cases?
 
-- When you're contributing to an open source project so you don't have publish access, but want to test the changes in a production-like environment.
+- Testing a package before it's ready for npm
+- Contributing to a repo where you don't have publish access
+- Testing in a CI/CD or remote environment where `npm link` doesn't work
+- Avoiding symlink issues from `npm link`
 
-- When you want to test in a remote environment so you can't use `npm link`.
+### How do I include a build step?
 
-- When you want to avoid using `npm link` because of symlink complexities.
+Add your build command to the [`prepack`](https://docs.npmjs.com/cli/v8/using-npm/scripts#prepack) script in `package.json`:
 
+```json5
+{
+    // ...
 
-### How can I include a build step?
+    "scripts": {
+        "prepack": "npm run build",
+    },
+}
+```
 
-Like `npm publish`, you can call the build command it in the [`prepack` script](https://docs.npmjs.com/cli/v8/using-npm/scripts#:~:text=on%20npm%20publish.-,prepack,-Runs%20BEFORE%20a).
+This mirrors the same behavior as `npm publish`.
 
-### What does this script do?
+### What does `git-publish` do?
 
-1. If publish branch exists on remote, check it out to apply changes on top. Otherwise, create a new branch.
-2. Run [npm  hooks](https://docs.npmjs.com/cli/v8/using-npm/scripts) `prepare` & `prepack`
-3. Detect and commit only the [npm publish files](https://github.com/npm/npm-packlist)
-4. Push the branch to remote
-6. Print the installation command for the branch
+1. Checks out or creates the publish branch
+2. Runs the `prepare` and `prepack` npm scripts
+3. Uses [npm-packlist](https://github.com/npm/npm-packlist) to determine publishable files
+4. Commits only those files
+5. Pushes the branch to the Git remote
+6. Prints the command to install the package via Git
 
-### Why is the commit history preserved in the publish branch?
+### Why preserve commit history on the publish branch?
 
-When pushing an npm installable commit to Git, it's important that it's an attached commit.
+When installing from Git, npm uses commit hashes—not branch names. If the commit is "detached" (i.e., unreachable from history), it may be garbage-collected, breaking installs.
 
-This is because npm lock references the commit hash, and not the branch name. So if the commit is detached, it will be removed upon reference loss and any subsequent npm installations referencing that commit hash will fail.
+To avoid this, `git-publish` preserves history by default.
 
-If you'd like a publish branch with a clean commit history despite these drawbacks, you can use the `--fresh` flag to force-push a single-commit branch to the remote.
+If you prefer a single clean commit and understand the risks, use the `--fresh` flag to force-push a one-commit branch.
 
-### How is this different from simply committing the files to a branch?
+### Why not just commit the files manually?
 
-- There can be missing distribution files (eg. files outside of `dist`). _git-publish_ uses [npm-packlist](https://github.com/npm/npm-packlist) —the same library `npm publish` uses—to detect publish files declared via `package.json#files` and `.npmignore`.
-- Irrelevant files are committed (eg. source files). This can slow down installation or even interfere with the library behavior. For example, if your project has development configuration files, they can accidentally be read by the dependent tooling.
+Manual commits often:
 
-- npm hooks are not executed. _git-publish_ simulates package packing and runs hooks `prepare` and `prepack`.
+- Miss important files (e.g., those not in `dist/`)
+- Include irrelevant files (e.g., tests, source, configs)
+- Skip npm lifecycle scripts
+
+`git-publish` avoids these pitfalls by using `npm-packlist` (same as `npm publish`) and running `prepare` and `prepack`.
+
+### Can I use this in a monorepo?
+
+Yes. Run `git-publish` from inside the specific package directory (e.g., `packages/my-lib`).
+
+It will detect and publish only that package's contents to the root of the Git branch.
+
+> [!IMPORTANT]
+> Currently does not support resolving `workspace:` protocol dependencies. Avoid using those or pre-bundle them before publishing.
 
 ### Can I publish to and install from a private repository?
 
-Yes, if using a Git client authorized to access the private repository.
+Yes—if your Git client (e.g., local dev, CI, etc.) is authorized to access the repo.
 
-If it must be publicly accessible, you can set the `--remote <remote>` flag to push the publish assets to a public repository. It's recommended to compile and minify the code if doing this with private code.
+If that's not possible, you can push the branch to a public repo using the `--remote` flag.
 
+> [!WARNING]
+> Minify or obfuscate private code before publishing to a public repo.
 
-#### User story
-You want to test a branch on a private repository _Repo A_, but GitHub Actions on the consuming project _Repo B_ doesn't have access to the private repository so `npm install` fails.
+#### Example: publishing from private repo A to public repo B
 
-To work around this, you can publish the branch to _Repo B_ to install it from there:
+Say you're testing changes in **Repo A**, but your GitHub Actions workflow in **Repo B** can't access private repos. You can push the publish branch to **Repo B** instead:
 
 ```sh
-$ npx git-publish --remote git@github.com:repo-b.git --branch test-pkg
+npx git-publish --remote git@github.com:repo-b.git --branch test-pkg
+```
 
+Result:
+
+```sh
 ✔ Successfully published branch! Install with command:
   → npm i 'repo-b#test-pkg'
 ```
