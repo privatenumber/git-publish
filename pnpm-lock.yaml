@@ -71,7 +71,7 @@ importers:
         version: 2.15.0(typescript@5.9.2)
       tasuku:
         specifier: github:privatenumber/tasuku#npm/refactor
-        version: https://codeload.github.com/privatenumber/tasuku/tar.gz/7f2bd57f11cb901f6df74f7020847967b8e8c89d
+        version: https://codeload.github.com/privatenumber/tasuku/tar.gz/c0c8e298fd50b1a2c31513e7a68df854cd52be98
       terminal-link:
         specifier: ^4.0.0
         version: 4.0.0
@@ -2352,8 +2352,8 @@ packages:
   tar-stream@3.1.7:
     resolution: {integrity: sha512-qJj60CXt7IU1Ffyc3NJMjh6EkuCFej46zUqJ4J7pqYlThyd9bO0XBTmcOIhSzZJVWfsLks0+nle/j538YAW9RQ==}
 
-  tasuku@https://codeload.github.com/privatenumber/tasuku/tar.gz/7f2bd57f11cb901f6df74f7020847967b8e8c89d:
-    resolution: {tarball: https://codeload.github.com/privatenumber/tasuku/tar.gz/7f2bd57f11cb901f6df74f7020847967b8e8c89d}
+  tasuku@https://codeload.github.com/privatenumber/tasuku/tar.gz/c0c8e298fd50b1a2c31513e7a68df854cd52be98:
+    resolution: {tarball: https://codeload.github.com/privatenumber/tasuku/tar.gz/c0c8e298fd50b1a2c31513e7a68df854cd52be98}
     version: 0.0.0-semantic-release
 
   terminal-columns@1.4.1:
@@ -5214,7 +5214,7 @@ snapshots:
     transitivePeerDependencies:
       - react-native-b4a
 
-  tasuku@https://codeload.github.com/privatenumber/tasuku/tar.gz/7f2bd57f11cb901f6df74f7020847967b8e8c89d: {}
+  tasuku@https://codeload.github.com/privatenumber/tasuku/tar.gz/c0c8e298fd50b1a2c31513e7a68df854cd52be98: {}
 
   terminal-columns@1.4.1: {}
 
