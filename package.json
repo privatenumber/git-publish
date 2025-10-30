@@ -1,0 +1,29 @@
+{
+  "name": "git-publish",
+  "version": "0.0.0-semantic-release",
+  "description": "Publish your npm package to a GitHub repository branch",
+  "keywords": [
+    "npm",
+    "publish",
+    "git",
+    "github",
+    "branch",
+    "branches"
+  ],
+  "license": "MIT",
+  "repository": "privatenumber/git-publish",
+  "funding": "https://github.com/privatenumber/git-publish?sponsor=1",
+  "author": {
+    "name": "Hiroki Osame",
+    "email": "hiroki.osame@gmail.com"
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": "dist/index.js",
+  "dependencies": {
+    "gunzip-maybe": "^1.4.2",
+    "tar-fs": "^3.1.1",
+    "yoga-layout-prebuilt": "^1.10.0"
+  }
+}
