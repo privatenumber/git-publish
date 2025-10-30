@@ -70,8 +70,8 @@ importers:
         specifier: ^2.15.0
         version: 2.15.0(typescript@5.9.2)
       tasuku:
-        specifier: ^2.0.1
-        version: 2.0.1
+        specifier: github:privatenumber/tasuku#npm/refactor
+        version: https://codeload.github.com/privatenumber/tasuku/tar.gz/63e150e5f62f770717814fa72c933a45fe44efac
       terminal-link:
         specifier: ^4.0.0
         version: 4.0.0
@@ -2352,8 +2352,9 @@ packages:
   tar-stream@3.1.7:
     resolution: {integrity: sha512-qJj60CXt7IU1Ffyc3NJMjh6EkuCFej46zUqJ4J7pqYlThyd9bO0XBTmcOIhSzZJVWfsLks0+nle/j538YAW9RQ==}
 
-  tasuku@2.0.1:
-    resolution: {integrity: sha512-BXWDEJzpC1mUiOz5Csba85LS93o9a5pGKRTArLiXJZ2HGF/mXHIl+4SBF706Yxqg+GlJDQurvLxds8tC7EwyRA==}
+  tasuku@https://codeload.github.com/privatenumber/tasuku/tar.gz/63e150e5f62f770717814fa72c933a45fe44efac:
+    resolution: {tarball: https://codeload.github.com/privatenumber/tasuku/tar.gz/63e150e5f62f770717814fa72c933a45fe44efac}
+    version: 0.0.0-semantic-release
 
   terminal-columns@1.4.1:
     resolution: {integrity: sha512-IKVL/itiMy947XWVv4IHV7a0KQXvKjj4ptbi7Ew9MPMcOLzkiQeyx3Gyvh62hKrfJ0RZc4M1nbhzjNM39Kyujw==}
@@ -5213,9 +5214,7 @@ snapshots:
     transitivePeerDependencies:
       - react-native-b4a
 
-  tasuku@2.0.1:
-    dependencies:
-      yoga-layout-prebuilt: 1.10.0
+  tasuku@https://codeload.github.com/privatenumber/tasuku/tar.gz/63e150e5f62f770717814fa72c933a45fe44efac: {}
 
   terminal-columns@1.4.1: {}
 
