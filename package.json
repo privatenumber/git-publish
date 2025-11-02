@@ -23,38 +23,37 @@
 	"bin": "dist/index.js",
 	"packageManager": "pnpm@10.14.0",
 	"scripts": {
-		"build": "pkgroll --minify",
-		"lint": "lintroll --cache .",
-		"type-check": "tsc --noEmit",
+		"build": "pkgroll --minify --clean-dist",
+		"lint": "lintroll --cache",
+		"type-check": "tsc",
 		"test": "tsx tests",
 		"prepack": "pnpm build && clean-pkg-json"
 	},
 	"dependencies": {
 		"gunzip-maybe": "^1.4.2",
 		"tar-fs": "^3.1.1",
-		"yoga-layout-prebuilt": "^1.10.0"
+		"tasuku": "^2.0.2"
 	},
 	"devDependencies": {
 		"@types/byte-size": "^8.1.2",
-		"@types/gunzip-maybe": "^1.4.2",
+		"@types/gunzip-maybe": "^1.4.3",
 		"@types/js-yaml": "^4.0.9",
-		"@types/node": "^24.1.0",
+		"@types/node": "^24.9.2",
 		"@types/npmcli__package-json": "^4.0.4",
 		"@types/tar-fs": "^2.0.4",
 		"byte-size": "^9.0.1",
 		"clean-pkg-json": "^1.3.0",
 		"cleye": "^1.3.4",
 		"find-up-simple": "^1.0.1",
-		"fs-fixture": "^2.8.1",
+		"fs-fixture": "^2.10.1",
 		"js-yaml": "^4.1.0",
 		"kolorist": "^1.8.0",
-		"lintroll": "^1.19.1",
+		"lintroll": "^1.24.2",
 		"manten": "^1.5.0",
-		"nano-spawn": "^1.0.2",
-		"pkgroll": "^2.15.0",
-		"tasuku": "^2.0.1",
+		"nano-spawn": "^1.0.3",
+		"pkgroll": "^2.20.1",
 		"terminal-link": "^4.0.0",
-		"tsx": "^4.20.3",
-		"typescript": "^5.9.2"
+		"tsx": "^4.20.6",
+		"typescript": "^5.9.3"
 	}
 }
