@@ -10,6 +10,17 @@ const copyFile = async (source: string, destination: string): Promise<void> => {
 	await fs.copyFile(source, destination);
 };
 
+const throwUnlessEnoent = (error: unknown): void => {
+	if (
+		typeof error === 'object'
+		&& error !== null
+		&& 'code' in error
+		&& error.code !== 'ENOENT'
+	) {
+		throw error;
+	}
+};
+
 export const packPackage = async (
 	packageManager: PackageManager,
 	packWorktreePath: string,
@@ -46,14 +57,7 @@ export const packPackage = async (
 				} catch (error: unknown) {
 					// Only catch ENOENT (file not found) - treat as glob pattern
 					// Re-throw other errors like EPERM (permission denied)
-					if (
-						typeof error === 'object'
-						&& error !== null
-						&& 'code' in error
-						&& error.code !== 'ENOENT'
-					) {
-						throw error;
-					}
+					throwUnlessEnoent(error);
 					return entry;
 				}
 			}),
@@ -94,14 +98,7 @@ export const packPackage = async (
 			);
 		} catch (error: unknown) {
 			// If node_modules doesn't exist, ignore (pack will likely fail later)
-			if (
-				typeof error === 'object'
-				&& error !== null
-				&& 'code' in error
-				&& error.code !== 'ENOENT'
-			) {
-				throw error;
-			}
+			throwUnlessEnoent(error);
 		}
 
 		// Package node_modules (if exists)
@@ -117,14 +114,7 @@ export const packPackage = async (
 				'dir',
 			);
 		} catch (error: unknown) {
-			if (
-				typeof error === 'object'
-				&& error !== null
-				&& 'code' in error
-				&& error.code !== 'ENOENT'
-			) {
-				throw error;
-			}
+			throwUnlessEnoent(error);
 		}
 	} else {
 		// Regular package node_modules
@@ -140,14 +130,7 @@ export const packPackage = async (
 				'dir',
 			);
 		} catch (error: unknown) {
-			if (
-				typeof error === 'object'
-				&& error !== null
-				&& 'code' in error
-				&& error.code !== 'ENOENT'
-			) {
-				throw error;
-			}
+			throwUnlessEnoent(error);
 		}
 	}
 
