@@ -462,5 +462,50 @@ describe('git-publish', ({ describe }) => {
 			const utilsContent = await git('show', [`origin/${publishedBranch}:dist/utils.js`]);
 			expect(utilsContent).toBe('export const util = () => {};');
 		});
+
+		test('prepack hook does not modify working directory', async ({ onTestFail }) => {
+			const branchName = 'test-prepack-isolation';
+
+			// This test verifies that prepack hooks don't pollute the working directory
+			// The hook creates a file, but it should only exist in the published branch
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-prepack-isolation',
+					version: '1.0.0',
+					scripts: {
+						prepack: 'echo "hook-ran" > prepack-created-file.txt',
+					},
+				}, null, 2),
+				'index.js': 'export const main = true;',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			// Run git-publish
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+
+			// Verify working directory is still clean (no new files created)
+			const statusOutput = await git('status', ['--porcelain']);
+			expect(statusOutput).toBe('');
+
+			// Verify the file created by prepack hook doesn't exist in working directory
+			const fileExists = await fixture.exists('prepack-created-file.txt');
+			expect(fileExists).toBe(false);
+
+			// Verify the published branch has the file created by the hook
+			const publishedBranch = `npm/${branchName}`;
+			const publishedFileContent = await git('show', [`origin/${publishedBranch}:prepack-created-file.txt`]);
+			expect(publishedFileContent.trim()).toBe('hook-ran');
+		});
 	});
 });

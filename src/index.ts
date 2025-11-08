@@ -183,6 +183,8 @@ const { stringify } = JSON;
 						packageManager,
 						cwd,
 						packTemporaryDirectory,
+						gitRootPath,
+						gitSubdirectory,
 					);
 
 					return await extractTarball(tarballPath, worktreePath);
