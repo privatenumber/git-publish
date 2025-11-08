@@ -43,10 +43,15 @@ export const packPackage = async (
 					const stats = await fs.stat(fullPath);
 					// If it's a directory, expand to recursive pattern
 					return stats.isDirectory() ? `${entry}/**` : entry;
-				} catch (error: any) {
+				} catch (error: unknown) {
 					// Only catch ENOENT (file not found) - treat as glob pattern
 					// Re-throw other errors like EPERM (permission denied)
-					if (error.code !== 'ENOENT') {
+					if (
+						typeof error === 'object'
+						&& error !== null
+						&& 'code' in error
+						&& error.code !== 'ENOENT'
+					) {
 						throw error;
 					}
 					return entry;
@@ -72,7 +77,8 @@ export const packPackage = async (
 	}
 
 	// Symlink node_modules so hooks have access to dependencies
-	// Note: Remove any existing node_modules directory in worktree first (git might have checked it out)
+	// Note: Remove any existing node_modules directory in worktree first
+	// (git might have checked it out)
 	if (isMonorepo) {
 		// Root node_modules
 		const rootNodeModulesTarget = path.join(packWorktreePath, 'node_modules');
@@ -86,9 +92,14 @@ export const packPackage = async (
 				rootNodeModulesTarget,
 				'dir',
 			);
-		} catch (error: any) {
+		} catch (error: unknown) {
 			// If node_modules doesn't exist, ignore (pack will likely fail later)
-			if (error.code !== 'ENOENT') {
+			if (
+				typeof error === 'object'
+				&& error !== null
+				&& 'code' in error
+				&& error.code !== 'ENOENT'
+			) {
 				throw error;
 			}
 		}
@@ -105,8 +116,13 @@ export const packPackage = async (
 				packageNodeModulesTarget,
 				'dir',
 			);
-		} catch (error: any) {
-			if (error.code !== 'ENOENT') {
+		} catch (error: unknown) {
+			if (
+				typeof error === 'object'
+				&& error !== null
+				&& 'code' in error
+				&& error.code !== 'ENOENT'
+			) {
 				throw error;
 			}
 		}
@@ -123,8 +139,13 @@ export const packPackage = async (
 				nodeModulesTarget,
 				'dir',
 			);
-		} catch (error: any) {
-			if (error.code !== 'ENOENT') {
+		} catch (error: unknown) {
+			if (
+				typeof error === 'object'
+				&& error !== null
+				&& 'code' in error
+				&& error.code !== 'ENOENT'
+			) {
 				throw error;
 			}
 		}
