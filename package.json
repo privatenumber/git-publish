@@ -30,6 +30,7 @@
 		"prepack": "pnpm build && clean-pkg-json"
 	},
 	"dependencies": {
+		"fast-glob": "^3.3.3",
 		"gunzip-maybe": "^1.4.2",
 		"tar-fs": "^3.1.1",
 		"tasuku": "^2.0.2"

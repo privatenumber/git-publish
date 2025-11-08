@@ -1,35 +1,13 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import spawn from 'nano-spawn';
+import glob from 'fast-glob';
 import type { PackageManager } from './detect-package-manager.js';
 import { readJson } from './read-json.js';
 
-const copyFileIfExists = async (source: string, destination: string): Promise<void> => {
-	try {
-		await fs.mkdir(path.dirname(destination), { recursive: true });
-		await fs.copyFile(source, destination);
-	} catch (error: any) {
-		if (error.code !== 'ENOENT') {
-			throw error;
-		}
-	}
-};
-
-const copyDirectory = async (source: string, destination: string): Promise<void> => {
-	await fs.mkdir(destination, { recursive: true });
-
-	const entries = await fs.readdir(source, { withFileTypes: true });
-
-	for (const entry of entries) {
-		const sourcePath = path.join(source, entry.name);
-		const destinationPath = path.join(destination, entry.name);
-
-		if (entry.isDirectory()) {
-			await copyDirectory(sourcePath, destinationPath);
-		} else if (entry.isFile()) {
-			await fs.copyFile(sourcePath, destinationPath);
-		}
-	}
+const copyFile = async (source: string, destination: string): Promise<void> => {
+	await fs.mkdir(path.dirname(destination), { recursive: true });
+	await fs.copyFile(source, destination);
 };
 
 export const packPackage = async (
@@ -51,30 +29,41 @@ export const packPackage = async (
 	const packageJsonPath = path.join(cwd, 'package.json');
 	const packageJson = await readJson(packageJsonPath) as { files?: string[] };
 
-	if (packageJson.files) {
+	if (packageJson.files && packageJson.files.length > 0) {
 		const packWorktreePackageRoot = isMonorepo
 			? path.join(packWorktreePath, gitSubdirectory)
 			: packWorktreePath;
 
-		for (const filePattern of packageJson.files) {
-			const sourcePath = path.join(cwd, filePattern);
-			const destinationPath = path.join(packWorktreePackageRoot, filePattern);
+		// Transform directory entries to glob patterns
+		// npm/pnpm treat 'dist' as 'dist/**', but fast-glob needs explicit patterns
+		const patterns = await Promise.all(
+			packageJson.files.map(async (entry) => {
+				const fullPath = path.join(cwd, entry);
+				try {
+					const stats = await fs.stat(fullPath);
+					// If it's a directory, expand to recursive pattern
+					return stats.isDirectory() ? `${entry}/**` : entry;
+				} catch {
+					// If stat fails, treat as glob pattern (may not exist yet or is a pattern)
+					return entry;
+				}
+			}),
+		);
 
-			try {
-				const stats = await fs.stat(sourcePath);
-				if (stats.isDirectory()) {
-					// Copy entire directory
-					await copyDirectory(sourcePath, destinationPath);
-				} else if (stats.isFile()) {
-					// Copy single file
-					await copyFileIfExists(sourcePath, destinationPath);
-				}
-			} catch (error: any) {
-				// File/directory doesn't exist in user's directory, skip it
-				if (error.code !== 'ENOENT') {
-					throw error;
-				}
-			}
+		// Use fast-glob to resolve patterns in files field
+		// This handles glob patterns like "dist/*.js", directories like "dist", and dotfiles
+		const matchedFiles = await glob(patterns, {
+			cwd,
+			dot: true, // Include dotfiles like .env.production
+			gitignore: false, // Include gitignored files (they may be built artifacts we need to pack)
+		});
+
+		// Copy all matched files to pack worktree
+		for (const relativePath of matchedFiles) {
+			const sourcePath = path.join(cwd, relativePath);
+			const destinationPath = path.join(packWorktreePackageRoot, relativePath);
+
+			await copyFile(sourcePath, destinationPath);
 		}
 	}
 
