@@ -76,7 +76,10 @@ export const packPackage = async (
 	if (isMonorepo) {
 		// Root node_modules
 		const rootNodeModulesTarget = path.join(packWorktreePath, 'node_modules');
-		await fs.rm(rootNodeModulesTarget, { recursive: true, force: true });
+		await fs.rm(rootNodeModulesTarget, {
+			recursive: true,
+			force: true,
+		});
 		try {
 			await fs.symlink(
 				path.join(gitRootPath, 'node_modules'),
@@ -92,7 +95,10 @@ export const packPackage = async (
 
 		// Package node_modules (if exists)
 		const packageNodeModulesTarget = path.join(packWorktreePath, gitSubdirectory, 'node_modules');
-		await fs.rm(packageNodeModulesTarget, { recursive: true, force: true });
+		await fs.rm(packageNodeModulesTarget, {
+			recursive: true,
+			force: true,
+		});
 		try {
 			await fs.symlink(
 				path.join(cwd, 'node_modules'),
@@ -107,7 +113,10 @@ export const packPackage = async (
 	} else {
 		// Regular package node_modules
 		const nodeModulesTarget = path.join(packWorktreePath, 'node_modules');
-		await fs.rm(nodeModulesTarget, { recursive: true, force: true });
+		await fs.rm(nodeModulesTarget, {
+			recursive: true,
+			force: true,
+		});
 		try {
 			await fs.symlink(
 				path.join(cwd, 'node_modules'),
