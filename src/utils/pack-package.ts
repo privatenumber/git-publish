@@ -63,10 +63,10 @@ export const packPackage = async (
 
 		// Use fast-glob to resolve patterns in files field
 		// This handles glob patterns like "dist/*.js", directories like "dist", and dotfiles
+		// fast-glob doesn't respect .gitignore by default, so gitignored files are included
 		const matchedFiles = await glob(patterns, {
 			cwd,
 			dot: true, // Include dotfiles like .env.production
-			gitignore: false, // Include gitignored files (they may be built artifacts we need to pack)
 		});
 
 		// Copy all matched files to pack worktree
