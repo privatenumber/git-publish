@@ -116,7 +116,7 @@ const { stringify } = JSON;
 			let commitSha: string;
 			const packageManager = await detectPackageManager(cwd, gitRootPath);
 
-			const creatingWorkTree = await task('Creating worktrees', async ({ setWarning }) => {
+			const creatingWorktrees = await task('Creating worktrees', async ({ setWarning }) => {
 				if (dry) {
 					setWarning('');
 					return;
@@ -132,7 +132,7 @@ const { stringify } = JSON;
 			});
 
 			if (!dry) {
-				creatingWorkTree.clear();
+				creatingWorktrees.clear();
 			}
 
 			try {

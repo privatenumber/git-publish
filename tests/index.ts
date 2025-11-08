@@ -508,6 +508,41 @@ describe('git-publish', ({ describe }) => {
 			expect(publishedFileContent.trim()).toBe('hook-ran');
 		});
 
+		test('fails gracefully when pack hook dependencies are missing', async ({ onTestFail }) => {
+			const branchName = 'test-missing-deps';
+
+			// Test that script doesn't crash on ENOENT when symlinking node_modules
+			// Pack should fail gracefully with proper error message
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-missing-deps',
+					version: '1.0.0',
+					scripts: {
+						prepack: 'nonexistent-binary',
+					},
+				}, null, 2),
+				'index.js': 'export const main = true;',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			// Do NOT run npm install - node_modules won't exist
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			// Should fail with exit code
+			expect('exitCode' in gitPublishProcess).toBe(true);
+			if ('exitCode' in gitPublishProcess) {
+				expect(gitPublishProcess.exitCode).not.toBe(0);
+			}
+		});
+
 		test('publishes gitignored files specified by glob pattern', async ({ onTestFail }) => {
 			const branchName = 'test-glob-pattern';
 

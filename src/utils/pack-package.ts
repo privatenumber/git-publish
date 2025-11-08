@@ -43,8 +43,12 @@ export const packPackage = async (
 					const stats = await fs.stat(fullPath);
 					// If it's a directory, expand to recursive pattern
 					return stats.isDirectory() ? `${entry}/**` : entry;
-				} catch {
-					// If stat fails, treat as glob pattern (may not exist yet or is a pattern)
+				} catch (error: any) {
+					// Only catch ENOENT (file not found) - treat as glob pattern
+					// Re-throw other errors like EPERM (permission denied)
+					if (error.code !== 'ENOENT') {
+						throw error;
+					}
 					return entry;
 				}
 			}),
