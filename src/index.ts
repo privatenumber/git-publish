@@ -100,7 +100,8 @@ const { stringify } = JSON;
 
 			const localTemporaryBranch = `git-publish-${Date.now()}-${process.pid}`;
 			const temporaryDirectory = path.join(os.tmpdir(), 'git-publish', localTemporaryBranch);
-			const worktreePath = path.join(temporaryDirectory, 'worktree');
+			const publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
+			const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
 			const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
 
 			let success = false;
@@ -115,7 +116,7 @@ const { stringify } = JSON;
 			let commitSha: string;
 			const packageManager = await detectPackageManager(cwd, gitRootPath);
 
-			const creatingWorkTree = await task('Creating worktree', async ({ setWarning }) => {
+			const creatingWorkTree = await task('Creating worktrees', async ({ setWarning }) => {
 				if (dry) {
 					setWarning('');
 					return;
@@ -123,7 +124,11 @@ const { stringify } = JSON;
 
 				// TODO: maybe delete all worktrees starting with `git-publish-`?
 
-				await spawn('git', ['worktree', 'add', '--force', worktreePath, 'HEAD']);
+				// Create publish worktree
+				await spawn('git', ['worktree', 'add', '--force', publishWorktreePath, 'HEAD']);
+
+				// Create pack worktree for isolated pack execution
+				await spawn('git', ['worktree', 'add', '--force', packWorktreePath, 'HEAD']);
 			});
 
 			if (!dry) {
@@ -146,7 +151,7 @@ const { stringify } = JSON;
 							'--depth=1',
 							remote,
 							`${publishBranch}:${localTemporaryBranch}`,
-						], { cwd: worktreePath }).catch(error => error as SubprocessError);
+						], { cwd: publishWorktreePath }).catch(error => error as SubprocessError);
 
 						// If fetch fails, remote branch doesnt exist yet, so fallback to orphan
 						orphan = 'exitCode' in fetchResult;
@@ -154,19 +159,19 @@ const { stringify } = JSON;
 
 					if (orphan) {
 						// Fresh orphan branch with no history
-						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], { cwd: worktreePath });
+						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], { cwd: publishWorktreePath });
 					} else {
 						// Repoint HEAD to the fetched branch without checkout
-						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: worktreePath });
+						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: publishWorktreePath });
 					}
 
 					// Remove all files from index and working directory
 
 					// removes tracked files from index (.catch() since it fails on empty orphan branches)
-					await spawn('git', ['rm', '--cached', '-r', ':/'], { cwd: worktreePath }).catch(() => {});
+					await spawn('git', ['rm', '--cached', '-r', ':/'], { cwd: publishWorktreePath }).catch(() => {});
 
 					// removes all untracked files from the working directory
-					await spawn('git', ['clean', '-fdx'], { cwd: worktreePath });
+					await spawn('git', ['clean', '-fdx'], { cwd: publishWorktreePath });
 				});
 
 				if (!dry) {
@@ -181,13 +186,14 @@ const { stringify } = JSON;
 
 					const tarballPath = await packPackage(
 						packageManager,
-						cwd,
+						packWorktreePath,
 						packTemporaryDirectory,
+						cwd,
 						gitRootPath,
 						gitSubdirectory,
 					);
 
-					return await extractTarball(tarballPath, worktreePath);
+					return await extractTarball(tarballPath, publishWorktreePath);
 				});
 
 				if (!dry) {
@@ -200,7 +206,7 @@ const { stringify } = JSON;
 						return;
 					}
 
-					await spawn('git', ['add', '-A'], { cwd: worktreePath });
+					await spawn('git', ['add', '-A'], { cwd: publishWorktreePath });
 
 					const publishFiles = await packTask.result;
 					if (!publishFiles || publishFiles.length === 0) {
@@ -213,7 +219,7 @@ const { stringify } = JSON;
 					console.log(publishFiles.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
-					const trackedFiles = await gitStatusTracked({ cwd: worktreePath });
+					const trackedFiles = await gitStatusTracked({ cwd: publishWorktreePath });
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
@@ -235,11 +241,11 @@ const { stringify } = JSON;
 								commitMessage,
 								'--author=git-publish <bot@git-publish>',
 							],
-							{ cwd: worktreePath },
+							{ cwd: publishWorktreePath },
 						);
 					}
 
-					commitSha = (await getCurrentCommit({ cwd: worktreePath }))!;
+					commitSha = (await getCurrentCommit({ cwd: publishWorktreePath }))!;
 				});
 
 				if (!dry) {
@@ -260,7 +266,7 @@ const { stringify } = JSON;
 							'--no-verify',
 							remote,
 							`HEAD:${publishBranch}`,
-						], { cwd: worktreePath });
+						], { cwd: publishWorktreePath });
 						success = true;
 					},
 				);
@@ -275,7 +281,8 @@ const { stringify } = JSON;
 						return;
 					}
 
-					await spawn('git', ['worktree', 'remove', '--force', worktreePath]);
+					await spawn('git', ['worktree', 'remove', '--force', publishWorktreePath]);
+					await spawn('git', ['worktree', 'remove', '--force', packWorktreePath]);
 					await spawn('git', ['branch', '-D', localTemporaryBranch]);
 					await fs.rm(temporaryDirectory, {
 						recursive: true,

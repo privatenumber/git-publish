@@ -1,26 +1,32 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import spawn from 'nano-spawn';
 import type { PackageManager } from './detect-package-manager.js';
+import { readJson } from './read-json.js';
 
-const copyDirectory = async (source: string, destination: string, exclude?: string[]): Promise<void> => {
+const copyFileIfExists = async (source: string, destination: string): Promise<void> => {
+	try {
+		await fs.mkdir(path.dirname(destination), { recursive: true });
+		await fs.copyFile(source, destination);
+	} catch (error: any) {
+		if (error.code !== 'ENOENT') {
+			throw error;
+		}
+	}
+};
+
+const copyDirectory = async (source: string, destination: string): Promise<void> => {
 	await fs.mkdir(destination, { recursive: true });
 
 	const entries = await fs.readdir(source, { withFileTypes: true });
 
 	for (const entry of entries) {
-		if (exclude?.includes(entry.name)) {
-			continue;
-		}
-
 		const sourcePath = path.join(source, entry.name);
 		const destinationPath = path.join(destination, entry.name);
 
 		if (entry.isDirectory()) {
-			// Recursively copy directories, passing exclude to skip node_modules at all levels
-			await copyDirectory(sourcePath, destinationPath, exclude);
-		} else if (entry.isFile() || entry.isSymbolicLink()) {
+			await copyDirectory(sourcePath, destinationPath);
+		} else if (entry.isFile()) {
 			await fs.copyFile(sourcePath, destinationPath);
 		}
 	}
@@ -28,87 +34,111 @@ const copyDirectory = async (source: string, destination: string, exclude?: stri
 
 export const packPackage = async (
 	packageManager: PackageManager,
-	cwd: string,
+	packWorktreePath: string,
 	packDestinationDirectory: string,
+	cwd: string,
 	gitRootPath: string,
 	gitSubdirectory: string,
 ): Promise<string> => {
-	// Create temp directory for pack
+	// Create temp directory for pack output
 	await fs.mkdir(packDestinationDirectory, { recursive: true });
-
-	// Create isolated directory for running pack to prevent hooks from modifying user's files
-	const isolatedPackDirectory = path.join(os.tmpdir(), `git-publish-pack-${Date.now()}-${process.pid}`);
-	await fs.mkdir(isolatedPackDirectory, { recursive: true });
 
 	// Determine if this is a monorepo package (in a subdirectory)
 	const isMonorepo = gitSubdirectory.length > 0;
 
-	try {
-		if (isMonorepo) {
-			// For monorepo packages, copy the entire git root so workspace files are accessible
-			await copyDirectory(gitRootPath, isolatedPackDirectory, ['node_modules']);
+	// Copy gitignored files from user's directory if they're specified in files field
+	// This handles cases where dist/ or other build artifacts are gitignored but need to be packed
+	const packageJsonPath = path.join(cwd, 'package.json');
+	const packageJson = await readJson(packageJsonPath) as { files?: string[] };
 
-			// Symlink node_modules from git root
-			const nodeModulesPath = path.join(gitRootPath, 'node_modules');
+	if (packageJson.files) {
+		const packWorktreePackageRoot = isMonorepo
+			? path.join(packWorktreePath, gitSubdirectory)
+			: packWorktreePath;
+
+		for (const filePattern of packageJson.files) {
+			const sourcePath = path.join(cwd, filePattern);
+			const destinationPath = path.join(packWorktreePackageRoot, filePattern);
+
 			try {
-				await fs.access(nodeModulesPath);
-				await fs.symlink(
-					nodeModulesPath,
-					path.join(isolatedPackDirectory, 'node_modules'),
-					'dir',
-				);
-			} catch {
-				// node_modules doesn't exist, continue without it
+				const stats = await fs.stat(sourcePath);
+				if (stats.isDirectory()) {
+					// Copy entire directory
+					await copyDirectory(sourcePath, destinationPath);
+				} else if (stats.isFile()) {
+					// Copy single file
+					await copyFileIfExists(sourcePath, destinationPath);
+				}
+			} catch (error: any) {
+				// File/directory doesn't exist in user's directory, skip it
+				if (error.code !== 'ENOENT') {
+					throw error;
+				}
 			}
+		}
+	}
 
-			// Also symlink node_modules in the package subdirectory if it exists
-			const packageNodeModulesPath = path.join(cwd, 'node_modules');
-			try {
-				await fs.access(packageNodeModulesPath);
-				await fs.symlink(
-					packageNodeModulesPath,
-					path.join(isolatedPackDirectory, gitSubdirectory, 'node_modules'),
-					'dir',
-				);
-			} catch {
-				// node_modules doesn't exist in package directory, continue without it
-			}
-		} else {
-			// For regular packages, copy just the package directory
-			await copyDirectory(cwd, isolatedPackDirectory, ['node_modules']);
-
-			// Symlink node_modules so hooks have access to dependencies
-			const nodeModulesPath = path.join(cwd, 'node_modules');
-			try {
-				await fs.access(nodeModulesPath);
-				await fs.symlink(
-					nodeModulesPath,
-					path.join(isolatedPackDirectory, 'node_modules'),
-					'dir',
-				);
-			} catch {
-				// node_modules doesn't exist, continue without it
+	// Symlink node_modules so hooks have access to dependencies
+	// Note: Remove any existing node_modules directory in worktree first (git might have checked it out)
+	if (isMonorepo) {
+		// Root node_modules
+		const rootNodeModulesTarget = path.join(packWorktreePath, 'node_modules');
+		await fs.rm(rootNodeModulesTarget, { recursive: true, force: true });
+		try {
+			await fs.symlink(
+				path.join(gitRootPath, 'node_modules'),
+				rootNodeModulesTarget,
+				'dir',
+			);
+		} catch (error: any) {
+			// If node_modules doesn't exist, ignore (pack will likely fail later)
+			if (error.code !== 'ENOENT') {
+				throw error;
 			}
 		}
 
-		// Determine pack command based on package manager
-		const packArgs = packageManager === 'bun'
-			? ['pm', 'pack', '--destination', packDestinationDirectory]
-			: ['pack', '--pack-destination', packDestinationDirectory];
-
-		// Run pack from the appropriate directory
-		const packCwd = isMonorepo
-			? path.join(isolatedPackDirectory, gitSubdirectory)
-			: isolatedPackDirectory;
-
-		await spawn(packageManager, packArgs, { cwd: packCwd });
-	} finally {
-		// Clean up isolated directory
-		await fs.rm(isolatedPackDirectory, {
-			recursive: true,
-			force: true,
-		});
+		// Package node_modules (if exists)
+		const packageNodeModulesTarget = path.join(packWorktreePath, gitSubdirectory, 'node_modules');
+		await fs.rm(packageNodeModulesTarget, { recursive: true, force: true });
+		try {
+			await fs.symlink(
+				path.join(cwd, 'node_modules'),
+				packageNodeModulesTarget,
+				'dir',
+			);
+		} catch (error: any) {
+			if (error.code !== 'ENOENT') {
+				throw error;
+			}
+		}
+	} else {
+		// Regular package node_modules
+		const nodeModulesTarget = path.join(packWorktreePath, 'node_modules');
+		await fs.rm(nodeModulesTarget, { recursive: true, force: true });
+		try {
+			await fs.symlink(
+				path.join(cwd, 'node_modules'),
+				nodeModulesTarget,
+				'dir',
+			);
+		} catch (error: any) {
+			if (error.code !== 'ENOENT') {
+				throw error;
+			}
+		}
 	}
+
+	// Determine pack command based on package manager
+	const packArgs = packageManager === 'bun'
+		? ['pm', 'pack', '--destination', packDestinationDirectory]
+		: ['pack', '--pack-destination', packDestinationDirectory];
+
+	// Run pack from the appropriate directory in pack worktree
+	const packCwd = gitSubdirectory
+		? path.join(packWorktreePath, gitSubdirectory)
+		: packWorktreePath;
+
+	await spawn(packageManager, packArgs, { cwd: packCwd });
 
 	// Find the generated tarball (package managers create it with their own naming)
 	const files = await fs.readdir(packDestinationDirectory);
