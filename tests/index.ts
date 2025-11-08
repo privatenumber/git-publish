@@ -304,6 +304,108 @@ describe('git-publish', ({ describe }) => {
 				// Catalog should be resolved to actual version
 				expect(packageJson.dependencies.ms).toBe(msVersion);
 			});
+
+			test('monorepo prepack hook can access root node_modules', async ({ onTestFail }) => {
+				const branchName = 'test-monorepo-root-deps';
+				const packageName = '@org/root-deps-test';
+
+				// Test that prepack hooks can access binaries from root node_modules
+				await using fixture = await createFixture({
+					'pnpm-workspace.yaml': yaml.dump({
+						packages: ['packages/*'],
+					}),
+					'package.json': JSON.stringify({
+						private: true,
+						devDependencies: {
+							'clean-pkg-json': '^1.0.0',
+						},
+					}, null, 2),
+					'packages/test-pkg': {
+						'package.json': JSON.stringify({
+							name: packageName,
+							version: '0.0.0',
+							scripts: {
+								prepack: 'clean-pkg-json',
+							},
+						}, null, 2),
+						'index.js': 'export const main = true;',
+					},
+				});
+
+				await spawn('pnpm', ['install'], { cwd: fixture.path });
+
+				const git = createGit(fixture.path);
+				await git.init([`--initial-branch=${branchName}`]);
+				await git('add', ['.']);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
+
+				const monorepoPackagePath = path.join(fixture.path, 'packages/test-pkg');
+				const gitPublishProcess = await gitPublish(monorepoPackagePath, ['--fresh']);
+				onTestFail(() => {
+					console.log(gitPublishProcess);
+				});
+
+				expect('exitCode' in gitPublishProcess).toBe(false);
+				expect(gitPublishProcess.stdout).toMatch('✔');
+
+				// Verify clean-pkg-json ran (scripts field should be removed)
+				const publishedBranch = `npm/${branchName}-${packageName}`;
+				const packageJsonString = await git('show', [`origin/${publishedBranch}:package.json`]);
+				const packageJson = JSON.parse(packageJsonString);
+				expect(packageJson.scripts).toBeUndefined();
+			});
+
+			test('monorepo prepack hook can access package-level node_modules', async ({ onTestFail }) => {
+				const branchName = 'test-monorepo-pkg-deps';
+				const packageName = '@org/pkg-deps-test';
+
+				// Test that prepack hooks can access binaries from package-level node_modules
+				await using fixture = await createFixture({
+					'pnpm-workspace.yaml': yaml.dump({
+						packages: ['packages/*'],
+					}),
+					'package.json': JSON.stringify({
+						private: true,
+					}, null, 2),
+					'packages/test-pkg': {
+						'package.json': JSON.stringify({
+							name: packageName,
+							version: '0.0.0',
+							scripts: {
+								prepack: 'mkdirp dist && echo "built" > dist/output.txt',
+							},
+							devDependencies: {
+								mkdirp: '^3.0.0',
+							},
+							files: ['dist'],
+						}, null, 2),
+						'index.js': 'export const main = true;',
+					},
+				});
+
+				await spawn('pnpm', ['install'], { cwd: fixture.path });
+
+				const git = createGit(fixture.path);
+				await git.init([`--initial-branch=${branchName}`]);
+				await git('add', ['.']);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
+
+				const monorepoPackagePath = path.join(fixture.path, 'packages/test-pkg');
+				const gitPublishProcess = await gitPublish(monorepoPackagePath, ['--fresh']);
+				onTestFail(() => {
+					console.log(gitPublishProcess);
+				});
+
+				expect('exitCode' in gitPublishProcess).toBe(false);
+				expect(gitPublishProcess.stdout).toMatch('✔');
+
+				// Verify mkdirp ran and created dist/output.txt
+				const publishedBranch = `npm/${branchName}-${packageName}`;
+				const outputContent = await git('show', [`origin/${publishedBranch}:dist/output.txt`]);
+				expect(outputContent.trim()).toBe('built');
+			});
 		});
 
 		test('npm pack is used', async ({ onTestFail }) => {
@@ -461,6 +563,231 @@ describe('git-publish', ({ describe }) => {
 
 			const utilsContent = await git('show', [`origin/${publishedBranch}:dist/utils.js`]);
 			expect(utilsContent).toBe('export const util = () => {};');
+		});
+
+		test('prepack hook does not modify working directory', async ({ onTestFail }) => {
+			const branchName = 'test-prepack-isolation';
+
+			// This test verifies that prepack hooks don't pollute the working directory
+			// The hook creates a file, but it should only exist in the published branch
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-prepack-isolation',
+					version: '1.0.0',
+					scripts: {
+						prepack: 'echo "hook-ran" > prepack-created-file.txt',
+					},
+				}, null, 2),
+				'index.js': 'export const main = true;',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			// Run git-publish
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+
+			// Verify working directory is still clean (no new files created)
+			const statusOutput = await git('status', ['--porcelain']);
+			expect(statusOutput).toBe('');
+
+			// Verify the file created by prepack hook doesn't exist in working directory
+			const fileExists = await fixture.exists('prepack-created-file.txt');
+			expect(fileExists).toBe(false);
+
+			// Verify the published branch has the file created by the hook
+			const publishedBranch = `npm/${branchName}`;
+			const publishedFileContent = await git('show', [`origin/${publishedBranch}:prepack-created-file.txt`]);
+			expect(publishedFileContent.trim()).toBe('hook-ran');
+		});
+
+		test('fails gracefully when pack hook dependencies are missing', async ({ onTestFail }) => {
+			const branchName = 'test-missing-deps';
+
+			// Test that script doesn't crash on ENOENT when symlinking node_modules
+			// Pack should fail gracefully with proper error message
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-missing-deps',
+					version: '1.0.0',
+					scripts: {
+						prepack: 'nonexistent-binary',
+					},
+				}, null, 2),
+				'index.js': 'export const main = true;',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			// Do NOT run npm install - node_modules won't exist
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			// Should fail with exit code
+			expect('exitCode' in gitPublishProcess).toBe(true);
+			if ('exitCode' in gitPublishProcess) {
+				expect(gitPublishProcess.exitCode).not.toBe(0);
+
+				// Verify failure is from pack command (not from fs.symlink crash)
+				// Exit code 127 means "command not found" - proves pack ran and failed
+				// (If fs.symlink crashed, we wouldn't get this far)
+				expect(gitPublishProcess.stdout).toMatch(/exit code 127/);
+			}
+		});
+
+		test('publishes gitignored files specified by glob pattern', async ({ onTestFail }) => {
+			const branchName = 'test-glob-pattern';
+
+			// Test that glob patterns in "files" field work correctly
+			// Pattern "dist/*.js" should only match .js files in dist, not subdirectories
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-glob-pattern',
+					version: '1.0.0',
+					files: ['dist/*.js'],
+				}, null, 2),
+				dist: {
+					'index.js': 'export const main = true;',
+					'utils.js': 'export const util = () => {};',
+					'types.ts': '// This should not be published',
+					nested: {
+						'deep.js': '// This should not be published (not matched by dist/*.js)',
+					},
+				},
+				'.gitignore': 'dist',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+
+			// Verify only .js files in dist root are published
+			const publishedBranch = `npm/${branchName}`;
+			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
+			expect(filesInTree).toEqual([
+				'dist/index.js',
+				'dist/utils.js',
+				'package.json',
+			]);
+		});
+
+		test('publishes gitignored directory recursively', async ({ onTestFail }) => {
+			const branchName = 'test-directory-recursive';
+
+			// Test that directory in "files" field includes all files recursively
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-directory-recursive',
+					version: '1.0.0',
+					files: ['dist'],
+				}, null, 2),
+				dist: {
+					'index.js': 'export const main = true;',
+					nested: {
+						'deep.js': 'export const deep = true;',
+						'utils.js': 'export const util = () => {};',
+					},
+				},
+				'.gitignore': 'dist',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+
+			// Verify all files in dist are published recursively
+			const publishedBranch = `npm/${branchName}`;
+			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
+			expect(filesInTree).toEqual([
+				'dist/index.js',
+				'dist/nested/deep.js',
+				'dist/nested/utils.js',
+				'package.json',
+			]);
+		});
+
+		test('publishes gitignored dotfiles', async ({ onTestFail }) => {
+			const branchName = 'test-dotfiles';
+
+			// Test that dotfiles specified in "files" field are published
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-dotfiles',
+					version: '1.0.0',
+					files: ['.env.production', 'dist'],
+				}, null, 2),
+				'.env.production': 'PRODUCTION=true',
+				dist: {
+					'index.js': 'export const main = true;',
+				},
+				'.env.development': '// This should not be published',
+				'.gitignore': 'dist\n.env.*',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			onTestFail(() => {
+				console.log(gitPublishProcess);
+			});
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(gitPublishProcess.stdout).toMatch('✔');
+
+			// Verify dotfile and dist files are published
+			const publishedBranch = `npm/${branchName}`;
+			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
+			expect(filesInTree).toEqual([
+				'.env.production',
+				'dist/index.js',
+				'package.json',
+			]);
+
+			// Verify dotfile content
+			const dotfileContent = await git('show', [`origin/${publishedBranch}:.env.production`]);
+			expect(dotfileContent).toBe('PRODUCTION=true');
 		});
 	});
 });

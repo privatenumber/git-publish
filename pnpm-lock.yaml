@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      fast-glob:
+        specifier: ^3.3.3
+        version: 3.3.3
       gunzip-maybe:
         specifier: ^1.4.2
         version: 1.4.2
