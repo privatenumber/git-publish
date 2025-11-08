@@ -305,107 +305,107 @@ describe('git-publish', ({ describe }) => {
 				expect(packageJson.dependencies.ms).toBe(msVersion);
 			});
 
-	test('monorepo prepack hook can access root node_modules', async ({ onTestFail }) => {
-		const branchName = 'test-monorepo-root-deps';
-		const packageName = '@org/root-deps-test';
+			test('monorepo prepack hook can access root node_modules', async ({ onTestFail }) => {
+				const branchName = 'test-monorepo-root-deps';
+				const packageName = '@org/root-deps-test';
 
-		// Test that prepack hooks can access binaries from root node_modules
-		await using fixture = await createFixture({
-			'pnpm-workspace.yaml': yaml.dump({
-				packages: ['packages/*'],
-			}),
-			'package.json': JSON.stringify({
-				private: true,
-				devDependencies: {
-					'clean-pkg-json': '^1.0.0',
-				},
-			}, null, 2),
-			'packages/test-pkg': {
-				'package.json': JSON.stringify({
-					name: packageName,
-					version: '0.0.0',
-					scripts: {
-						prepack: 'clean-pkg-json',
+				// Test that prepack hooks can access binaries from root node_modules
+				await using fixture = await createFixture({
+					'pnpm-workspace.yaml': yaml.dump({
+						packages: ['packages/*'],
+					}),
+					'package.json': JSON.stringify({
+						private: true,
+						devDependencies: {
+							'clean-pkg-json': '^1.0.0',
+						},
+					}, null, 2),
+					'packages/test-pkg': {
+						'package.json': JSON.stringify({
+							name: packageName,
+							version: '0.0.0',
+							scripts: {
+								prepack: 'clean-pkg-json',
+							},
+						}, null, 2),
+						'index.js': 'export const main = true;',
 					},
-				}, null, 2),
-				'index.js': 'export const main = true;',
-			},
-		});
+				});
 
-		await spawn('pnpm', ['install'], { cwd: fixture.path });
+				await spawn('pnpm', ['install'], { cwd: fixture.path });
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
-		await git('add', ['.']);
-		await git('commit', ['-m', 'Initial commit']);
-		await git('remote', ['add', 'origin', remoteFixture.path]);
+				const git = createGit(fixture.path);
+				await git.init([`--initial-branch=${branchName}`]);
+				await git('add', ['.']);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
 
-		const monorepoPackagePath = path.join(fixture.path, 'packages/test-pkg');
-		const gitPublishProcess = await gitPublish(monorepoPackagePath, ['--fresh']);
-		onTestFail(() => {
-			console.log(gitPublishProcess);
-		});
+				const monorepoPackagePath = path.join(fixture.path, 'packages/test-pkg');
+				const gitPublishProcess = await gitPublish(monorepoPackagePath, ['--fresh']);
+				onTestFail(() => {
+					console.log(gitPublishProcess);
+				});
 
-		expect('exitCode' in gitPublishProcess).toBe(false);
-		expect(gitPublishProcess.stdout).toMatch('✔');
+				expect('exitCode' in gitPublishProcess).toBe(false);
+				expect(gitPublishProcess.stdout).toMatch('✔');
 
-		// Verify clean-pkg-json ran (scripts field should be removed)
-		const publishedBranch = `npm/${branchName}-${packageName}`;
-		const packageJsonString = await git('show', [`origin/${publishedBranch}:package.json`]);
-		const packageJson = JSON.parse(packageJsonString);
-		expect(packageJson.scripts).toBeUndefined();
-	});
+				// Verify clean-pkg-json ran (scripts field should be removed)
+				const publishedBranch = `npm/${branchName}-${packageName}`;
+				const packageJsonString = await git('show', [`origin/${publishedBranch}:package.json`]);
+				const packageJson = JSON.parse(packageJsonString);
+				expect(packageJson.scripts).toBeUndefined();
+			});
 
-	test('monorepo prepack hook can access package-level node_modules', async ({ onTestFail }) => {
-		const branchName = 'test-monorepo-pkg-deps';
-		const packageName = '@org/pkg-deps-test';
+			test('monorepo prepack hook can access package-level node_modules', async ({ onTestFail }) => {
+				const branchName = 'test-monorepo-pkg-deps';
+				const packageName = '@org/pkg-deps-test';
 
-		// Test that prepack hooks can access binaries from package-level node_modules
-		await using fixture = await createFixture({
-			'pnpm-workspace.yaml': yaml.dump({
-				packages: ['packages/*'],
-			}),
-			'package.json': JSON.stringify({
-				private: true,
-			}, null, 2),
-			'packages/test-pkg': {
-				'package.json': JSON.stringify({
-					name: packageName,
-					version: '0.0.0',
-					scripts: {
-						prepack: 'mkdirp dist && echo "built" > dist/output.txt',
+				// Test that prepack hooks can access binaries from package-level node_modules
+				await using fixture = await createFixture({
+					'pnpm-workspace.yaml': yaml.dump({
+						packages: ['packages/*'],
+					}),
+					'package.json': JSON.stringify({
+						private: true,
+					}, null, 2),
+					'packages/test-pkg': {
+						'package.json': JSON.stringify({
+							name: packageName,
+							version: '0.0.0',
+							scripts: {
+								prepack: 'mkdirp dist && echo "built" > dist/output.txt',
+							},
+							devDependencies: {
+								mkdirp: '^3.0.0',
+							},
+							files: ['dist'],
+						}, null, 2),
+						'index.js': 'export const main = true;',
 					},
-					devDependencies: {
-						mkdirp: '^3.0.0',
-					},
-					files: ['dist'],
-				}, null, 2),
-				'index.js': 'export const main = true;',
-			},
-		});
+				});
 
-		await spawn('pnpm', ['install'], { cwd: fixture.path });
+				await spawn('pnpm', ['install'], { cwd: fixture.path });
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
-		await git('add', ['.']);
-		await git('commit', ['-m', 'Initial commit']);
-		await git('remote', ['add', 'origin', remoteFixture.path]);
+				const git = createGit(fixture.path);
+				await git.init([`--initial-branch=${branchName}`]);
+				await git('add', ['.']);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
 
-		const monorepoPackagePath = path.join(fixture.path, 'packages/test-pkg');
-		const gitPublishProcess = await gitPublish(monorepoPackagePath, ['--fresh']);
-		onTestFail(() => {
-			console.log(gitPublishProcess);
-		});
+				const monorepoPackagePath = path.join(fixture.path, 'packages/test-pkg');
+				const gitPublishProcess = await gitPublish(monorepoPackagePath, ['--fresh']);
+				onTestFail(() => {
+					console.log(gitPublishProcess);
+				});
 
-		expect('exitCode' in gitPublishProcess).toBe(false);
-		expect(gitPublishProcess.stdout).toMatch('✔');
+				expect('exitCode' in gitPublishProcess).toBe(false);
+				expect(gitPublishProcess.stdout).toMatch('✔');
 
-		// Verify mkdirp ran and created dist/output.txt
-		const publishedBranch = `npm/${branchName}-${packageName}`;
-		const outputContent = await git('show', [`origin/${publishedBranch}:dist/output.txt`]);
-		expect(outputContent.trim()).toBe('built');
-	});
+				// Verify mkdirp ran and created dist/output.txt
+				const publishedBranch = `npm/${branchName}-${packageName}`;
+				const outputContent = await git('show', [`origin/${publishedBranch}:dist/output.txt`]);
+				expect(outputContent.trim()).toBe('built');
+			});
 		});
 
 		test('npm pack is used', async ({ onTestFail }) => {
