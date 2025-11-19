@@ -67,8 +67,8 @@ importers:
         specifier: ^1.5.0
         version: 1.5.0
       nano-spawn:
-        specifier: ^1.0.3
-        version: 1.0.3
+        specifier: ^2.0.0
+        version: 2.0.0
       pkgroll:
         specifier: ^2.20.1
         version: 2.20.1(typescript@5.9.3)
@@ -2100,10 +2100,6 @@ packages:
 
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
-
-  nano-spawn@1.0.3:
-    resolution: {integrity: sha512-jtpsQDetTnvS2Ts1fiRdci5rx0VYws5jGyC+4IYOTnIQ/wwdf6JdomlHBwqC3bJYOvaKu0C2GSZ1A60anrYpaA==}
-    engines: {node: '>=20.17'}
 
   nano-spawn@2.0.0:
     resolution: {integrity: sha512-tacvGzUY5o2D8CBh2rrwxyNojUsZNU2zjNTzKQrkgGJQTbGAfArVWXSKMBokBeeg6C7OLRGUEyoFlYbfeWQIqw==}
@@ -5040,8 +5036,6 @@ snapshots:
     optional: true
 
   ms@2.1.3: {}
-
-  nano-spawn@1.0.3: {}
 
   nano-spawn@2.0.0: {}
 
