@@ -46,8 +46,8 @@ importers:
         specifier: ^1.3.0
         version: 1.3.0
       cleye:
-        specifier: ^1.3.4
-        version: 1.3.4
+        specifier: ^2.0.0
+        version: 2.0.0
       find-up-simple:
         specifier: ^1.0.1
         version: 1.0.1
@@ -1060,6 +1060,9 @@ packages:
 
   cleye@1.3.4:
     resolution: {integrity: sha512-Rd6M8ecBDtdYdPR22h6gG37lPqqJ3hSOaplaGwuGYey9xKmEElOvTgupqfyLSlISshroRpVhYjDtW3vwNUNBaQ==}
+
+  cleye@2.0.0:
+    resolution: {integrity: sha512-O4pienLd7x3kzjdhzz0nIEmPuX84I1C1UjLPdMe+0TebP2aTuPoXx15zvLMgSUIn+ZAJJzH9cH4aEVA1bDdmsA==}
 
   color-convert@2.0.1:
     resolution: {integrity: sha512-RRECPsj7iu/xb5oKYcsFHSppFNnsj/52OVTRKb4zP5onXwVF3zVmmToNcOfGC+CRDpfK/U584fMg38ZHCaElKQ==}
@@ -2492,6 +2495,9 @@ packages:
   terminal-columns@1.4.1:
     resolution: {integrity: sha512-IKVL/itiMy947XWVv4IHV7a0KQXvKjj4ptbi7Ew9MPMcOLzkiQeyx3Gyvh62hKrfJ0RZc4M1nbhzjNM39Kyujw==}
 
+  terminal-columns@2.0.0:
+    resolution: {integrity: sha512-6IByuUjyNZJXUtwDNm+OIe62zgwwaRbH+WMNTcx05O2G5V9WhvluAAHJY8OvUdwmzMPpqAD/7EUpGdI6ae1aiQ==}
+
   terminal-link@4.0.0:
     resolution: {integrity: sha512-lk+vH+MccxNqgVqSnkMVKx4VLJfnLjDBGzH16JVZjKE2DoxP57s6/vt6JmXV5I3jBcfGrxNrYtC+mPtU7WJztA==}
     engines: {node: '>=18'}
@@ -2538,6 +2544,9 @@ packages:
 
   type-flag@3.0.0:
     resolution: {integrity: sha512-3YaYwMseXCAhBB14RXW5cRQfJQlEknS6i4C8fCfeUdS3ihG9EdccdR9kt3vP73ZdeTGmPb4bZtkDn5XMIn1DLA==}
+
+  type-flag@4.0.2:
+    resolution: {integrity: sha512-diALGSg9wBpvowixHbIeCJtXNxUKJHUNR8oE67K9zuPkpBe5FMmg+dpevDWmEwGQDmn/RJD3m7szs6Ssdz5A4w==}
 
   typed-array-buffer@1.0.3:
     resolution: {integrity: sha512-nAYYwfY3qnzX30IkA6AQZjVbtK6duGontcQm1WSG1MD94YLqK0515GNApXkoxKOWMusVssAHWLh9SeaoefYFGw==}
@@ -3587,6 +3596,11 @@ snapshots:
     dependencies:
       terminal-columns: 1.4.1
       type-flag: 3.0.0
+
+  cleye@2.0.0:
+    dependencies:
+      terminal-columns: 2.0.0
+      type-flag: 4.0.2
 
   color-convert@2.0.1:
     dependencies:
@@ -5527,6 +5541,8 @@ snapshots:
 
   terminal-columns@1.4.1: {}
 
+  terminal-columns@2.0.0: {}
+
   terminal-link@4.0.0:
     dependencies:
       ansi-escapes: 7.0.0
@@ -5584,6 +5600,8 @@ snapshots:
       prelude-ls: 1.2.1
 
   type-flag@3.0.0: {}
+
+  type-flag@4.0.2: {}
 
   typed-array-buffer@1.0.3:
     dependencies:
