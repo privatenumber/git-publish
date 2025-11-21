@@ -283,8 +283,7 @@ const { stringify } = JSON;
 
 					await spawn('git', ['worktree', 'remove', '--force', publishWorktreePath]);
 					await spawn('git', ['worktree', 'remove', '--force', packWorktreePath]);
-					// Branch may not exist if orphan branch was created but never committed
-					await spawn('git', ['branch', '-D', localTemporaryBranch]).catch(() => {});
+					await spawn('git', ['branch', '-D', localTemporaryBranch]);
 					await fs.rm(temporaryDirectory, {
 						recursive: true,
 						force: true,
