@@ -316,5 +316,8 @@ const { stringify } = JSON;
 	);
 })().catch((error) => {
 	console.error('Error:', error.message);
+	if (error.stderr) {
+		console.error(error.stderr);
+	}
 	process.exit(1);
 });
