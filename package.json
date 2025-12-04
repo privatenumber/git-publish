@@ -33,7 +33,7 @@
 		"fast-glob": "^3.3.3",
 		"gunzip-maybe": "^1.4.2",
 		"tar-fs": "^3.1.1",
-		"tasuku": "^2.0.2"
+		"tasuku": "^2.0.4"
 	},
 	"devDependencies": {
 		"@types/byte-size": "^8.1.2",
@@ -44,12 +44,12 @@
 		"@types/tar-fs": "^2.0.4",
 		"byte-size": "^9.0.1",
 		"clean-pkg-json": "^1.3.0",
-		"cleye": "^2.0.0",
+		"cleye": "^2.0.1",
 		"find-up-simple": "^1.0.1",
-		"fs-fixture": "^2.10.1",
-		"js-yaml": "^4.1.0",
+		"fs-fixture": "^2.10.2",
+		"js-yaml": "^4.1.1",
 		"kolorist": "^1.8.0",
-		"lintroll": "^1.24.2",
+		"lintroll": "^1.24.4",
 		"manten": "^1.5.0",
 		"nano-spawn": "^2.0.0",
 		"pkgroll": "^2.20.1",
