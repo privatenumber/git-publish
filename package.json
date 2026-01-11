@@ -53,7 +53,7 @@
 		"manten": "^1.10.0",
 		"nano-spawn": "^2.0.0",
 		"pkgroll": "^2.21.5",
-		"terminal-link": "^4.0.0",
+		"terminal-link": "^5.0.0",
 		"tsx": "^4.21.0",
 		"typescript": "^5.9.3"
 	}
