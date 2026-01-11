@@ -52,8 +52,8 @@ importers:
         specifier: ^1.0.1
         version: 1.0.1
       fs-fixture:
-        specifier: ^2.10.1
-        version: 2.10.1
+        specifier: ^2.11.0
+        version: 2.11.0
       js-yaml:
         specifier: ^4.1.0
         version: 4.1.1
@@ -1541,8 +1541,8 @@ packages:
     resolution: {integrity: sha512-wzsgA6WOq+09wrU1tsJ09udeR/YZRaeArL9e1wPbFg3GG2yDnC2ldKpxs4xunpFF9DgqCqOIra3bc1HWrJ37Ww==}
     engines: {node: '>=0.4.x'}
 
-  fs-fixture@2.10.1:
-    resolution: {integrity: sha512-J45FBtdpW/hcIKP2YZa9qGg9GCsM3FD/TKktzgcCA0KxyInaPV7loRMahQup2jyUZ0LyJDsP7ocriCLVD/jDAw==}
+  fs-fixture@2.11.0:
+    resolution: {integrity: sha512-elzOu5Ru04qPSBT344kngxx1bpq3RbpznEyjTcn+NHI2nvzwDcGt2zde/a6LBmF5SJtgSYBGHAPnel6S1IefeA==}
     engines: {node: '>=18.0.0'}
 
   fsevents@2.3.3:
@@ -4254,7 +4254,7 @@ snapshots:
 
   format@0.2.2: {}
 
-  fs-fixture@2.10.1: {}
+  fs-fixture@2.11.0: {}
 
   fsevents@2.3.3:
     optional: true
