@@ -21,7 +21,7 @@
 		"dist"
 	],
 	"bin": "dist/index.js",
-	"packageManager": "pnpm@10.14.0",
+	"packageManager": "pnpm@10.29.2",
 	"scripts": {
 		"build": "pkgroll --minify --clean-dist --export-condition=node",
 		"lint": "lintroll --cache",
