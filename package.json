@@ -50,7 +50,7 @@
 		"fs-fixture": "^2.11.0",
 		"js-yaml": "^4.1.1",
 		"kolorist": "^1.8.0",
-		"lintroll": "^1.28.1",
+		"lintroll": "^1.30.0",
 		"manten": "^2.0.0",
 		"nano-spawn": "^2.0.0",
 		"pkgroll": "^2.22.0",
