@@ -21,7 +21,7 @@
 		"dist"
 	],
 	"bin": "dist/index.js",
-	"packageManager": "pnpm@10.29.2",
+	"packageManager": "pnpm@10.29.3",
 	"scripts": {
 		"build": "pkgroll --minify --clean-dist --export-condition=node",
 		"lint": "lintroll --cache",
@@ -33,8 +33,8 @@
 	"dependencies": {
 		"fast-glob": "^3.3.3",
 		"gunzip-maybe": "^1.4.2",
-		"tar-fs": "^3.1.1",
-		"tasuku": "^2.0.7"
+		"tar-fs": "^3.1.2",
+		"tasuku": "^2.0.8"
 	},
 	"devDependencies": {
 		"@types/byte-size": "^8.1.2",
