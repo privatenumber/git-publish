@@ -18,7 +18,7 @@ importers:
         specifier: ^3.1.2
         version: 3.1.2
       tasuku:
-        specifier: ^2.0.8
+        specifier: ^2.3.0
         version: 2.3.0
     devDependencies:
       '@types/byte-size':
@@ -31,8 +31,8 @@ importers:
         specifier: ^4.0.9
         version: 4.0.9
       '@types/node':
-        specifier: ^25.1.0
-        version: 25.3.3
+        specifier: ^25.3.5
+        version: 25.3.5
       '@types/npmcli__package-json':
         specifier: ^4.0.4
         version: 4.0.4
@@ -61,7 +61,7 @@ importers:
         specifier: ^1.8.0
         version: 1.8.0
       lintroll:
-        specifier: ^1.28.1
+        specifier: ^1.30.0
         version: 1.30.0(@types/estree@1.0.8)(@typescript-eslint/utils@8.56.1(eslint@9.39.3(jiti@2.6.1))(typescript@5.9.3))(jiti@2.6.1)(jsonc-eslint-parser@2.4.2)(typescript@5.9.3)
       manten:
         specifier: ^2.0.0
@@ -70,7 +70,7 @@ importers:
         specifier: ^2.0.0
         version: 2.0.0
       pkgroll:
-        specifier: ^2.22.0
+        specifier: ^2.27.0
         version: 2.27.0(typescript@5.9.3)
       skills-npm:
         specifier: ^1.0.0
@@ -864,8 +864,8 @@ packages:
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
 
-  '@types/node@25.3.3':
-    resolution: {integrity: sha512-DpzbrH7wIcBaJibpKo9nnSQL0MTRdnWttGyE5haGwK86xgMOkFLp7vEyfQPGLOJh5wNYiJ3V9PmUMDhV9u8kkQ==}
+  '@types/node@25.3.5':
+    resolution: {integrity: sha512-oX8xrhvpiyRCQkG1MFchB09f+cXftgIXb3a7UUa4Y3wpmZPw5tyZGTLWhlESOLq1Rq6oDlc8npVU2/9xiCuXMA==}
 
   '@types/npmcli__package-json@4.0.4':
     resolution: {integrity: sha512-6QjlFUSHBmZJWuC08bz1ZCx6tm4t+7+OJXAdvM6tL2pI7n6Bh5SIp/YxQvnOLFf8MzCXs2ijyFgrzaiu1UFBGA==}
@@ -3405,7 +3405,7 @@ snapshots:
 
   '@jest/pattern@30.0.1':
     dependencies:
-      '@types/node': 25.3.3
+      '@types/node': 25.3.5
       jest-regex-util: 30.0.1
 
   '@jest/schemas@30.0.5':
@@ -3418,7 +3418,7 @@ snapshots:
       '@jest/schemas': 30.0.5
       '@types/istanbul-lib-coverage': 2.0.6
       '@types/istanbul-reports': 3.0.4
-      '@types/node': 25.3.3
+      '@types/node': 25.3.5
       '@types/yargs': 17.0.35
       chalk: 4.1.2
 
@@ -3622,7 +3622,7 @@ snapshots:
 
   '@types/gunzip-maybe@1.4.3':
     dependencies:
-      '@types/node': 25.3.3
+      '@types/node': 25.3.5
 
   '@types/istanbul-lib-coverage@2.0.6': {}
 
@@ -3644,7 +3644,7 @@ snapshots:
 
   '@types/ms@2.1.0': {}
 
-  '@types/node@25.3.3':
+  '@types/node@25.3.5':
     dependencies:
       undici-types: 7.18.2
 
@@ -3656,12 +3656,12 @@ snapshots:
 
   '@types/tar-fs@2.0.4':
     dependencies:
-      '@types/node': 25.3.3
+      '@types/node': 25.3.5
       '@types/tar-stream': 3.1.4
 
   '@types/tar-stream@3.1.4':
     dependencies:
-      '@types/node': 25.3.3
+      '@types/node': 25.3.5
 
   '@types/unist@3.0.3': {}
 
@@ -5078,7 +5078,7 @@ snapshots:
   jest-mock@30.2.0:
     dependencies:
       '@jest/types': 30.2.0
-      '@types/node': 25.3.3
+      '@types/node': 25.3.5
       jest-util: 30.2.0
 
   jest-regex-util@30.0.1: {}
@@ -5086,7 +5086,7 @@ snapshots:
   jest-util@30.2.0:
     dependencies:
       '@jest/types': 30.2.0
-      '@types/node': 25.3.3
+      '@types/node': 25.3.5
       chalk: 4.1.2
       ci-info: 4.4.0
       graceful-fs: 4.2.11

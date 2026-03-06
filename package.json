@@ -34,13 +34,13 @@
 		"fast-glob": "^3.3.3",
 		"gunzip-maybe": "^1.4.2",
 		"tar-fs": "^3.1.2",
-		"tasuku": "^2.0.8"
+		"tasuku": "^2.3.0"
 	},
 	"devDependencies": {
 		"@types/byte-size": "^8.1.2",
 		"@types/gunzip-maybe": "^1.4.3",
 		"@types/js-yaml": "^4.0.9",
-		"@types/node": "^25.1.0",
+		"@types/node": "^25.3.5",
 		"@types/npmcli__package-json": "^4.0.4",
 		"@types/tar-fs": "^2.0.4",
 		"byte-size": "^9.0.1",
@@ -50,10 +50,10 @@
 		"fs-fixture": "^2.11.0",
 		"js-yaml": "^4.1.1",
 		"kolorist": "^1.8.0",
-		"lintroll": "^1.28.1",
+		"lintroll": "^1.30.0",
 		"manten": "^2.0.0",
 		"nano-spawn": "^2.0.0",
-		"pkgroll": "^2.22.0",
+		"pkgroll": "^2.27.0",
 		"skills-npm": "^1.0.0",
 		"terminal-link": "^5.0.0",
 		"tsx": "^4.21.0",
