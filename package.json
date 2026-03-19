@@ -45,7 +45,7 @@
 		"@types/tar-fs": "^2.0.4",
 		"byte-size": "^9.0.1",
 		"clean-pkg-json": "^1.3.0",
-		"cleye": "^2.2.1",
+		"cleye": "^2.3.0",
 		"find-up-simple": "^1.0.1",
 		"fs-fixture": "^2.11.0",
 		"js-yaml": "^4.1.1",
