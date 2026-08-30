@@ -10,6 +10,43 @@ import { gitPublish } from './utils/git-publish.ts';
 
 describe('git-publish', () => {
 	describe('Error cases', () => {
+		test('Workspace dependencies', async () => {
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+					dependencies: {
+						'workspace-star': 'workspace:*',
+						'workspace-range': 'workspace:^',
+						'workspace-alias': 'workspace:workspace-target@*',
+						'workspace-path': 'workspace:../workspace-target',
+					},
+					optionalDependencies: {
+						'optional-workspace': 'workspace:~',
+					},
+					devDependencies: {
+						'dev-workspace': 'workspace:*',
+					},
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init();
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+
+			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+			expect(gitPublishProcess.stderr).toBe(`Error: Cannot publish packages with workspace dependencies:
+- dependencies.workspace-star: workspace:*
+- dependencies.workspace-range: workspace:^
+- dependencies.workspace-alias: workspace:workspace-target@*
+- dependencies.workspace-path: workspace:../workspace-target
+- optionalDependencies.optional-workspace: workspace:~
+Pre-bundle these dependencies before publishing.`);
+		});
+
 		test('Fails if not in git repository', async () => {
 			await using fixture = await createFixture();
 
