@@ -23,6 +23,7 @@ describe('git-publish', () => {
 
 			const hookPath = path.join(hooksFixture.path, 'post-checkout');
 			const hookCounterPath = path.join(hooksFixture.path, 'counter');
+			// Let the first worktree checkout succeed, then fail the second.
 			await hooksFixture.writeFile('post-checkout', `#!/bin/sh
 if [ -f '${hookCounterPath}' ]; then
 	exit 1
@@ -36,6 +37,7 @@ touch '${hookCounterPath}'
 			await git.init();
 			await git('add', ['package.json']);
 			await git('commit', ['-m', 'Initial commit']);
+			// Git runs this hook after each worktree checkout.
 			await git('config', ['core.hooksPath', hooksFixture.path]);
 
 			const remoteGit = createGit(remoteFixture.path);
@@ -43,12 +45,15 @@ touch '${hookCounterPath}'
 			await git('remote', ['add', 'origin', remoteFixture.path]);
 
 			try {
+				// The hook makes the second worktree creation fail.
 				const gitPublishProcess = await gitPublish(fixture.path);
 				expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
 
+				// A failed creation must not leave temporary registrations behind.
 				const worktrees = await git('worktree', ['list', '--porcelain']);
 				expect(worktrees).not.toContain('git-publish-');
 			} finally {
+				// Remove leaked registrations when the regression fails.
 				const worktrees = await git('worktree', ['list', '--porcelain']);
 				const worktreePaths = worktrees.split('\n')
 					.filter(worktree => worktree.startsWith('worktree ') && worktree.includes('/git-publish/'))
