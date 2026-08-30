@@ -79,6 +79,28 @@ const { stringify } = JSON;
 		throw new Error('This package is marked as private. Use --force to publish it anyway.');
 	}
 
+	const workspaceDependencies: string[] = [];
+	for (const [field, dependencies] of Object.entries({
+		dependencies: packageJson.dependencies,
+		optionalDependencies: packageJson.optionalDependencies,
+	})) {
+		if (!dependencies) {
+			continue;
+		}
+
+		for (const [name, specification] of Object.entries(dependencies)) {
+			if (specification?.startsWith('workspace:')) {
+				workspaceDependencies.push(`- ${field}.${name}: ${specification}`);
+			}
+		}
+	}
+
+	if (workspaceDependencies.length > 0) {
+		throw new Error(`Cannot publish packages with workspace dependencies:
+${workspaceDependencies.join('\n')}
+Pre-bundle these dependencies before publishing.`);
+	}
+
 	const {
 		branch, remote, fresh, dry,
 	} = argv.flags;
