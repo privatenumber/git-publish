@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
@@ -10,6 +11,53 @@ import { gitPublish } from './utils/git-publish.ts';
 
 describe('git-publish', () => {
 	describe('Error cases', () => {
+		test('Cleans up after worktree creation fails', async () => {
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}),
+			});
+			await using remoteFixture = await createFixture();
+			await using hooksFixture = await createFixture();
+
+			const hookPath = path.join(hooksFixture.path, 'post-checkout');
+			const hookCounterPath = path.join(hooksFixture.path, 'counter');
+			await hooksFixture.writeFile('post-checkout', `#!/bin/sh
+if [ -f '${hookCounterPath}' ]; then
+	exit 1
+fi
+
+touch '${hookCounterPath}'
+`);
+			await fs.chmod(hookPath, 0o755);
+
+			const git = createGit(fixture.path);
+			await git.init();
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('config', ['core.hooksPath', hooksFixture.path]);
+
+			const remoteGit = createGit(remoteFixture.path);
+			await remoteGit.init(['--bare']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			try {
+				const gitPublishProcess = await gitPublish(fixture.path);
+				expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+
+				const worktrees = await git('worktree', ['list', '--porcelain']);
+				expect(worktrees).not.toContain('git-publish-');
+			} finally {
+				const worktrees = await git('worktree', ['list', '--porcelain']);
+				const worktreePaths = worktrees.split('\n')
+					.filter(worktree => worktree.startsWith('worktree ') && worktree.includes('/git-publish/'))
+					.map(worktree => worktree.slice('worktree '.length));
+
+				await Promise.all(worktreePaths.map(worktree => git('worktree', ['remove', '--force', worktree])));
+			}
+		});
+
 		test('Workspace dependencies', async () => {
 			await using fixture = await createFixture({
 				'package.json': JSON.stringify({
