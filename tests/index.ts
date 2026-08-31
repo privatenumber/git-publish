@@ -218,6 +218,32 @@ Pre-bundle these dependencies before publishing.`);
 		});
 		onFinish(() => remoteFixture.rm());
 
+		test('raw Git destination', async () => {
+			const branchName = 'test-raw-destination';
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+				'index.js': 'export const main = true;',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json', 'index.js']);
+			await git('commit', ['-m', 'Initial commit']);
+
+			const gitPublishProcess = await gitPublish(fixture.path, ['--remote', remoteFixture.path]);
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			const remoteGit = createGit(remoteFixture.path);
+			const files = await remoteGit('ls-tree', ['--name-only', `npm/${branchName}`]);
+			expect(files.split('\n').sort()).toStrictEqual([
+				'index.js',
+				'package.json',
+			]);
+		});
+
 		test('preserves history', async () => {
 			const branchName = 'test-preserve-history';
 
