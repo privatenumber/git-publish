@@ -12,20 +12,11 @@ import { gitPublish } from './utils/git-publish.ts';
 describe('git-publish', () => {
 	describe('Error cases', () => {
 		test('Cleans up after worktree creation fails', async () => {
-			await using fixture = await createFixture({
-				'package.json': JSON.stringify({
-					name: 'test-pkg',
-					version: '1.0.0',
-				}),
-			});
-			await using remoteFixture = await createFixture();
-			await using hooksFixture = await createFixture();
-
-			const hookPath = hooksFixture.getPath('post-checkout');
-			const hookCounterPath = hooksFixture.getPath('counter');
-			const secondCheckoutPath = hooksFixture.getPath('second-checkout');
-			// Let the first worktree checkout succeed, then fail the second.
-			await hooksFixture.writeFile('post-checkout', `#!/bin/sh
+			await using hooksFixture = await createFixture(async fixture => {
+				const hookCounterPath = fixture.getPath('counter');
+				const secondCheckoutPath = fixture.getPath('second-checkout');
+				// Let the first worktree checkout succeed, then fail the second.
+				await fixture.writeFile('post-checkout', `#!/bin/sh
 if [ -f '${hookCounterPath}' ]; then
 	touch '${secondCheckoutPath}'
 	exit 1
@@ -33,18 +24,27 @@ fi
 
 touch '${hookCounterPath}'
 `);
-			await fs.chmod(hookPath, 0o755);
+				await fs.chmod(fixture.getPath('post-checkout'), 0o755);
+			});
+			await using remoteFixture = await createFixture(async fixture => {
+				await createGit(fixture.path).init(['--bare']);
+			});
+			await using fixture = await createFixture(async fixture => {
+				await fixture.writeJson('package.json', {
+					name: 'test-pkg',
+					version: '1.0.0',
+				});
+
+				const git = createGit(fixture.path);
+				await git.init();
+				await git('add', ['package.json']);
+				await git('commit', ['-m', 'Initial commit']);
+				// Git runs this hook after each worktree checkout.
+				await git('config', ['core.hooksPath', hooksFixture.path]);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
+			});
 
 			const git = createGit(fixture.path);
-			await git.init();
-			await git('add', ['package.json']);
-			await git('commit', ['-m', 'Initial commit']);
-			// Git runs this hook after each worktree checkout.
-			await git('config', ['core.hooksPath', hooksFixture.path]);
-
-			const remoteGit = createGit(remoteFixture.path);
-			await remoteGit.init(['--bare']);
-			await git('remote', ['add', 'origin', remoteFixture.path]);
 
 			try {
 				// The hook makes the second worktree creation fail.
