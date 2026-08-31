@@ -1,4 +1,4 @@
-import type { SubprocessError, Options as SpawnOptions } from 'nano-spawn';
+import type { Options as SpawnOptions } from 'nano-spawn';
 import { simpleSpawn } from './simple-spawn.ts';
 
 export const gitStatusTracked = (
@@ -19,23 +19,16 @@ export const assertCleanTree = async () => {
 	}
 };
 
-export const getCurrentBranchOrTagName = async () => {
-	try {
-		return await simpleSpawn(
-			'git',
-			['branch', '--show-current'],
-		);
-	} catch (error) {
-		try {
-			// Fallback to describing the tag/commit if not on a branch
-			return await simpleSpawn(
-				'git',
-				['describe', '--tags'],
-			);
-		} catch (fallbackError) {
-			throw new Error(`Failed to get current branch name: ${(error as SubprocessError).stderr} ${(fallbackError as SubprocessError).stderr}`);
-		}
+export const getCurrentSourceName = async () => {
+	const branch = await simpleSpawn('git', ['branch', '--show-current']);
+	if (branch) {
+		return branch;
 	}
+
+	const tag = await simpleSpawn('git', ['describe', '--tags', '--exact-match']).catch(() => {
+		// Git exits with 128 when HEAD has no exact tag.
+	});
+	return tag || simpleSpawn('git', ['rev-parse', '--short', 'HEAD']);
 };
 
 export const getCurrentCommit = async (

@@ -11,7 +11,7 @@ import terminalLink from 'terminal-link';
 import packageMeta from '../package.json' with { type: 'json' };
 import { simpleSpawn } from './utils/simple-spawn.ts';
 import {
-	assertCleanTree, getCurrentBranchOrTagName, gitStatusTracked, getCurrentCommit,
+	assertCleanTree, getCurrentSourceName, gitStatusTracked, getCurrentCommit,
 } from './utils/git.ts';
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
@@ -68,8 +68,8 @@ const { stringify } = JSON;
 	const cwd = process.cwd();
 	const gitRootPath = await simpleSpawn('git', ['rev-parse', '--show-toplevel']);
 	const gitSubdirectory = path.relative(gitRootPath, cwd);
-	const currentBranch = await getCurrentBranchOrTagName();
-	const currentBranchSha = await getCurrentCommit();
+	const sourceName = await getCurrentSourceName();
+	const sourceCommit = await getCurrentCommit();
 	const packageJsonPath = 'package.json';
 
 	try {
@@ -111,8 +111,8 @@ Pre-bundle these dependencies before publishing.`);
 
 	const publishBranch = branch || (
 		gitSubdirectory
-			? `npm/${currentBranch}-${packageJson.name}`
-			: `npm/${currentBranch}`
+			? `npm/${sourceName}-${packageJson.name}`
+			: `npm/${sourceName}`
 	);
 	try {
 		await simpleSpawn('git', ['check-ref-format', '--branch', publishBranch]);
@@ -130,7 +130,7 @@ Pre-bundle these dependencies before publishing.`);
 	});
 
 	await task(
-		`Publishing branch ${stringify(currentBranch)} → ${stringify(publishBranch)}`,
+		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
 		async ({
 			task, setTitle, setStatus, setOutput,
 		}) => {
@@ -290,9 +290,9 @@ Pre-bundle these dependencies before publishing.`);
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
-						let commitMessage = `Published from "${currentBranch}"`;
-						if (currentBranchSha) {
-							commitMessage += ` (${currentBranchSha})`;
+						let commitMessage = `Published from "${sourceName}"`;
+						if (sourceCommit) {
+							commitMessage += ` (${sourceCommit})`;
 						}
 
 						await spawn(
