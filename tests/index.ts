@@ -11,6 +11,34 @@ import { gitPublish } from './utils/git-publish.ts';
 
 describe('git-publish', () => {
 	describe('Error cases', () => {
+		test('Invalid publish branch', async () => {
+			await using markerFixture = await createFixture();
+			await using remoteFixture = await createFixture(async (fixture) => {
+				await createGit(fixture.path).init(['--bare']);
+			});
+			await using fixture = await createFixture(async (fixture) => {
+				await fixture.writeJson('package.json', {
+					name: 'test-pkg',
+					version: '1.0.0',
+					scripts: {
+						prepack: `node -e "require('node:fs').writeFileSync(process.argv[1], 'packed')" "${markerFixture.getPath('packed')}"`,
+					},
+				});
+
+				const git = createGit(fixture.path);
+				await git.init();
+				await git('add', ['package.json']);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
+			});
+
+			const gitPublishProcess = await gitPublish(fixture.path, ['--branch', 'invalid..branch']);
+
+			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+			expect(gitPublishProcess.stderr).toBe('Error: Invalid publish branch "invalid..branch".');
+			expect(await markerFixture.exists('packed')).toBe(false);
+		});
+
 		test('Does not pack when remote is not a Git repository', async () => {
 			await using markerFixture = await createFixture();
 			await using remoteFixture = await createFixture();
