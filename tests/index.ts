@@ -21,11 +21,13 @@ describe('git-publish', () => {
 			await using remoteFixture = await createFixture();
 			await using hooksFixture = await createFixture();
 
-			const hookPath = path.join(hooksFixture.path, 'post-checkout');
-			const hookCounterPath = path.join(hooksFixture.path, 'counter');
+			const hookPath = hooksFixture.getPath('post-checkout');
+			const hookCounterPath = hooksFixture.getPath('counter');
+			const secondCheckoutPath = hooksFixture.getPath('second-checkout');
 			// Let the first worktree checkout succeed, then fail the second.
 			await hooksFixture.writeFile('post-checkout', `#!/bin/sh
 if [ -f '${hookCounterPath}' ]; then
+	touch '${secondCheckoutPath}'
 	exit 1
 fi
 
@@ -48,6 +50,7 @@ touch '${hookCounterPath}'
 				// The hook makes the second worktree creation fail.
 				const gitPublishProcess = await gitPublish(fixture.path);
 				expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+				expect(await hooksFixture.exists('second-checkout')).toBe(true);
 
 				// A failed creation must not leave temporary registrations behind.
 				const worktrees = await git('worktree', ['list', '--porcelain']);
