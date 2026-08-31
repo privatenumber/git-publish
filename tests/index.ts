@@ -11,6 +11,31 @@ import { gitPublish } from './utils/git-publish.ts';
 
 describe('git-publish', () => {
 	describe('Error cases', () => {
+		test('Does not pack when remote is not a Git repository', async () => {
+			await using markerFixture = await createFixture();
+			await using remoteFixture = await createFixture();
+			await using fixture = await createFixture(async (fixture) => {
+				await fixture.writeJson('package.json', {
+					name: 'test-pkg',
+					version: '1.0.0',
+					scripts: {
+						prepack: `node -e "require('node:fs').writeFileSync(process.argv[1], 'packed')" "${markerFixture.getPath('packed')}"`,
+					},
+				});
+
+				const git = createGit(fixture.path);
+				await git.init();
+				await git('add', ['package.json']);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
+			});
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+
+			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+			expect(await markerFixture.exists('packed')).toBe(false);
+		});
+
 		test('Cleans up after worktree creation fails', async () => {
 			await using hooksFixture = await createFixture(async (fixture) => {
 				const hookCounterPath = fixture.getPath('counter');
