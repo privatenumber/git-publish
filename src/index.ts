@@ -36,7 +36,6 @@ const { stringify } = JSON;
 				alias: 'r',
 				placeholder: '<remote name or Git URL>',
 				description: 'The Git remote or URL to push to.',
-				default: 'origin',
 			},
 			fresh: {
 				type: Boolean,
@@ -102,8 +101,9 @@ Pre-bundle these dependencies before publishing.`);
 	}
 
 	const {
-		branch, remote, fresh, dry,
+		branch, remote: remoteInput, fresh, dry,
 	} = argv.flags;
+	const remote = remoteInput ?? 'origin';
 
 	const publishBranch = branch || (
 		gitSubdirectory
@@ -115,6 +115,15 @@ Pre-bundle these dependencies before publishing.`);
 	} catch {
 		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 	}
+
+	const remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => {
+		if (remoteInput === undefined) {
+			throw new Error(`Git remote ${stringify(remote)} does not exist`);
+		}
+
+		// Git accepts raw destinations as well as configured remote names.
+		return remote;
+	});
 
 	await task(
 		`Publishing branch ${stringify(currentBranch)} → ${stringify(publishBranch)}`,
@@ -132,9 +141,6 @@ Pre-bundle these dependencies before publishing.`);
 			const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
 
 			let success = false;
-
-			// Git accepts raw destinations as well as configured remote names.
-			const remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => remote);
 
 			let commitSha: string;
 			const packageManager = await detectPackageManager(cwd, gitRootPath);
