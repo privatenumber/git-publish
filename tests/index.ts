@@ -57,10 +57,9 @@ Pre-bundle these dependencies before publishing.`);
 		});
 
 		test('Fails if no package.json found', async () => {
-			await using fixture = await createFixture();
-
-			const git = createGit(fixture.path);
-			await git.init();
+			await using fixture = await createFixture(async fixture => {
+				await createGit(fixture.path).init();
+			});
 
 			const gitPublishProcess = await gitPublish(fixture.path);
 
@@ -69,13 +68,15 @@ Pre-bundle these dependencies before publishing.`);
 		});
 
 		test('Dirty working tree', async () => {
-			await using fixture = await createFixture({
-				'package.json': '{}',
+			await using fixture = await createFixture(async fixture => {
+				await createGit(fixture.path).init();
+
+				return {
+					'package.json': '{}',
+				};
 			});
 
 			const git = createGit(fixture.path);
-			await git.init();
-
 			await git('add', ['package.json']);
 
 			const gitPublishProcess = await gitPublish(fixture.path);
@@ -103,9 +104,9 @@ Pre-bundle these dependencies before publishing.`);
 	});
 
 	describe('Publish', async () => {
-		const remoteFixture = await createFixture();
-		const remoteGit = createGit(remoteFixture.path);
-		await remoteGit.init(['--bare']);
+		const remoteFixture = await createFixture(async fixture => {
+			await createGit(fixture.path).init(['--bare']);
+		});
 		onFinish(() => remoteFixture.rm());
 
 		test('preserves history', async () => {
