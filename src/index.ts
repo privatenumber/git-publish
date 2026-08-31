@@ -20,7 +20,24 @@ import { extractTarball } from './utils/extract-tarball.ts';
 
 const { stringify } = JSON;
 
+const isRemoteProvided = (argumentValues: string[]) => {
+	for (const argument of argumentValues) {
+		if (argument === '--') {
+			break;
+		}
+
+		if (argument === '--remote'
+			|| /^--remote[=.:]/.test(argument)
+			|| /^-[^-]*r/.test(argument)) {
+			return true;
+		}
+	}
+
+	return false;
+};
+
 (async () => {
+	const remoteProvided = isRemoteProvided(process.argv.slice(2));
 	const argv = cli({
 		name: packageMeta.name,
 		version: packageMeta.version,
@@ -36,6 +53,7 @@ const { stringify } = JSON;
 				alias: 'r',
 				placeholder: '<remote name or Git URL>',
 				description: 'The Git remote or URL to push to.',
+				default: 'origin',
 			},
 			fresh: {
 				type: Boolean,
@@ -101,9 +119,8 @@ Pre-bundle these dependencies before publishing.`);
 	}
 
 	const {
-		branch, remote: remoteInput, fresh, dry,
+		branch, remote, fresh, dry,
 	} = argv.flags;
-	const remote = remoteInput ?? 'origin';
 
 	const publishBranch = branch || (
 		gitSubdirectory
@@ -117,7 +134,7 @@ Pre-bundle these dependencies before publishing.`);
 	}
 
 	const remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => {
-		if (remoteInput === undefined) {
+		if (!remoteProvided) {
 			throw new Error(`Git remote ${stringify(remote)} does not exist`);
 		}
 
