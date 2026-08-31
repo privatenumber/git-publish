@@ -34,8 +34,8 @@ const { stringify } = JSON;
 			remote: {
 				type: String,
 				alias: 'r',
-				placeholder: '<remote>',
-				description: 'The remote to push to.',
+				placeholder: '<remote name or Git URL>',
+				description: 'The Git remote or URL to push to.',
 				default: 'origin',
 			},
 			fresh: {
@@ -133,12 +133,8 @@ Pre-bundle these dependencies before publishing.`);
 
 			let success = false;
 
-			let remoteUrl;
-			try {
-				remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]);
-			} catch {
-				throw new Error(`Git remote ${stringify(remote)} does not exist`);
-			}
+			// Git accepts raw destinations as well as configured remote names.
+			const remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => remote);
 
 			let commitSha: string;
 			const packageManager = await detectPackageManager(cwd, gitRootPath);

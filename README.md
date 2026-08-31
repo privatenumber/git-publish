@@ -64,7 +64,7 @@ git-publish
 | Flag                    | Description                                                   |
 | ----------------------- | ------------------------------------------------------------- |
 | `-b, --branch <name>`   | Target branch name. Defaults to `npm/<current branch or tag>` |
-| `-r, --remote <remote>` | Git remote to push to (default: `origin`)                     |
+| `-r, --remote <remote>` | Git remote name or URL to push to (default: `origin`)         |
 | `-o, --fresh`           | Create a fresh single-commit branch. Force-pushes to remote   |
 | `-d, --dry`             | Simulate the process. Does not commit or push                 |
 | `-h, --help`            | Show CLI help                                                 |
@@ -145,14 +145,14 @@ If that's not possible, you can push the branch to a public repo using the `--re
 Say you're testing changes in **Repo A**, but your GitHub Actions workflow in **Repo B** can't access private repos. You can push the publish branch to **Repo B** instead:
 
 ```sh
-npx git-publish --remote git@github.com:repo-b.git --branch test-pkg
+npx git-publish --remote git@github.com:owner/repo-b.git --branch test-pkg
 ```
 
 Result:
 
 ```sh
 ✔ Successfully published branch! Install with command:
-  → npm i 'repo-b#test-pkg'
+  → npm i 'owner/repo-b#test-pkg'
 ```
 
 ## Sponsors
