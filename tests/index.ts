@@ -12,7 +12,7 @@ import { gitPublish } from './utils/git-publish.ts';
 describe('git-publish', () => {
 	describe('Error cases', () => {
 		test('Cleans up after worktree creation fails', async () => {
-			await using hooksFixture = await createFixture(async fixture => {
+			await using hooksFixture = await createFixture(async (fixture) => {
 				const hookCounterPath = fixture.getPath('counter');
 				const secondCheckoutPath = fixture.getPath('second-checkout');
 				// Let the first worktree checkout succeed, then fail the second.
@@ -26,10 +26,10 @@ touch '${hookCounterPath}'
 `);
 				await fs.chmod(fixture.getPath('post-checkout'), 0o755);
 			});
-			await using remoteFixture = await createFixture(async fixture => {
+			await using remoteFixture = await createFixture(async (fixture) => {
 				await createGit(fixture.path).init(['--bare']);
 			});
-			await using fixture = await createFixture(async fixture => {
+			await using fixture = await createFixture(async (fixture) => {
 				await fixture.writeJson('package.json', {
 					name: 'test-pkg',
 					version: '1.0.0',
@@ -113,7 +113,7 @@ Pre-bundle these dependencies before publishing.`);
 		});
 
 		test('Fails if no package.json found', async () => {
-			await using fixture = await createFixture(async fixture => {
+			await using fixture = await createFixture(async (fixture) => {
 				await createGit(fixture.path).init();
 			});
 
@@ -124,7 +124,7 @@ Pre-bundle these dependencies before publishing.`);
 		});
 
 		test('Dirty working tree', async () => {
-			await using fixture = await createFixture(async fixture => {
+			await using fixture = await createFixture(async (fixture) => {
 				await createGit(fixture.path).init();
 
 				return {
@@ -160,7 +160,7 @@ Pre-bundle these dependencies before publishing.`);
 	});
 
 	describe('Publish', async () => {
-		const remoteFixture = await createFixture(async fixture => {
+		const remoteFixture = await createFixture(async (fixture) => {
 			await createGit(fixture.path).init(['--bare']);
 		});
 		onFinish(() => remoteFixture.rm());
