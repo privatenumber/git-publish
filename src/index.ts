@@ -110,6 +110,11 @@ Pre-bundle these dependencies before publishing.`);
 			? `npm/${currentBranch}-${packageJson.name}`
 			: `npm/${currentBranch}`
 	);
+	try {
+		await simpleSpawn('git', ['check-ref-format', '--branch', publishBranch]);
+	} catch {
+		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
+	}
 
 	await task(
 		`Publishing branch ${stringify(currentBranch)} → ${stringify(publishBranch)}`,
@@ -171,16 +176,31 @@ Pre-bundle these dependencies before publishing.`);
 					if (fresh) {
 						orphan = true;
 					} else {
-						const fetchResult = await spawn('git', [
-							'fetch',
-							'--depth=1',
-							remote,
-							`${publishBranch}:${localTemporaryBranch}`,
-						], { cwd: publishWorktreePath }).catch(error => error as SubprocessError);
+						try {
+							await spawn('git', [
+								'ls-remote',
+								'--exit-code',
+								'--branches',
+								remote,
+								`refs/heads/${publishBranch}`,
+							], { cwd: publishWorktreePath });
+						} catch (error) {
+							if (!(error instanceof SubprocessError) || error.exitCode !== 2) {
+								throw error;
+							}
 
-						// If fetch fails, remote branch doesnt exist yet, so fallback to orphan
-						orphan = 'exitCode' in fetchResult;
-						localTemporaryBranchExists = !orphan;
+							orphan = true;
+						}
+
+						if (!orphan) {
+							await spawn('git', [
+								'fetch',
+								'--depth=1',
+								remote,
+								`${publishBranch}:${localTemporaryBranch}`,
+							], { cwd: publishWorktreePath });
+							localTemporaryBranchExists = true;
+						}
 					}
 
 					if (orphan) {
