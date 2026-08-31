@@ -137,27 +137,30 @@ Pre-bundle these dependencies before publishing.`);
 
 			let commitSha: string;
 			const packageManager = await detectPackageManager(cwd, gitRootPath);
-
-			const creatingWorktrees = await task('Creating worktrees', async ({ setWarning }) => {
-				if (dry) {
-					setWarning('');
-					return;
-				}
-
-				// TODO: maybe delete all worktrees starting with `git-publish-`?
-
-				// Create publish worktree
-				await spawn('git', ['worktree', 'add', '--force', publishWorktreePath, 'HEAD']);
-
-				// Create pack worktree for isolated pack execution
-				await spawn('git', ['worktree', 'add', '--force', packWorktreePath, 'HEAD']);
-			});
-
-			if (!dry) {
-				creatingWorktrees.clear();
-			}
+			let publishWorktreeNeedsCleanup = false;
+			let packWorktreeNeedsCleanup = false;
+			let localTemporaryBranchExists = false;
+			let primaryError: unknown;
 
 			try {
+				const creatingWorktrees = await task('Creating worktrees', async ({ setWarning }) => {
+					if (dry) {
+						setWarning('');
+						return;
+					}
+
+					// A failed hook can leave Git's worktree registration behind.
+					publishWorktreeNeedsCleanup = true;
+					await spawn('git', ['worktree', 'add', '--force', publishWorktreePath, 'HEAD']);
+
+					packWorktreeNeedsCleanup = true;
+					await spawn('git', ['worktree', 'add', '--force', packWorktreePath, 'HEAD']);
+				});
+
+				if (!dry) {
+					creatingWorktrees.clear();
+				}
+
 				const checkoutBranch = await task('Checking out branch', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
@@ -177,6 +180,7 @@ Pre-bundle these dependencies before publishing.`);
 
 						// If fetch fails, remote branch doesnt exist yet, so fallback to orphan
 						orphan = 'exitCode' in fetchResult;
+						localTemporaryBranchExists = !orphan;
 					}
 
 					if (orphan) {
@@ -311,6 +315,9 @@ Pre-bundle these dependencies before publishing.`);
 				if (!dry) {
 					push.clear();
 				}
+			} catch (error) {
+				primaryError = error;
+				throw error;
 			} finally {
 				const cleanup = await task('Cleaning up', async ({ setWarning }) => {
 					if (dry) {
@@ -318,15 +325,38 @@ Pre-bundle these dependencies before publishing.`);
 						return;
 					}
 
-					await spawn('git', ['worktree', 'remove', '--force', publishWorktreePath]);
-					await spawn('git', ['worktree', 'remove', '--force', packWorktreePath]);
+					const cleanupErrors: unknown[] = [];
+					const runCleanup = async (operation: Promise<unknown>) => {
+						try {
+							await operation;
+						} catch (error) {
+							cleanupErrors.push(error);
+						}
+					};
 
-					// .catch() since orphan branches don't exist until committed
-					await spawn('git', ['branch', '-D', localTemporaryBranch]).catch(() => {});
-					await fs.rm(temporaryDirectory, {
+					if (publishWorktreeNeedsCleanup) {
+						await runCleanup(spawn('git', ['worktree', 'remove', '--force', publishWorktreePath]));
+					}
+
+					if (packWorktreeNeedsCleanup) {
+						await runCleanup(spawn('git', ['worktree', 'remove', '--force', packWorktreePath]));
+					}
+
+					if (localTemporaryBranchExists) {
+						await runCleanup(spawn('git', ['branch', '-D', localTemporaryBranch]));
+					}
+
+					await runCleanup(fs.rm(temporaryDirectory, {
 						recursive: true,
 						force: true,
-					});
+					}));
+
+					if (cleanupErrors.length > 0) {
+						setWarning(cleanupErrors.map(error => (error instanceof Error ? error.message : String(error))).join('\n'));
+						if (!primaryError) {
+							throw new AggregateError(cleanupErrors, 'Failed to clean up temporary publish resources.');
+						}
+					}
 				});
 
 				cleanup.clear();
