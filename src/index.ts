@@ -21,6 +21,7 @@ import { extractTarball } from './utils/extract-tarball.ts';
 const { stringify } = JSON;
 
 (async () => {
+	let usedDefaultRemote = false;
 	const argv = cli({
 		name: packageMeta.name,
 		version: packageMeta.version,
@@ -34,9 +35,12 @@ const { stringify } = JSON;
 			remote: {
 				type: String,
 				alias: 'r',
-				placeholder: '<remote>',
-				description: 'The remote to push to.',
-				default: 'origin',
+				placeholder: '<remote name or Git URL>',
+				description: 'The Git remote or URL to push to.',
+				default: () => {
+					usedDefaultRemote = true;
+					return 'origin';
+				},
 			},
 			fresh: {
 				type: Boolean,
@@ -116,6 +120,15 @@ Pre-bundle these dependencies before publishing.`);
 		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 	}
 
+	const remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => {
+		if (usedDefaultRemote) {
+			throw new Error(`Git remote ${stringify(remote)} does not exist`);
+		}
+
+		// Git accepts raw destinations as well as configured remote names.
+		return remote;
+	});
+
 	await task(
 		`Publishing branch ${stringify(currentBranch)} → ${stringify(publishBranch)}`,
 		async ({
@@ -132,13 +145,6 @@ Pre-bundle these dependencies before publishing.`);
 			const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
 
 			let success = false;
-
-			let remoteUrl;
-			try {
-				remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]);
-			} catch {
-				throw new Error(`Git remote ${stringify(remote)} does not exist`);
-			}
 
 			let commitSha: string;
 			const packageManager = await detectPackageManager(cwd, gitRootPath);
