@@ -17,6 +17,7 @@ import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { packPackage } from './utils/pack-package.ts';
 import { extractTarball } from './utils/extract-tarball.ts';
+import { getGitHubRepositoryName } from './utils/github.ts';
 
 const { stringify } = JSON;
 
@@ -389,19 +390,17 @@ Pre-bundle these dependencies before publishing.`);
 			}
 
 			if (success) {
-				const parsedGitUrl = remoteUrl.match(/github\.com:(.+)\.git$/);
-				if (parsedGitUrl) {
-					const [, repo] = parsedGitUrl;
-
+				const repositoryName = getGitHubRepositoryName(remoteUrl);
+				if (repositoryName) {
 					const successLink = terminalLink(
 						`${cyan(publishBranch)} ${dim(`(${commitSha!})`)}`,
-						`https://github.com/${repo}/tree/${publishBranch!}`,
+						`https://github.com/${repositoryName}/tree/${publishBranch!}`,
 					);
 					setTitle(`Successfully published branch: ${successLink}`);
 
 					const output = [
 						'Install command',
-						`${packageManager} i '${repo}#${publishBranch}'`,
+						`${packageManager} i '${remoteUrl}#${publishBranch}'`,
 					].join('\n');
 
 					setOutput(output);
