@@ -217,6 +217,8 @@ Pre-bundle these dependencies before publishing.`);
 					if (orphan) {
 						// Fresh orphan branch with no history
 						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], { cwd: publishWorktreePath });
+						// `checkout --orphan` creates a local branch that cleanup must remove.
+						localTemporaryBranchExists = true;
 					} else {
 						// Repoint HEAD to the fetched branch without checkout
 						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: publishWorktreePath });
