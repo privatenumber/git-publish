@@ -32,7 +32,7 @@ export const getCurrentSourceName = async () => {
 		return tag;
 	}
 
-	return simpleSpawn('git', ['rev-parse', '--short', 'HEAD']);
+	return await simpleSpawn('git', ['rev-parse', '--short', 'HEAD']);
 };
 
 export const getCurrentCommit = async (
