@@ -268,6 +268,51 @@ Pre-bundle these dependencies before publishing.`);
 			]);
 		});
 
+		test('uses an exact tag from detached HEAD', async () => {
+			const tagName = 'v1.2.3';
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init();
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('tag', ['--no-sign', tagName]);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+			await git('checkout', ['--detach']);
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(await git('rev-parse', [`origin/npm/${tagName}`])).toBeTruthy();
+		});
+
+		test('uses a short commit ID from untagged detached HEAD', async () => {
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init();
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			const sourceCommit = await git('rev-parse', ['--short', 'HEAD']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+			await git('checkout', ['--detach']);
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(await git('rev-parse', [`origin/npm/${sourceCommit}`])).toBeTruthy();
+		});
+
 		test('preserves history', async () => {
 			const branchName = 'test-preserve-history';
 
