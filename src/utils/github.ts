@@ -5,14 +5,6 @@ const gitUrlUsernames = new Map([
 	['ssh:', 'git'],
 ]);
 
-const parseGitUrl = (remoteUrl: string) => {
-	try {
-		return new URL(remoteUrl.replace(/^git\+/, ''));
-	} catch {
-		// A malformed non-SCP remote has no GitHub-specific guidance.
-	}
-};
-
 export const getGitHubRepositoryName = (remoteUrl: string) => {
 	const scpMatch = remoteUrl.match(githubScpRemotePattern);
 	if (scpMatch) {
@@ -20,7 +12,7 @@ export const getGitHubRepositoryName = (remoteUrl: string) => {
 		return `${owner}/${repository}`;
 	}
 
-	const url = parseGitUrl(remoteUrl);
+	const url = URL.parse(remoteUrl.replace(/^git\+/, ''));
 	if (!url || url.hostname !== 'github.com' || url.search || url.hash || url.password) {
 		return;
 	}
