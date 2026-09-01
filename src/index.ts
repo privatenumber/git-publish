@@ -266,8 +266,10 @@ Pre-bundle these dependencies before publishing.`);
 					const publishedPackageJson = await readJson(publishedPackageJsonPath) as PackageJson;
 					const { scripts } = publishedPackageJson;
 					if (scripts && ('prepare' in scripts || 'prepack' in scripts)) {
-						// Git dependency installers rerun these hooks after checkout.
-						// This branch contains only packed artifacts.
+						/*
+						 * npm reruns these hooks when installing Git dependencies:
+						 * https://github.com/npm/cli/blob/2a03860fcafe92b22770fc554b25994b29bacbdb/docs/lib/content/using-npm/scripts.md#L49-L65
+						 */
 						delete scripts.prepare;
 						delete scripts.prepack;
 						await fs.writeFile(publishedPackageJsonPath, stringify(publishedPackageJson, null, 2));
