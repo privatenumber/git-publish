@@ -409,6 +409,47 @@ Pre-bundle these dependencies before publishing.`);
 			expect(Number(commitCount)).toBe(2);
 		});
 
+		test('does not make the source repository shallow or import tags when fetching publish history', async () => {
+			const branchName = 'test-publish-fetch-metadata';
+			const destinationTag = 'publish-history-tag';
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+				'index.js': 'export const version = 1;',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json', 'index.js']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const firstPublish = await gitPublish(fixture.path, ['--fresh']);
+			expect('exitCode' in firstPublish).toBe(false);
+			const remoteGit = createGit(remoteFixture.path);
+			await remoteGit('tag', ['--no-sign', destinationTag, `refs/heads/npm/${branchName}`]);
+
+			await fixture.writeFile('index.js', 'export const version = 2;');
+			await git('add', ['index.js']);
+			await git('commit', ['-m', 'Update package']);
+
+			const nextPublish = await gitPublish(fixture.path);
+			expect('exitCode' in nextPublish).toBe(false);
+			const [isShallow, tags] = await Promise.all([
+				git('rev-parse', ['--is-shallow-repository']),
+				git('tag', ['--list', destinationTag]),
+			]);
+			expect({
+				isShallow,
+				tags,
+			}).toStrictEqual({
+				isShallow: 'false',
+				tags: '',
+			});
+		});
+
 		test('--fresh resets history', async () => {
 			const branchName = 'test-fresh';
 
