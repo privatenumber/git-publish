@@ -26,6 +26,7 @@ const { stringify } = JSON;
 	const argv = cli({
 		name: packageMeta.name,
 		version: packageMeta.version,
+		strictFlags: true,
 		flags: {
 			branch: {
 				type: String,
@@ -63,6 +64,9 @@ const { stringify } = JSON;
 			description: packageMeta.description,
 		},
 	});
+	if (argv._.length > 0) {
+		throw new Error('This command does not accept positional arguments.');
+	}
 
 	await assertCleanTree();
 

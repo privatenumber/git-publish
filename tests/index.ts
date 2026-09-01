@@ -43,6 +43,28 @@ describe('git-publish', () => {
 	});
 
 	describe('Error cases', () => {
+		test('Rejects invalid CLI input before publishing', async () => {
+			await using markerFixture = await createFixture();
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+					scripts: {
+						prepack: `node -e "require('node:fs').writeFileSync(process.argv[1], 'packed')" "${markerFixture.getPath('packed')}"`,
+					},
+				}),
+			});
+
+			const misspelledFlag = await gitPublish(fixture.path, ['--drry']);
+			expect(('exitCode' in misspelledFlag) && misspelledFlag.exitCode).toBe(1);
+			expect(misspelledFlag.stderr).toBe('Error: Unknown flag: --drry. (Did you mean --dry?)');
+
+			const positionalArgument = await gitPublish(fixture.path, ['unexpected']);
+			expect(('exitCode' in positionalArgument) && positionalArgument.exitCode).toBe(1);
+			expect(positionalArgument.stderr).toBe('Error: This command does not accept positional arguments.');
+			expect(await markerFixture.exists('packed')).toBe(false);
+		});
+
 		test('Missing default remote', async () => {
 			await using markerFixture = await createFixture();
 			await using fixture = await createFixture(async (fixture) => {
