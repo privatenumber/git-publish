@@ -261,7 +261,19 @@ Pre-bundle these dependencies before publishing.`);
 						throw error;
 					}
 
-					return await extractTarball(tarballPath, publishWorktreePath);
+					const publishFiles = await extractTarball(tarballPath, publishWorktreePath);
+					const publishedPackageJsonPath = path.join(publishWorktreePath, packageJsonPath);
+					const publishedPackageJson = await readJson(publishedPackageJsonPath) as PackageJson;
+					const { scripts } = publishedPackageJson;
+					if (scripts && ('prepare' in scripts || 'prepack' in scripts)) {
+						// Git dependency installers rerun these hooks after checkout.
+						// This branch contains only packed artifacts.
+						delete scripts.prepare;
+						delete scripts.prepack;
+						await fs.writeFile(publishedPackageJsonPath, stringify(publishedPackageJson, null, 2));
+					}
+
+					return publishFiles;
 				});
 
 				if (!dry) {

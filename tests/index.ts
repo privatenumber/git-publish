@@ -739,6 +739,52 @@ Pre-bundle these dependencies before publishing.`);
 			expect(prepackContent.trim()).toBe('prepack-ran');
 		});
 
+		test('installs published Git dependencies without build hooks', async () => {
+			const branchName = 'test-git-install-hooks';
+			const packageName = 'test-git-install-hooks';
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: packageName,
+					version: '1.0.0',
+					files: ['dist'],
+					scripts: {
+						prepare: 'node scripts/build.js',
+						prepack: 'node scripts/build.js',
+					},
+				}, null, 2),
+				scripts: {
+					'build.js': "import fs from 'node:fs'; fs.mkdirSync('dist', { recursive: true }); fs.writeFileSync('dist/index.js', 'export default true;');",
+				},
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json', 'scripts/build.js']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+			expect('exitCode' in gitPublishProcess).toBe(false);
+
+			const publishedBranch = `npm/${branchName}`;
+			const publishedPackageJson = JSON.parse(await git('show', [`origin/${publishedBranch}:package.json`]));
+			expect(publishedPackageJson.scripts?.prepare).toBeUndefined();
+			expect(publishedPackageJson.scripts?.prepack).toBeUndefined();
+
+			await using consumerFixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-git-consumer',
+					private: true,
+					dependencies: {
+						[packageName]: `git+file://${remoteFixture.path}#${publishedBranch}`,
+					},
+				}, null, 2),
+			});
+
+			await spawn('pnpm', ['install'], { cwd: consumerFixture.path });
+			expect(await consumerFixture.exists(`node_modules/${packageName}/dist/index.js`)).toBe(true);
+		});
+
 		test('dependencies are accessible in pack hooks', async () => {
 			const branchName = 'test-deps-in-hooks';
 
