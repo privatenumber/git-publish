@@ -28,7 +28,11 @@ export const getCurrentSourceName = async () => {
 	const tag = await simpleSpawn('git', ['describe', '--tags', '--exact-match']).catch(() => {
 		// Git exits with 128 when HEAD has no exact tag.
 	});
-	return tag || simpleSpawn('git', ['rev-parse', '--short', 'HEAD']);
+	if (tag) {
+		return tag;
+	}
+
+	return simpleSpawn('git', ['rev-parse', '--short', 'HEAD']);
 };
 
 export const getCurrentCommit = async (
