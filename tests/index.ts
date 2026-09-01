@@ -18,6 +18,7 @@ describe('git-publish', () => {
 				'ssh://git@github.com/owner/repository.git',
 				'https://github.com/owner/repository.git',
 				'git+https://github.com/owner/repository.git',
+				'https://github.com:443/owner/repository.git',
 				'git@github.com:owner/repository',
 				'ssh://git@github.com/owner/repository',
 				'https://github.com/owner/repository',
