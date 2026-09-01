@@ -451,6 +451,30 @@ Pre-bundle these dependencies before publishing.`);
 			expect(Number(commitCount)).toBe(1);
 		});
 
+		test('cleans up temporary branches after orphan publishes', async () => {
+			const branchName = 'test-orphan-branch-cleanup';
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const firstPublish = await gitPublish(fixture.path);
+			expect('exitCode' in firstPublish).toBe(false);
+			expect(await git('branch', ['--list', 'git-publish-*'])).toBe('');
+
+			const freshPublish = await gitPublish(fixture.path, ['--fresh']);
+			expect('exitCode' in freshPublish).toBe(false);
+			expect(await git('branch', ['--list', 'git-publish-*'])).toBe('');
+		});
+
 		test('monorepo package', async () => {
 			const branchName = 'test-monorepo';
 			const packageName = '@org/test-pkg';
