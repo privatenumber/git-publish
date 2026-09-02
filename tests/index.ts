@@ -144,10 +144,15 @@ describe('git-publish', () => {
 
 		test('Cleans up after pack worktree creation fails', async () => {
 			await using hooksFixture = await createFixture(async (fixture) => {
+				const publishCheckoutPath = fixture.getPath('publish-checkout');
 				const packCheckoutPath = fixture.getPath('pack-checkout');
 				await fixture.writeFile('post-checkout', `#!/bin/sh
-touch '${packCheckoutPath}'
-exit 1
+if [ -f '${publishCheckoutPath}' ]; then
+	touch '${packCheckoutPath}'
+	exit 1
+fi
+
+touch '${publishCheckoutPath}'
 `);
 				await fs.chmod(fixture.getPath('post-checkout'), 0o755);
 			});
@@ -173,6 +178,7 @@ exit 1
 			try {
 				const gitPublishProcess = await gitPublish(fixture.path);
 				expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+				expect(await hooksFixture.exists('publish-checkout')).toBe(true);
 				expect(await hooksFixture.exists('pack-checkout')).toBe(true);
 
 				// A failed creation must not leave temporary registrations behind.
