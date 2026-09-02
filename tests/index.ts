@@ -478,10 +478,12 @@ exec git-receive-pack "$@"
 			await git('add', ['package.json', 'index.js']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
+			await git('config', ['test.snapshot', 'quote" slash\\ newline\n tab\t']);
 
 			const firstPublish = await gitPublish(fixture.path, ['--fresh']);
 			expect('exitCode' in firstPublish).toBe(false);
 			await remoteGit('tag', ['--no-sign', destinationTag, `refs/heads/npm/${branchName}`]);
+			await git('config', ['uploadpack.hideRefs', 'refs/heads/npm']);
 
 			await fixture.writeFile('index.js', 'export const version = 2;');
 			await git('add', ['index.js']);

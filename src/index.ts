@@ -22,6 +22,50 @@ import { getGitHubRepositoryName } from './utils/github.ts';
 
 const { stringify } = JSON;
 
+type GitConfigEntry = {
+	scope: string;
+	key: string;
+	value: string;
+};
+
+const parseGitConfig = (
+	config: string,
+	scope: string,
+) => {
+	const fields = config.split('\0');
+	const entries: GitConfigEntry[] = [];
+	for (const field of fields) {
+		if (!field) {
+			continue;
+		}
+
+		const separatorIndex = field.indexOf('\n');
+		entries.push({
+			scope,
+			key: field.slice(0, separatorIndex),
+			value: field.slice(separatorIndex + 1),
+		});
+	}
+
+	return entries;
+};
+
+const serializeGitConfig = ({ key, value }: GitConfigEntry) => {
+	const firstSeparatorIndex = key.indexOf('.');
+	const lastSeparatorIndex = key.lastIndexOf('.');
+	const section = key.slice(0, firstSeparatorIndex);
+	const subsection = firstSeparatorIndex === lastSeparatorIndex
+		? ''
+		: ` "${key.slice(firstSeparatorIndex + 1, lastSeparatorIndex).replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`)}"`;
+	const variable = key.slice(lastSeparatorIndex + 1);
+	const escapedValue = value
+		.replaceAll('\\', String.raw`\\`)
+		.replaceAll('"', String.raw`\"`)
+		.replaceAll('\n', String.raw`\n`)
+		.replaceAll('\t', String.raw`\t`);
+	return `[${section}${subsection}]\n\t${variable} = "${escapedValue}"\n`;
+};
+
 (async () => {
 	let usedDefaultRemote = false;
 	const argv = cli({
@@ -135,9 +179,21 @@ Pre-bundle these dependencies before publishing.`);
 		return remote;
 	});
 	const sourceObjectsPath = path.resolve(cwd, await simpleSpawn('git', ['rev-parse', '--git-path', 'objects']));
-	const objectFormat = await simpleSpawn('git', ['config', '--get', 'extensions.objectFormat']).catch(() => 'sha1');
-	const gitConfigResult = await spawn('git', ['config', '--includes', '--null', '--list']);
-	const gitConfig = gitConfigResult.stdout;
+	const [sourceLocalConfigResult, sourceGlobalConfig] = await Promise.all([
+		spawn('git', ['config', '--local', '--includes', '--null', '--list']),
+		simpleSpawn('git', ['config', '--global', '--includes', '--null', '--list']).catch(() => ''),
+	]);
+	const sourceLocalConfig = parseGitConfig(sourceLocalConfigResult.stdout, 'local');
+	const worktreeConfigEnabled = sourceLocalConfig.some(({ key, value }) => key === 'extensions.worktreeconfig' && value === 'true');
+	const sourceWorktreeConfigResult = worktreeConfigEnabled
+		? await spawn('git', ['config', '--worktree', '--includes', '--null', '--list'])
+		: undefined;
+	const sourceGitConfig = [
+		...parseGitConfig(sourceGlobalConfig, 'global'),
+		...sourceLocalConfig,
+		...(sourceWorktreeConfigResult ? parseGitConfig(sourceWorktreeConfigResult.stdout, 'worktree') : []),
+	];
+	const objectFormat = sourceLocalConfig.find(({ key }) => key === 'extensions.objectformat')?.value;
 
 	await task(
 		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
@@ -153,31 +209,11 @@ Pre-bundle these dependencies before publishing.`);
 			const publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
 			const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
 			const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
-			const publishGitEnvironment: Record<string, string> = {
-				GIT_ALTERNATE_OBJECT_DIRECTORIES: sourceObjectsPath,
-				GIT_CONFIG_GLOBAL: os.devNull,
-				GIT_CONFIG_NOSYSTEM: '1',
-			};
-			let gitConfigIndex = 0;
-			for (const entry of gitConfig.split('\0')) {
-				if (!entry) {
-					continue;
-				}
-
-				const separatorIndex = entry.indexOf('\n');
-				const key = entry.slice(0, separatorIndex);
-				if (key === 'core.bare' || key === 'core.worktree' || key === 'core.repositoryformatversion' || key.startsWith('extensions.')) {
-					continue;
-				}
-
-				publishGitEnvironment[`GIT_CONFIG_KEY_${gitConfigIndex}`] = key;
-				publishGitEnvironment[`GIT_CONFIG_VALUE_${gitConfigIndex}`] = entry.slice(separatorIndex + 1);
-				gitConfigIndex += 1;
-			}
-			publishGitEnvironment.GIT_CONFIG_COUNT = String(gitConfigIndex);
 			const publishGitOptions = {
 				cwd: publishWorktreePath,
-				env: publishGitEnvironment,
+				env: {
+					GIT_ALTERNATE_OBJECT_DIRECTORIES: sourceObjectsPath,
+				},
 			};
 
 			let success = false;
@@ -194,7 +230,46 @@ Pre-bundle these dependencies before publishing.`);
 						return;
 					}
 
-					await spawn('git', ['init', `--object-format=${objectFormat}`, publishWorktreePath]);
+					await spawn('git', [
+						'init',
+						...(objectFormat && objectFormat !== 'sha1' ? [`--object-format=${objectFormat}`] : []),
+						publishWorktreePath,
+					]);
+					const publishGlobalConfig = await simpleSpawn('git', ['config', '--global', '--includes', '--null', '--list'], publishGitOptions).catch(() => '');
+					const inheritedConfigCounts = new Map<string, number>();
+					for (const { key, value } of parseGitConfig(publishGlobalConfig, 'global')) {
+						const signature = `${key}\0${value}`;
+						inheritedConfigCounts.set(signature, (inheritedConfigCounts.get(signature) || 0) + 1);
+					}
+
+					// Copy repository config and global values selected only for the source Git directory.
+					const publishConfigEntries = sourceGitConfig.filter((entry) => {
+						const { scope, key, value } = entry;
+						if (key === 'core.bare' || key === 'core.worktree' || key === 'core.repositoryformatversion' || key.startsWith('extensions.') || key === 'include.path' || key.startsWith('includeif.')) {
+							return false;
+						}
+
+						if (scope === 'local' || scope === 'worktree') {
+							return true;
+						}
+
+						if (scope !== 'global') {
+							return false;
+						}
+
+						const signature = `${key}\0${value}`;
+						const inheritedCount = inheritedConfigCounts.get(signature) || 0;
+						if (inheritedCount === 0) {
+							return true;
+						}
+
+						inheritedConfigCounts.set(signature, inheritedCount - 1);
+						return false;
+					});
+					await fs.appendFile(
+						path.join(publishWorktreePath, '.git', 'config'),
+						publishConfigEntries.map(serializeGitConfig).join(''),
+					);
 
 					// A failed hook can leave Git's worktree registration behind.
 					packWorktreeNeedsCleanup = true;
