@@ -21,6 +21,14 @@ import { getGitHubRepositoryName } from './utils/github.ts';
 
 const { stringify } = JSON;
 
+const getPushUrls = async (
+	remote: string,
+	remoteUrl: string,
+) => {
+	const pushUrlsOutput = await simpleSpawn('git', ['remote', 'get-url', '--push', '--all', remote]).catch(() => remoteUrl);
+	return pushUrlsOutput.split('\n');
+};
+
 (async () => {
 	let usedDefaultRemote = false;
 	const argv = cli({
@@ -136,8 +144,7 @@ Pre-bundle these dependencies before publishing.`);
 		return remote;
 	});
 	// A remote can use separate fetch and push URLs, and Git pushes to every configured push URL.
-	const pushUrlsOutput = await simpleSpawn('git', ['remote', 'get-url', '--push', '--all', remote]).catch(() => remoteUrl);
-	const pushUrls = pushUrlsOutput.split('\n');
+	const pushUrls = await getPushUrls(remote, remoteUrl);
 
 	await task(
 		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
