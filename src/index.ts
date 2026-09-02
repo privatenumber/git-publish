@@ -77,7 +77,7 @@ const sanitizeGitServerCommand = (command: string) => `env -u GIT_CONFIG_SYSTEM 
 
 const isLocalGitUrl = (url: string) => url.startsWith('file://')
 	|| /^[a-z]:[\\/]/i.test(url)
-	|| (!/^[a-z][a-z\d+.-]*:\/\//i.test(url) && !/^[^/:]+:[^/]/.test(url));
+	|| (!/^[a-z][a-z\d+.-]*:\/\//i.test(url) && !/^[^/:]+:/.test(url));
 
 const getGitServerCommand = (url: string, command: string) => {
 	if (isLocalGitUrl(url)) {

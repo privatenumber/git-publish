@@ -314,6 +314,41 @@ Pre-bundle these dependencies before publishing.`);
 			]);
 		});
 
+		test('supports SCP SSH URLs with absolute paths', async () => {
+			const branchName = 'test-scp-absolute-path';
+			await using sshFixture = await createFixture(async (fixture) => {
+				await fixture.writeFile('ssh', `#!/bin/sh
+shift
+case "$*" in
+"env "*) exit 1 ;;
+esac
+exec sh -c "$*"
+`);
+				await fs.chmod(fixture.getPath('ssh'), 0o755);
+			});
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('config', ['core.sshCommand', sshFixture.getPath('ssh')]);
+			await git('config', ['ssh.variant', 'simple']);
+
+			const gitPublishProcess = await gitPublish(fixture.path, [
+				'--fresh',
+				'--remote',
+				`git@example.test:${remoteFixture.path}`,
+			]);
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(await remoteGit('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+		});
+
 		test('uses all configured push URLs', async () => {
 			const branchName = 'test-push-url';
 			await using firstPushFixture = await createFixture(async (fixture) => {
