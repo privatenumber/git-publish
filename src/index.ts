@@ -177,6 +177,7 @@ Pre-bundle these dependencies before publishing.`);
 
 					await spawn('git', ['clone', '--shared', '--no-checkout', gitRootPath, publishWorktreePath]);
 					await spawn('git', ['remote', 'add', 'publish', remoteUrl], { cwd: publishWorktreePath });
+					// Each command locks and updates the same Git config file.
 					for (const pushUrl of pushUrls) {
 						await spawn('git', ['remote', 'set-url', '--add', '--push', 'publish', pushUrl], { cwd: publishWorktreePath });
 					}
