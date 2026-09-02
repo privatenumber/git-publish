@@ -125,8 +125,7 @@ Pre-bundle these dependencies before publishing.`);
 		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 	}
 
-	// Resolving remote URLs reads local Git configuration only; it does not connect to the remote.
-	// It does not need a progress task.
+	// This reads local Git configuration without connecting to the remote.
 	const remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => {
 		if (usedDefaultRemote) {
 			throw new Error(`Git remote ${stringify(remote)} does not exist`);
@@ -144,8 +143,8 @@ Pre-bundle these dependencies before publishing.`);
 				setStatus('Dry run');
 			}
 
-			const temporaryBranch = `git-publish-${Date.now()}-${process.pid}`;
-			const temporaryDirectory = path.join(os.tmpdir(), 'git-publish', temporaryBranch);
+			const temporaryPublishBranch = `git-publish-${Date.now()}-${process.pid}`;
+			const temporaryDirectory = path.join(os.tmpdir(), 'git-publish', temporaryPublishBranch);
 			const publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
 			const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
 			const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
@@ -156,7 +155,7 @@ Pre-bundle these dependencies before publishing.`);
 			const packageManager = await detectPackageManager(cwd, gitRootPath);
 			let publishWorktreeNeedsCleanup = false;
 			let packWorktreeNeedsCleanup = false;
-			let temporaryBranchExists = false;
+			let temporaryPublishBranchExists = false;
 			let primaryError: unknown;
 
 			try {
@@ -209,20 +208,20 @@ Pre-bundle these dependencies before publishing.`);
 								'fetch',
 								'--no-tags',
 								remote,
-								`${publishBranch}:${temporaryBranch}`,
+								`${publishBranch}:${temporaryPublishBranch}`,
 							], { cwd: publishWorktreePath });
-							temporaryBranchExists = true;
+							temporaryPublishBranchExists = true;
 						}
 					}
 
 					if (orphan) {
 						// Fresh orphan branch with no history
-						await spawn('git', ['checkout', '--orphan', temporaryBranch], { cwd: publishWorktreePath });
+						await spawn('git', ['checkout', '--orphan', temporaryPublishBranch], { cwd: publishWorktreePath });
 						// `checkout --orphan` creates a local branch that cleanup must remove.
-						temporaryBranchExists = true;
+						temporaryPublishBranchExists = true;
 					} else {
 						// Repoint HEAD to the fetched branch without checkout
-						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${temporaryBranch}`], { cwd: publishWorktreePath });
+						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${temporaryPublishBranch}`], { cwd: publishWorktreePath });
 					}
 
 					// Remove all files from index and working directory
@@ -390,8 +389,8 @@ Pre-bundle these dependencies before publishing.`);
 						await runCleanup(spawn('git', ['worktree', 'remove', '--force', packWorktreePath]));
 					}
 
-					if (temporaryBranchExists) {
-						await runCleanup(spawn('git', ['branch', '-D', temporaryBranch]));
+					if (temporaryPublishBranchExists) {
+						await runCleanup(spawn('git', ['branch', '-D', temporaryPublishBranch]));
 					}
 
 					await runCleanup(fs.rm(temporaryDirectory, {

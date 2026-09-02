@@ -144,10 +144,15 @@ describe('git-publish', () => {
 
 		test('Cleans up after pack worktree creation fails', async () => {
 			await using hooksFixture = await createFixture(async (fixture) => {
-				const checkoutPath = fixture.getPath('checkout');
+				const checkoutCountPath = fixture.getPath('checkout-count');
+				const packCheckoutPath = fixture.getPath('pack-checkout');
 				await fixture.writeFile('post-checkout', `#!/bin/sh
-touch '${checkoutPath}'
-exit 1
+if [ -f '${checkoutCountPath}' ]; then
+	touch '${packCheckoutPath}'
+	exit 1
+fi
+
+touch '${checkoutCountPath}'
 `);
 				await fs.chmod(fixture.getPath('post-checkout'), 0o755);
 			});
@@ -164,7 +169,7 @@ exit 1
 				await git.init();
 				await git('add', ['package.json']);
 				await git('commit', ['-m', 'Initial commit']);
-				// Git runs this hook when creating the pack worktree.
+				// The first worktree checkout succeeds; the pack worktree checkout fails.
 				await git('config', ['core.hooksPath', hooksFixture.path]);
 				await git('remote', ['add', 'origin', remoteFixture.path]);
 			});
@@ -172,10 +177,10 @@ exit 1
 			const git = createGit(fixture.path);
 
 			try {
-				// The hook makes pack worktree creation fail.
+				// The hook makes the second, pack worktree creation fail.
 				const gitPublishProcess = await gitPublish(fixture.path);
 				expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-				expect(await hooksFixture.exists('checkout')).toBe(true);
+				expect(await hooksFixture.exists('pack-checkout')).toBe(true);
 
 				// A failed creation must not leave temporary registrations behind.
 				const worktrees = await git('worktree', ['list', '--porcelain']);
@@ -346,7 +351,7 @@ Pre-bundle these dependencies before publishing.`);
 			await expect(remoteGit('rev-parse', [`npm/${branchName}`])).rejects.toThrow();
 		});
 
-		test('uses the remote receive-pack command', async () => {
+		test('honors the configured remote receive-pack command', async () => {
 			const branchName = 'test-receive-pack';
 			await using commandFixture = await createFixture(async (fixture) => {
 				const markerPath = fixture.getPath('called');
@@ -521,7 +526,7 @@ exec git-receive-pack "$@"
 			await sourceGit('push', ['origin', 'HEAD:main']);
 
 			await using shallowFixture = await createFixture();
-			await spawn('git', ['clone', '--depth=1', `file://${upstreamFixture.path}`, shallowFixture.path]);
+			await spawn('git', ['clone', '--branch=main', '--depth=1', `file://${upstreamFixture.path}`, shallowFixture.path]);
 			const shallowGit = createGit(shallowFixture.path);
 			await shallowGit('config', ['user.name', 'name']);
 			await shallowGit('config', ['user.email', 'email']);
