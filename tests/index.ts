@@ -409,6 +409,82 @@ Pre-bundle these dependencies before publishing.`);
 			expect(Number(commitCount)).toBe(2);
 		});
 
+		test('does not make the source repository shallow or import publish tags', async () => {
+			const branchName = 'test-publish-fetch-metadata';
+			const destinationTag = 'publish-history-tag';
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+				'index.js': 'export const version = 1;',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json', 'index.js']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const firstPublish = await gitPublish(fixture.path, ['--fresh']);
+			expect('exitCode' in firstPublish).toBe(false);
+			await createGit(remoteFixture.path)('tag', ['--no-sign', destinationTag, `refs/heads/npm/${branchName}`]);
+
+			await fixture.writeFile('index.js', 'export const version = 2;');
+			await git('add', ['index.js']);
+			await git('commit', ['-m', 'Update package']);
+
+			const nextPublish = await gitPublish(fixture.path);
+			expect('exitCode' in nextPublish).toBe(false);
+			const [isShallow, tags] = await Promise.all([
+				git('rev-parse', ['--is-shallow-repository']),
+				git('tag', ['--list', destinationTag]),
+			]);
+			expect({
+				isShallow,
+				tags,
+			}).toStrictEqual({
+				isShallow: 'false',
+				tags: '',
+			});
+		});
+
+		test('preserves the source shallow file when fetching publish history', async () => {
+			await using sourceRemoteFixture = await createFixture(async (fixture) => {
+				await createGit(fixture.path).init(['--bare']);
+			});
+			await using fullSourceFixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+				'index.js': 'export const version = 1;',
+			});
+			const sourceGit = createGit(fullSourceFixture.path);
+			await sourceGit.init(['--initial-branch=main']);
+			await sourceGit('add', ['package.json', 'index.js']);
+			await sourceGit('commit', ['-m', 'Initial commit']);
+			await sourceGit('remote', ['add', 'origin', sourceRemoteFixture.path]);
+			await sourceGit('push', ['origin', 'HEAD:main']);
+			const firstPublish = await gitPublish(fullSourceFixture.path, ['--fresh']);
+			expect('exitCode' in firstPublish).toBe(false);
+
+			await using shallowSourceFixture = await createFixture();
+			await spawn('git', ['clone', '--branch=main', '--depth=1', `file://${sourceRemoteFixture.path}`, shallowSourceFixture.path]);
+			const shallowGit = createGit(shallowSourceFixture.path);
+			await shallowGit('config', ['user.name', 'name']);
+			await shallowGit('config', ['user.email', 'email']);
+			const shallowFilePath = path.resolve(shallowSourceFixture.path, await shallowGit('rev-parse', ['--git-path', 'shallow']));
+			const shallowFile = await fs.readFile(shallowFilePath, 'utf8');
+			await shallowSourceFixture.writeFile('index.js', 'export const version = 2;');
+			await shallowGit('add', ['index.js']);
+			await shallowGit('commit', ['-m', 'Update package']);
+
+			const nextPublish = await gitPublish(shallowSourceFixture.path);
+			expect('exitCode' in nextPublish).toBe(false);
+			expect(await fs.readFile(shallowFilePath, 'utf8')).toBe(shallowFile);
+		});
+
 		test('--fresh resets history', async () => {
 			const branchName = 'test-fresh';
 
