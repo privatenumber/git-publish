@@ -142,18 +142,12 @@ describe('git-publish', () => {
 			expect(await markerFixture.exists('packed')).toBe(false);
 		});
 
-		test('Cleans up after worktree creation fails', async () => {
+		test('Cleans up after pack worktree creation fails', async () => {
 			await using hooksFixture = await createFixture(async (fixture) => {
-				const hookCounterPath = fixture.getPath('counter');
-				const secondCheckoutPath = fixture.getPath('second-checkout');
-				// Let the first worktree checkout succeed, then fail the second.
+				const checkoutPath = fixture.getPath('checkout');
 				await fixture.writeFile('post-checkout', `#!/bin/sh
-if [ -f '${hookCounterPath}' ]; then
-	touch '${secondCheckoutPath}'
-	exit 1
-fi
-
-touch '${hookCounterPath}'
+touch '${checkoutPath}'
+exit 1
 `);
 				await fs.chmod(fixture.getPath('post-checkout'), 0o755);
 			});
@@ -170,7 +164,7 @@ touch '${hookCounterPath}'
 				await git.init();
 				await git('add', ['package.json']);
 				await git('commit', ['-m', 'Initial commit']);
-				// Git runs this hook after each worktree checkout.
+				// Git runs this hook when creating the pack worktree.
 				await git('config', ['core.hooksPath', hooksFixture.path]);
 				await git('remote', ['add', 'origin', remoteFixture.path]);
 			});
@@ -178,10 +172,10 @@ touch '${hookCounterPath}'
 			const git = createGit(fixture.path);
 
 			try {
-				// The hook makes the second worktree creation fail.
+				// The hook makes pack worktree creation fail.
 				const gitPublishProcess = await gitPublish(fixture.path);
 				expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-				expect(await hooksFixture.exists('second-checkout')).toBe(true);
+				expect(await hooksFixture.exists('checkout')).toBe(true);
 
 				// A failed creation must not leave temporary registrations behind.
 				const worktrees = await git('worktree', ['list', '--porcelain']);
@@ -295,6 +289,7 @@ Pre-bundle these dependencies before publishing.`);
 			await createGit(fixture.path).init(['--bare']);
 		});
 		onFinish(() => remoteFixture.rm());
+		const remoteGit = createGit(remoteFixture.path);
 
 		test('raw Git destination', async () => {
 			const branchName = 'test-raw-destination';
@@ -314,12 +309,37 @@ Pre-bundle these dependencies before publishing.`);
 			const gitPublishProcess = await gitPublish(fixture.path, ['--remote', remoteFixture.path]);
 
 			expect('exitCode' in gitPublishProcess).toBe(false);
-			const remoteGit = createGit(remoteFixture.path);
 			const files = await remoteGit('ls-tree', ['--name-only', `npm/${branchName}`]);
 			expect(files.split('\n').sort()).toStrictEqual([
 				'index.js',
 				'package.json',
 			]);
+		});
+
+		test('uses the configured push URL', async () => {
+			const branchName = 'test-push-url';
+			await using pushFixture = await createFixture(async (fixture) => {
+				await createGit(fixture.path).init(['--bare']);
+			});
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+			await git('remote', ['set-url', '--push', 'origin', pushFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			const pushGit = createGit(pushFixture.path);
+			expect(await pushGit('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+			await expect(remoteGit('rev-parse', [`npm/${branchName}`])).rejects.toThrow();
 		});
 
 		test('uses an exact tag from detached HEAD', async () => {
@@ -342,7 +362,7 @@ Pre-bundle these dependencies before publishing.`);
 			const gitPublishProcess = await gitPublish(fixture.path);
 
 			expect('exitCode' in gitPublishProcess).toBe(false);
-			expect(await git('rev-parse', [`origin/npm/${tagName}`])).toBeTruthy();
+			expect(await remoteGit('rev-parse', [`npm/${tagName}`])).toBeTruthy();
 		});
 
 		test('uses a short commit ID from untagged detached HEAD', async () => {
@@ -364,7 +384,7 @@ Pre-bundle these dependencies before publishing.`);
 			const gitPublishProcess = await gitPublish(fixture.path);
 
 			expect('exitCode' in gitPublishProcess).toBe(false);
-			expect(await git('rev-parse', [`origin/npm/${sourceCommit}`])).toBeTruthy();
+			expect(await remoteGit('rev-parse', [`npm/${sourceCommit}`])).toBeTruthy();
 		});
 
 		test('preserves history', async () => {
@@ -405,7 +425,7 @@ Pre-bundle these dependencies before publishing.`);
 			expect(gitPublishProcess.stdout).toMatch('✔');
 
 			// Assert that the published branch has 2 commits
-			const commitCount = await git('rev-list', ['--count', `origin/npm/${branchName}`]);
+			const commitCount = await remoteGit('rev-list', ['--count', `npm/${branchName}`]);
 			expect(Number(commitCount)).toBe(2);
 		});
 
@@ -428,7 +448,6 @@ Pre-bundle these dependencies before publishing.`);
 
 			const firstPublish = await gitPublish(fixture.path, ['--fresh']);
 			expect('exitCode' in firstPublish).toBe(false);
-			const remoteGit = createGit(remoteFixture.path);
 			await remoteGit('tag', ['--no-sign', destinationTag, `refs/heads/npm/${branchName}`]);
 
 			await fixture.writeFile('index.js', 'export const version = 2;');
@@ -488,7 +507,7 @@ Pre-bundle these dependencies before publishing.`);
 			expect(gitPublishProcess.stdout).toMatch('✔');
 
 			// Published branch should have exactly 1 commit (fresh start)
-			const commitCount = await git('rev-list', ['--count', `origin/npm/${branchName}`]);
+			const commitCount = await remoteGit('rev-list', ['--count', `npm/${branchName}`]);
 			expect(Number(commitCount)).toBe(1);
 		});
 
@@ -560,11 +579,11 @@ Pre-bundle these dependencies before publishing.`);
 
 			// Published branch should have exactly 1 commit
 			const publishedBranch = `npm/${branchName}-${packageName}`;
-			const commitCount = await git('rev-list', ['--count', `origin/${publishedBranch}`]);
+			const commitCount = await remoteGit('rev-list', ['--count', publishedBranch]);
 			expect(Number(commitCount)).toBe(1);
 
 			// Verify only dist files are published, not src
-			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTreeString = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
 			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
 			expect(filesInTree).toEqual([
 				'dist/index.js',
@@ -608,9 +627,7 @@ Pre-bundle these dependencies before publishing.`);
 				expect('exitCode' in gitPublishProcess).toBe(false);
 				expect(gitPublishProcess.stdout).toMatch('✔');
 
-				await git('checkout', [`npm/${branchName}`]);
-
-				const packageJsonString = await fixture.readFile('package.json', 'utf8');
+				const packageJsonString = await remoteGit('show', [`npm/${branchName}:package.json`]);
 				const packageJson = JSON.parse(packageJsonString);
 				expect(packageJson.dependencies.ms).toBe(msVersion);
 			});
@@ -661,7 +678,7 @@ Pre-bundle these dependencies before publishing.`);
 
 				// Verify the package was published with catalog resolved
 				const publishedBranch = `npm/${branchName}-${packageName}`;
-				const packageJsonString = await git('show', [`origin/${publishedBranch}:package.json`]);
+				const packageJsonString = await remoteGit('show', [`${publishedBranch}:package.json`]);
 				const packageJson = JSON.parse(packageJsonString);
 
 				// Catalog should be resolved to actual version
@@ -714,7 +731,7 @@ Pre-bundle these dependencies before publishing.`);
 
 				// Verify clean-pkg-json ran (scripts field should be removed)
 				const publishedBranch = `npm/${branchName}-${packageName}`;
-				const packageJsonString = await git('show', [`origin/${publishedBranch}:package.json`]);
+				const packageJsonString = await remoteGit('show', [`${publishedBranch}:package.json`]);
 				const packageJson = JSON.parse(packageJsonString);
 				expect(packageJson.scripts).toBeUndefined();
 			});
@@ -766,7 +783,7 @@ Pre-bundle these dependencies before publishing.`);
 
 				// Verify mkdirp ran and created dist/output.txt
 				const publishedBranch = `npm/${branchName}-${packageName}`;
-				const outputContent = await git('show', [`origin/${publishedBranch}:dist/output.txt`]);
+				const outputContent = await remoteGit('show', [`${publishedBranch}:dist/output.txt`]);
 				expect(outputContent.trim()).toBe('built');
 			});
 		});
@@ -810,7 +827,7 @@ Pre-bundle these dependencies before publishing.`);
 
 			// Verify files using git ls-tree (avoid checkout pollution)
 			const publishedBranch = `npm/${branchName}`;
-			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTreeString = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
 			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
 
 			expect(filesInTree).toContain('prepare.txt');
@@ -819,10 +836,10 @@ Pre-bundle these dependencies before publishing.`);
 			expect(filesInTree).not.toContain('src/excluded.ts'); // Should be excluded
 
 			// Verify hook outputs using git show
-			const prepareContent = await git('show', [`origin/${publishedBranch}:prepare.txt`]);
+			const prepareContent = await remoteGit('show', [`${publishedBranch}:prepare.txt`]);
 			expect(prepareContent.trim()).toBe('prepare-ran');
 
-			const prepackContent = await git('show', [`origin/${publishedBranch}:prepack.txt`]);
+			const prepackContent = await remoteGit('show', [`${publishedBranch}:prepack.txt`]);
 			expect(prepackContent.trim()).toBe('prepack-ran');
 		});
 
@@ -854,7 +871,7 @@ Pre-bundle these dependencies before publishing.`);
 			expect('exitCode' in gitPublishProcess).toBe(false);
 
 			const publishedBranch = `npm/${branchName}`;
-			const publishedPackageJson = JSON.parse(await git('show', [`origin/${publishedBranch}:package.json`]));
+			const publishedPackageJson = JSON.parse(await remoteGit('show', [`${publishedBranch}:package.json`]));
 			expect(publishedPackageJson.scripts?.prepare).toBeUndefined();
 			expect(publishedPackageJson.scripts?.prepack).toBeUndefined();
 
@@ -908,9 +925,7 @@ Pre-bundle these dependencies before publishing.`);
 			expect(gitPublishProcess.stdout).toMatch('✔');
 
 			// Checkout and verify clean-pkg-json ran and removed unnecessary fields
-			await git('checkout', ['--force', `npm/${branchName}`]);
-
-			const packageJsonString = await fixture.readFile('package.json', 'utf8');
+			const packageJsonString = await remoteGit('show', [`npm/${branchName}:package.json`]);
 			const packageJson = JSON.parse(packageJsonString);
 
 			// Verify required fields are still present
@@ -958,7 +973,7 @@ Pre-bundle these dependencies before publishing.`);
 
 			// Verify published files
 			const publishedBranch = `npm/${branchName}`;
-			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTreeString = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
 			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
 			expect(filesInTree).toEqual([
 				'dist/index.js',
@@ -967,10 +982,10 @@ Pre-bundle these dependencies before publishing.`);
 			]);
 
 			// Verify content using git show (avoid checkout pollution)
-			const indexContent = await git('show', [`origin/${publishedBranch}:dist/index.js`]);
+			const indexContent = await remoteGit('show', [`${publishedBranch}:dist/index.js`]);
 			expect(indexContent).toBe('export const existingFile = true;');
 
-			const utilsContent = await git('show', [`origin/${publishedBranch}:dist/utils.js`]);
+			const utilsContent = await remoteGit('show', [`${publishedBranch}:dist/utils.js`]);
 			expect(utilsContent).toBe('export const util = () => {};');
 		});
 
@@ -1015,7 +1030,7 @@ Pre-bundle these dependencies before publishing.`);
 
 			// Verify the published branch has the file created by the hook
 			const publishedBranch = `npm/${branchName}`;
-			const publishedFileContent = await git('show', [`origin/${publishedBranch}:prepack-created-file.txt`]);
+			const publishedFileContent = await remoteGit('show', [`${publishedBranch}:prepack-created-file.txt`]);
 			expect(publishedFileContent.trim()).toBe('hook-ran');
 		});
 
@@ -1139,7 +1154,7 @@ Pre-bundle these dependencies before publishing.`);
 
 			// Verify only .js files in dist root are published
 			const publishedBranch = `npm/${branchName}`;
-			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTreeString = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
 			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
 			expect(filesInTree).toEqual([
 				'dist/index.js',
@@ -1184,7 +1199,7 @@ Pre-bundle these dependencies before publishing.`);
 
 			// Verify all files in dist are published recursively
 			const publishedBranch = `npm/${branchName}`;
-			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTreeString = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
 			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
 			expect(filesInTree).toEqual([
 				'dist/index.js',
@@ -1228,7 +1243,7 @@ Pre-bundle these dependencies before publishing.`);
 
 			// Verify dotfile and dist files are published
 			const publishedBranch = `npm/${branchName}`;
-			const filesInTreeString = await git('ls-tree', ['-r', '--name-only', `origin/${publishedBranch}`]);
+			const filesInTreeString = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
 			const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
 			expect(filesInTree).toEqual([
 				'.env.production',
@@ -1237,7 +1252,7 @@ Pre-bundle these dependencies before publishing.`);
 			]);
 
 			// Verify dotfile content
-			const dotfileContent = await git('show', [`origin/${publishedBranch}:.env.production`]);
+			const dotfileContent = await remoteGit('show', [`${publishedBranch}:.env.production`]);
 			expect(dotfileContent).toBe('PRODUCTION=true');
 		});
 	});

@@ -133,6 +133,7 @@ Pre-bundle these dependencies before publishing.`);
 		// Git accepts raw destinations as well as configured remote names.
 		return remote;
 	});
+	const pushUrl = await simpleSpawn('git', ['remote', 'get-url', '--push', remote]).catch(() => remoteUrl);
 
 	await task(
 		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
@@ -153,22 +154,19 @@ Pre-bundle these dependencies before publishing.`);
 
 			let commitSha: string;
 			const packageManager = await detectPackageManager(cwd, gitRootPath);
-			let publishWorktreeNeedsCleanup = false;
 			let packWorktreeNeedsCleanup = false;
-			let localTemporaryBranchExists = false;
 			let primaryError: unknown;
 
 			try {
-				const creatingWorktrees = await task('Creating worktrees', async ({ setWarning }) => {
+				const creatingWorktrees = await task('Creating temporary repositories', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
 					}
 
-					// A failed hook can leave Git's worktree registration behind.
-					publishWorktreeNeedsCleanup = true;
-					await spawn('git', ['worktree', 'add', '--force', publishWorktreePath, 'HEAD']);
+					await spawn('git', ['clone', '--shared', '--no-checkout', gitRootPath, publishWorktreePath]);
 
+					// A failed hook can leave Git's worktree registration behind.
 					packWorktreeNeedsCleanup = true;
 					await spawn('git', ['worktree', 'add', '--force', packWorktreePath, 'HEAD']);
 				});
@@ -192,7 +190,7 @@ Pre-bundle these dependencies before publishing.`);
 								'ls-remote',
 								'--exit-code',
 								'--branches',
-								remote,
+								remoteUrl,
 								`refs/heads/${publishBranch}`,
 							], { cwd: publishWorktreePath });
 						} catch (error) {
@@ -207,18 +205,16 @@ Pre-bundle these dependencies before publishing.`);
 							await spawn('git', [
 								'fetch',
 								'--depth=1',
-								remote,
+								'--no-tags',
+								remoteUrl,
 								`${publishBranch}:${localTemporaryBranch}`,
 							], { cwd: publishWorktreePath });
-							localTemporaryBranchExists = true;
 						}
 					}
 
 					if (orphan) {
 						// Fresh orphan branch with no history
 						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], { cwd: publishWorktreePath });
-						// `checkout --orphan` creates a local branch that cleanup must remove.
-						localTemporaryBranchExists = true;
 					} else {
 						// Repoint HEAD to the fetched branch without checkout
 						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: publishWorktreePath });
@@ -352,7 +348,7 @@ Pre-bundle these dependencies before publishing.`);
 							'push',
 							...(fresh ? ['--force'] : []),
 							'--no-verify',
-							remote,
+							pushUrl,
 							`HEAD:${publishBranch}`,
 						], { cwd: publishWorktreePath });
 						success = true;
@@ -381,16 +377,8 @@ Pre-bundle these dependencies before publishing.`);
 						}
 					};
 
-					if (publishWorktreeNeedsCleanup) {
-						await runCleanup(spawn('git', ['worktree', 'remove', '--force', publishWorktreePath]));
-					}
-
 					if (packWorktreeNeedsCleanup) {
 						await runCleanup(spawn('git', ['worktree', 'remove', '--force', packWorktreePath]));
-					}
-
-					if (localTemporaryBranchExists) {
-						await runCleanup(spawn('git', ['branch', '-D', localTemporaryBranch]));
 					}
 
 					await runCleanup(fs.rm(temporaryDirectory, {
