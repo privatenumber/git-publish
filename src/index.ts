@@ -125,6 +125,8 @@ Pre-bundle these dependencies before publishing.`);
 		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 	}
 
+	// Resolving remote URLs reads local Git configuration only; it does not connect to the remote.
+	// It does not need a progress task.
 	const remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => {
 		if (usedDefaultRemote) {
 			throw new Error(`Git remote ${stringify(remote)} does not exist`);
@@ -133,7 +135,9 @@ Pre-bundle these dependencies before publishing.`);
 		// Git accepts raw destinations as well as configured remote names.
 		return remote;
 	});
-	const pushUrl = await simpleSpawn('git', ['remote', 'get-url', '--push', remote]).catch(() => remoteUrl);
+	// A remote can use separate fetch and push URLs, and Git pushes to every configured push URL.
+	const pushUrlsOutput = await simpleSpawn('git', ['remote', 'get-url', '--push', '--all', remote]).catch(() => remoteUrl);
+	const pushUrls = pushUrlsOutput.split('\n');
 
 	await task(
 		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
@@ -165,6 +169,10 @@ Pre-bundle these dependencies before publishing.`);
 					}
 
 					await spawn('git', ['clone', '--shared', '--no-checkout', gitRootPath, publishWorktreePath]);
+					await spawn('git', ['remote', 'add', 'publish', remoteUrl], { cwd: publishWorktreePath });
+					for (const pushUrl of pushUrls) {
+						await spawn('git', ['remote', 'set-url', '--add', '--push', 'publish', pushUrl], { cwd: publishWorktreePath });
+					}
 
 					// A failed hook can leave Git's worktree registration behind.
 					packWorktreeNeedsCleanup = true;
@@ -190,7 +198,7 @@ Pre-bundle these dependencies before publishing.`);
 								'ls-remote',
 								'--exit-code',
 								'--branches',
-								remoteUrl,
+								'publish',
 								`refs/heads/${publishBranch}`,
 							], { cwd: publishWorktreePath });
 						} catch (error) {
@@ -206,7 +214,7 @@ Pre-bundle these dependencies before publishing.`);
 								'fetch',
 								'--depth=1',
 								'--no-tags',
-								remoteUrl,
+								'publish',
 								`${publishBranch}:${localTemporaryBranch}`,
 							], { cwd: publishWorktreePath });
 						}
@@ -348,7 +356,7 @@ Pre-bundle these dependencies before publishing.`);
 							'push',
 							...(fresh ? ['--force'] : []),
 							'--no-verify',
-							pushUrl,
+							'publish',
 							`HEAD:${publishBranch}`,
 						], { cwd: publishWorktreePath });
 						success = true;

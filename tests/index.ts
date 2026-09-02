@@ -316,9 +316,12 @@ Pre-bundle these dependencies before publishing.`);
 			]);
 		});
 
-		test('uses the configured push URL', async () => {
+		test('uses all configured push URLs', async () => {
 			const branchName = 'test-push-url';
-			await using pushFixture = await createFixture(async (fixture) => {
+			await using firstPushFixture = await createFixture(async (fixture) => {
+				await createGit(fixture.path).init(['--bare']);
+			});
+			await using secondPushFixture = await createFixture(async (fixture) => {
 				await createGit(fixture.path).init(['--bare']);
 			});
 			await using fixture = await createFixture({
@@ -333,12 +336,13 @@ Pre-bundle these dependencies before publishing.`);
 			await git('add', ['package.json']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
-			await git('remote', ['set-url', '--push', 'origin', pushFixture.path]);
+			await git('remote', ['set-url', '--push', 'origin', firstPushFixture.path]);
+			await git('remote', ['set-url', '--add', '--push', 'origin', secondPushFixture.path]);
 
 			const gitPublishProcess = await gitPublish(fixture.path);
 			expect('exitCode' in gitPublishProcess).toBe(false);
-			const pushGit = createGit(pushFixture.path);
-			expect(await pushGit('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+			expect(await createGit(firstPushFixture.path)('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+			expect(await createGit(secondPushFixture.path)('rev-parse', [`npm/${branchName}`])).toBeTruthy();
 			await expect(remoteGit('rev-parse', [`npm/${branchName}`])).rejects.toThrow();
 		});
 
