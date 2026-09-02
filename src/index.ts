@@ -263,6 +263,9 @@ Pre-bundle these dependencies before publishing.`);
 						return;
 					}
 
+					await fs.mkdir(temporaryDirectory, {
+						mode: 0o700,
+					});
 					await spawn('git', [
 						'init',
 						...(objectFormat && objectFormat !== 'sha1' ? [`--object-format=${objectFormat}`] : []),

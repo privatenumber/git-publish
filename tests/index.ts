@@ -516,6 +516,7 @@ exec git-receive-pack "$@"
 `);
 				await fixture.writeFile('post-commit', `#!/bin/sh
 git config --null --get test.snapshot > '${snapshotPath}'
+stat -f '%Lp' "$(git rev-parse --git-dir)/../.." > '${fixture.getPath('temporary-directory-mode')}' 2>/dev/null || stat -c '%a' "$(git rev-parse --git-dir)/../.." > '${fixture.getPath('temporary-directory-mode')}'
 `);
 				await fs.chmod(fixture.getPath('conditional-receive-pack'), 0o755);
 				await fs.chmod(fixture.getPath('final-receive-pack'), 0o755);
@@ -550,6 +551,7 @@ git config --null --get test.snapshot > '${snapshotPath}'
 			const firstPublish = await gitPublish(fixture.path, ['--fresh'], environment);
 			expect('exitCode' in firstPublish).toBe(false);
 			expect(await fs.readFile(configFixture.getPath('snapshot'), 'utf8')).toBe(`${snapshotValue}\0`);
+			expect(await fs.readFile(configFixture.getPath('temporary-directory-mode'), 'utf8')).toBe('700\n');
 			expect(await configFixture.exists('conditional-called')).toBe(false);
 			expect(await fs.readFile(configFixture.getPath('final-called'), 'utf8')).toBe('xx');
 			expect(await createGit(secondPushFixture.path)('rev-parse', [`npm/${branchName}`])).toBeTruthy();
