@@ -144,15 +144,10 @@ describe('git-publish', () => {
 
 		test('Cleans up after pack worktree creation fails', async () => {
 			await using hooksFixture = await createFixture(async (fixture) => {
-				const publishCheckoutPath = fixture.getPath('publish-checkout');
 				const packCheckoutPath = fixture.getPath('pack-checkout');
 				await fixture.writeFile('post-checkout', `#!/bin/sh
-if [ -f '${publishCheckoutPath}' ]; then
-	touch '${packCheckoutPath}'
-	exit 1
-fi
-
-touch '${publishCheckoutPath}'
+touch '${packCheckoutPath}'
+exit 1
 `);
 				await fs.chmod(fixture.getPath('post-checkout'), 0o755);
 			});
@@ -169,7 +164,6 @@ touch '${publishCheckoutPath}'
 				await git.init();
 				await git('add', ['package.json']);
 				await git('commit', ['-m', 'Initial commit']);
-				// The first worktree checkout succeeds; the pack worktree checkout fails.
 				await git('config', ['core.hooksPath', hooksFixture.path]);
 				await git('remote', ['add', 'origin', remoteFixture.path]);
 			});
@@ -177,7 +171,6 @@ touch '${publishCheckoutPath}'
 			const git = createGit(fixture.path);
 
 			try {
-				// The hook makes the second, pack worktree creation fail.
 				const gitPublishProcess = await gitPublish(fixture.path);
 				expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
 				expect(await hooksFixture.exists('pack-checkout')).toBe(true);
@@ -373,7 +366,9 @@ exec git-receive-pack "$@"
 			await git('add', ['package.json']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
-			await git('config', ['remote.origin.receivepack', commandFixture.getPath('receive-pack')]);
+			const conditionalConfigPath = commandFixture.getPath('conditional-config');
+			await git('config', ['--file', conditionalConfigPath, 'remote.origin.receivepack', commandFixture.getPath('receive-pack')]);
+			await git('config', [`includeIf.gitdir:${fixture.path}/.git.path`, conditionalConfigPath]);
 
 			const gitPublishProcess = await gitPublish(fixture.path);
 			expect('exitCode' in gitPublishProcess).toBe(false);
@@ -524,23 +519,23 @@ exec git-receive-pack "$@"
 			await sourceGit('commit', ['-m', 'Initial commit']);
 			await sourceGit('remote', ['add', 'origin', sourceRemoteFixture.path]);
 			await sourceGit('push', ['origin', 'HEAD:main']);
+			const firstPublish = await gitPublish(fullSourceFixture.path, ['--fresh']);
+			expect('exitCode' in firstPublish).toBe(false);
 
 			await using shallowSourceFixture = await createFixture();
 			await spawn('git', ['clone', '--branch=main', '--depth=1', `file://${sourceRemoteFixture.path}`, shallowSourceFixture.path]);
 			const shallowGit = createGit(shallowSourceFixture.path);
 			await shallowGit('config', ['user.name', 'name']);
 			await shallowGit('config', ['user.email', 'email']);
-			await shallowGit('remote', ['add', 'destination', remoteFixture.path]);
-
-			const firstPublish = await gitPublish(shallowSourceFixture.path, ['--remote', 'destination', '--fresh']);
-			expect('exitCode' in firstPublish).toBe(false);
+			const shallowFilePath = path.resolve(shallowSourceFixture.path, await shallowGit('rev-parse', ['--git-path', 'shallow']));
+			const shallowFile = await fs.readFile(shallowFilePath, 'utf8');
 			await shallowSourceFixture.writeFile('index.js', 'export const version = 2;');
 			await shallowGit('add', ['index.js']);
 			await shallowGit('commit', ['-m', 'Update package']);
 
-			const nextPublish = await gitPublish(shallowSourceFixture.path, ['--remote', 'destination']);
+			const nextPublish = await gitPublish(shallowSourceFixture.path);
 			expect('exitCode' in nextPublish).toBe(false);
-			expect(await shallowGit('rev-parse', ['--is-shallow-repository'])).toBe('true');
+			expect(await fs.readFile(shallowFilePath, 'utf8')).toBe(shallowFile);
 		});
 
 		test('--fresh resets history', async () => {
