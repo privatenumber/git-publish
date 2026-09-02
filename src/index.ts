@@ -66,6 +66,27 @@ const serializeGitConfig = ({ key, value }: GitConfigEntry) => {
 	return `[${section}${subsection}]\n\t${variable} = "${escapedValue}"\n`;
 };
 
+const isSerializableGitConfig = ({ key }: GitConfigEntry) => key !== 'core.bare'
+	&& key !== 'core.worktree'
+	&& key !== 'core.repositoryformatversion'
+	&& !key.startsWith('extensions.')
+	&& key !== 'include.path'
+	&& !key.startsWith('includeif.');
+
+const sanitizeGitServerCommand = (command: string) => `env -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_GLOBAL ${command}`;
+
+const isLocalGitUrl = (url: string) => url.startsWith('file://')
+	|| /^[a-z]:[\\/]/i.test(url)
+	|| (!/^[a-z][a-z\d+.-]*:\/\//i.test(url) && !/^[^/:]+:[^/]/.test(url));
+
+const getGitServerCommand = (url: string, command: string) => {
+	if (isLocalGitUrl(url)) {
+		return sanitizeGitServerCommand(command);
+	}
+
+	return command;
+};
+
 (async () => {
 	let usedDefaultRemote = false;
 	const argv = cli({
@@ -178,6 +199,8 @@ Pre-bundle these dependencies before publishing.`);
 		// Git accepts raw destinations as well as configured remote names.
 		return remote;
 	});
+	const pushUrlOutput = await simpleSpawn('git', ['remote', 'get-url', '--push', '--all', remote]).catch(() => remoteUrl);
+	const pushUrls = pushUrlOutput.split('\n');
 	const sourceObjectsPath = path.resolve(cwd, await simpleSpawn('git', ['rev-parse', '--git-path', 'objects']));
 	const [sourceSystemConfig, sourceGlobalConfig, sourceLocalConfigResult] = await Promise.all([
 		spawn('git', ['config', '--system', '--includes', '--null', '--list']).then(({ stdout }) => stdout).catch(() => ''),
@@ -195,6 +218,8 @@ Pre-bundle these dependencies before publishing.`);
 		...sourceLocalConfig,
 		...(sourceWorktreeConfigResult ? parseGitConfig(sourceWorktreeConfigResult.stdout, 'worktree') : []),
 	];
+	const remoteConfigPrefix = `remote.${remote}.`;
+	const sourceRemoteConfig = sourceGitConfig.filter(({ key }) => key.startsWith(remoteConfigPrefix) && key !== `${remoteConfigPrefix}url` && key !== `${remoteConfigPrefix}pushurl`);
 	const objectFormat = sourceLocalConfig.find(({ key }) => key === 'extensions.objectformat')?.value;
 
 	await task(
@@ -211,16 +236,22 @@ Pre-bundle these dependencies before publishing.`);
 			const publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
 			const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
 			const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
+			const systemConfigPath = path.join(temporaryDirectory, 'system-config');
+			const globalConfigPath = path.join(temporaryDirectory, 'global-config');
+			const publishGitEnvironment: Record<string, string> = {
+				GIT_ALTERNATE_OBJECT_DIRECTORIES: sourceObjectsPath,
+			};
 			const publishGitOptions = {
 				cwd: publishWorktreePath,
-				env: {
-					GIT_ALTERNATE_OBJECT_DIRECTORIES: sourceObjectsPath,
-				},
+				env: publishGitEnvironment,
 			};
 
 			let success = false;
 
 			let commitSha: string;
+			let uploadPack: string;
+			let receivePack: string;
+			const pushRemoteNames: string[] = [];
 			const packageManager = await detectPackageManager(cwd, gitRootPath);
 			let packWorktreeNeedsCleanup = false;
 			let primaryError: unknown;
@@ -237,47 +268,32 @@ Pre-bundle these dependencies before publishing.`);
 						...(objectFormat && objectFormat !== 'sha1' ? [`--object-format=${objectFormat}`] : []),
 						publishWorktreePath,
 					]);
-					const [publishSystemConfig, publishGlobalConfig] = await Promise.all([
-						spawn('git', ['config', '--system', '--includes', '--null', '--list'], publishGitOptions).then(({ stdout }) => stdout).catch(() => ''),
-						spawn('git', ['config', '--global', '--includes', '--null', '--list'], publishGitOptions).then(({ stdout }) => stdout).catch(() => ''),
+					await Promise.all([
+						fs.writeFile(systemConfigPath, sourceGitConfig.filter(({ scope }) => scope === 'system').filter(isSerializableGitConfig).map(serializeGitConfig).join('')),
+						fs.writeFile(globalConfigPath, sourceGitConfig.filter(({ scope }) => scope === 'global').filter(isSerializableGitConfig).map(serializeGitConfig).join('')),
+						fs.appendFile(
+							path.join(publishWorktreePath, '.git', 'config'),
+							sourceGitConfig.filter(({ scope }) => scope === 'local' || scope === 'worktree').filter(isSerializableGitConfig).map(serializeGitConfig).join(''),
+						),
 					]);
-					const inheritedConfigCounts = new Map<string, number>();
-					for (const { scope, key, value } of [
-						...parseGitConfig(publishSystemConfig, 'system'),
-						...parseGitConfig(publishGlobalConfig, 'global'),
-					]) {
-						const signature = `${scope}\0${key}\0${value}`;
-						inheritedConfigCounts.set(signature, (inheritedConfigCounts.get(signature) || 0) + 1);
+					publishGitEnvironment.GIT_CONFIG_SYSTEM = systemConfigPath;
+					publishGitEnvironment.GIT_CONFIG_GLOBAL = globalConfigPath;
+					[uploadPack, receivePack] = await Promise.all([
+						simpleSpawn('git', ['config', '--get', `remote.${remote}.uploadpack`], publishGitOptions).catch(() => 'git-upload-pack'),
+						simpleSpawn('git', ['config', '--get', `remote.${remote}.receivepack`], publishGitOptions).catch(() => 'git-receive-pack'),
+					]);
+					for (const [index, pushUrl] of pushUrls.entries()) {
+						const pushRemote = `${temporaryPublishBranch}-${index}`;
+						await spawn('git', ['remote', 'add', pushRemote, pushUrl], publishGitOptions);
+						await fs.appendFile(
+							path.join(publishWorktreePath, '.git', 'config'),
+							sourceRemoteConfig.map(entry => serializeGitConfig({
+								...entry,
+								key: `remote.${pushRemote}.${entry.key.slice(remoteConfigPrefix.length)}`,
+							})).join(''),
+						);
+						pushRemoteNames.push(pushRemote);
 					}
-
-					// Copy repository config and global values selected only for the source Git directory.
-					const publishConfigEntries = sourceGitConfig.filter((entry) => {
-						const { scope, key, value } = entry;
-						if (key === 'core.bare' || key === 'core.worktree' || key === 'core.repositoryformatversion' || key.startsWith('extensions.') || key === 'include.path' || key.startsWith('includeif.')) {
-							return false;
-						}
-
-						if (scope === 'local' || scope === 'worktree') {
-							return true;
-						}
-
-						if (scope !== 'system' && scope !== 'global') {
-							return false;
-						}
-
-						const signature = `${scope}\0${key}\0${value}`;
-						const inheritedCount = inheritedConfigCounts.get(signature) || 0;
-						if (inheritedCount === 0) {
-							return true;
-						}
-
-						inheritedConfigCounts.set(signature, inheritedCount - 1);
-						return false;
-					});
-					await fs.appendFile(
-						path.join(publishWorktreePath, '.git', 'config'),
-						publishConfigEntries.map(serializeGitConfig).join(''),
-					);
 
 					// A failed hook can leave Git's worktree registration behind.
 					packWorktreeNeedsCleanup = true;
@@ -299,8 +315,13 @@ Pre-bundle these dependencies before publishing.`);
 						orphan = true;
 					} else {
 						try {
+							const uploadPackCommand = getGitServerCommand(
+								remoteUrl,
+								uploadPack,
+							);
 							await spawn('git', [
 								'ls-remote',
+								`--upload-pack=${uploadPackCommand}`,
 								'--exit-code',
 								'--branches',
 								remote,
@@ -315,10 +336,15 @@ Pre-bundle these dependencies before publishing.`);
 						}
 
 						if (!orphan) {
+							const uploadPackCommand = getGitServerCommand(
+								remoteUrl,
+								uploadPack,
+							);
 							await spawn('git', [
 								'fetch',
 								'--depth=1',
 								'--no-tags',
+								`--upload-pack=${uploadPackCommand}`,
 								remote,
 								`${publishBranch}:${temporaryPublishBranch}`,
 							], publishGitOptions);
@@ -457,13 +483,21 @@ Pre-bundle these dependencies before publishing.`);
 							return;
 						}
 
-						await spawn('git', [
-							'push',
-							...(fresh ? ['--force'] : []),
-							'--no-verify',
-							remote,
-							`HEAD:${publishBranch}`,
-						], publishGitOptions);
+						// Git pushes configured URLs sequentially and stops at the first failure.
+						for (const [index, pushRemote] of pushRemoteNames.entries()) {
+							const receivePackCommand = getGitServerCommand(
+								pushUrls[index],
+								receivePack,
+							);
+							await spawn('git', [
+								'push',
+								...(fresh ? ['--force'] : []),
+								'--no-verify',
+								`--receive-pack=${receivePackCommand}`,
+								pushRemote,
+								`HEAD:${publishBranch}`,
+							], publishGitOptions);
+						}
 						success = true;
 					},
 				);

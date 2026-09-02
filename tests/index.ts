@@ -466,14 +466,30 @@ exec git-receive-pack "$@"
 			const branchName = 'test-publish-fetch-metadata';
 			const destinationTag = 'publish-history-tag';
 			const snapshotValue = 'quote" slash\\ newline\n tab\t';
+			await using secondPushFixture = await createFixture(async (fixture) => {
+				await createGit(fixture.path).init(['--bare']);
+			});
 			await using configFixture = await createFixture(async (fixture) => {
 				const snapshotPath = fixture.getPath('snapshot');
-				await fixture.writeFile('receive-pack', `#!/bin/sh
-git config --null --get test.snapshot > '${snapshotPath}'
+				await fixture.writeFile('conditional-receive-pack', `#!/bin/sh
+touch '${fixture.getPath('conditional-called')}'
 exec git-receive-pack "$@"
 `);
-				await fs.chmod(fixture.getPath('receive-pack'), 0o755);
-				await createGit(fixture.path)('config', ['--file', fixture.getPath('conditional'), 'remote.origin.receivepack', fixture.getPath('receive-pack')]);
+				await fixture.writeFile('final-receive-pack', `#!/bin/sh
+printf x >> '${fixture.getPath('final-called')}'
+exec git-receive-pack "$@"
+`);
+				await fixture.writeFile('post-commit', `#!/bin/sh
+git config --null --get test.snapshot > '${snapshotPath}'
+`);
+				await fs.chmod(fixture.getPath('conditional-receive-pack'), 0o755);
+				await fs.chmod(fixture.getPath('final-receive-pack'), 0o755);
+				await fs.chmod(fixture.getPath('post-commit'), 0o755);
+				const git = createGit(fixture.path);
+				await git('config', ['--file', fixture.getPath('conditional'), 'remote.origin.receivepack', fixture.getPath('conditional-receive-pack')]);
+				await git('config', ['--file', fixture.getPath('global'), 'remote.origin.receivepack', fixture.getPath('final-receive-pack')]);
+				await git('config', ['--file', fixture.getPath('global'), '--add', 'remote.origin.pushurl', remoteFixture.path]);
+				await git('config', ['--file', fixture.getPath('global'), '--add', 'remote.origin.pushurl', secondPushFixture.path]);
 			});
 			await using fixture = await createFixture({
 				'package.json': JSON.stringify({
@@ -489,14 +505,19 @@ exec git-receive-pack "$@"
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
 			await git('config', ['test.snapshot', snapshotValue]);
+			await git('config', ['core.hooksPath', configFixture.path]);
 			await git('config', ['--file', configFixture.getPath('system'), `includeIf.gitdir:${fixture.path}/.git.path`, configFixture.getPath('conditional')]);
 			const environment = {
 				GIT_CONFIG_SYSTEM: configFixture.getPath('system'),
+				GIT_CONFIG_GLOBAL: configFixture.getPath('global'),
 			};
 
 			const firstPublish = await gitPublish(fixture.path, ['--fresh'], environment);
 			expect('exitCode' in firstPublish).toBe(false);
 			expect(await fs.readFile(configFixture.getPath('snapshot'), 'utf8')).toBe(`${snapshotValue}\0`);
+			expect(await configFixture.exists('conditional-called')).toBe(false);
+			expect(await fs.readFile(configFixture.getPath('final-called'), 'utf8')).toBe('xx');
+			expect(await createGit(secondPushFixture.path)('rev-parse', [`npm/${branchName}`])).toBeTruthy();
 			await remoteGit('tag', ['--no-sign', destinationTag, `refs/heads/npm/${branchName}`]);
 			await git('config', ['uploadpack.hideRefs', 'refs/heads/npm']);
 
