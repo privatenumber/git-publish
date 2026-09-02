@@ -465,6 +465,16 @@ exec git-receive-pack "$@"
 		test('does not make the source repository shallow or import tags when fetching publish history', async () => {
 			const branchName = 'test-publish-fetch-metadata';
 			const destinationTag = 'publish-history-tag';
+			const snapshotValue = 'quote" slash\\ newline\n tab\t';
+			await using configFixture = await createFixture(async (fixture) => {
+				const snapshotPath = fixture.getPath('snapshot');
+				await fixture.writeFile('receive-pack', `#!/bin/sh
+git config --null --get test.snapshot > '${snapshotPath}'
+exec git-receive-pack "$@"
+`);
+				await fs.chmod(fixture.getPath('receive-pack'), 0o755);
+				await createGit(fixture.path)('config', ['--file', fixture.getPath('conditional'), 'remote.origin.receivepack', fixture.getPath('receive-pack')]);
+			});
 			await using fixture = await createFixture({
 				'package.json': JSON.stringify({
 					name: 'test-pkg',
@@ -478,10 +488,15 @@ exec git-receive-pack "$@"
 			await git('add', ['package.json', 'index.js']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
-			await git('config', ['test.snapshot', 'quote" slash\\ newline\n tab\t']);
+			await git('config', ['test.snapshot', snapshotValue]);
+			await git('config', ['--file', configFixture.getPath('system'), `includeIf.gitdir:${fixture.path}/.git.path`, configFixture.getPath('conditional')]);
+			const environment = {
+				GIT_CONFIG_SYSTEM: configFixture.getPath('system'),
+			};
 
-			const firstPublish = await gitPublish(fixture.path, ['--fresh']);
+			const firstPublish = await gitPublish(fixture.path, ['--fresh'], environment);
 			expect('exitCode' in firstPublish).toBe(false);
+			expect(await fs.readFile(configFixture.getPath('snapshot'), 'utf8')).toBe(`${snapshotValue}\0`);
 			await remoteGit('tag', ['--no-sign', destinationTag, `refs/heads/npm/${branchName}`]);
 			await git('config', ['uploadpack.hideRefs', 'refs/heads/npm']);
 
@@ -489,7 +504,7 @@ exec git-receive-pack "$@"
 			await git('add', ['index.js']);
 			await git('commit', ['-m', 'Update package']);
 
-			const nextPublish = await gitPublish(fixture.path);
+			const nextPublish = await gitPublish(fixture.path, [], environment);
 			expect('exitCode' in nextPublish).toBe(false);
 			const [isShallow, tags] = await Promise.all([
 				git('rev-parse', ['--is-shallow-repository']),

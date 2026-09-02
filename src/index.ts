@@ -179,9 +179,10 @@ Pre-bundle these dependencies before publishing.`);
 		return remote;
 	});
 	const sourceObjectsPath = path.resolve(cwd, await simpleSpawn('git', ['rev-parse', '--git-path', 'objects']));
-	const [sourceLocalConfigResult, sourceGlobalConfig] = await Promise.all([
+	const [sourceSystemConfig, sourceGlobalConfig, sourceLocalConfigResult] = await Promise.all([
+		spawn('git', ['config', '--system', '--includes', '--null', '--list']).then(({ stdout }) => stdout).catch(() => ''),
+		spawn('git', ['config', '--global', '--includes', '--null', '--list']).then(({ stdout }) => stdout).catch(() => ''),
 		spawn('git', ['config', '--local', '--includes', '--null', '--list']),
-		simpleSpawn('git', ['config', '--global', '--includes', '--null', '--list']).catch(() => ''),
 	]);
 	const sourceLocalConfig = parseGitConfig(sourceLocalConfigResult.stdout, 'local');
 	const worktreeConfigEnabled = sourceLocalConfig.some(({ key, value }) => key === 'extensions.worktreeconfig' && value === 'true');
@@ -189,6 +190,7 @@ Pre-bundle these dependencies before publishing.`);
 		? await spawn('git', ['config', '--worktree', '--includes', '--null', '--list'])
 		: undefined;
 	const sourceGitConfig = [
+		...parseGitConfig(sourceSystemConfig, 'system'),
 		...parseGitConfig(sourceGlobalConfig, 'global'),
 		...sourceLocalConfig,
 		...(sourceWorktreeConfigResult ? parseGitConfig(sourceWorktreeConfigResult.stdout, 'worktree') : []),
@@ -235,10 +237,16 @@ Pre-bundle these dependencies before publishing.`);
 						...(objectFormat && objectFormat !== 'sha1' ? [`--object-format=${objectFormat}`] : []),
 						publishWorktreePath,
 					]);
-					const publishGlobalConfig = await simpleSpawn('git', ['config', '--global', '--includes', '--null', '--list'], publishGitOptions).catch(() => '');
+					const [publishSystemConfig, publishGlobalConfig] = await Promise.all([
+						spawn('git', ['config', '--system', '--includes', '--null', '--list'], publishGitOptions).then(({ stdout }) => stdout).catch(() => ''),
+						spawn('git', ['config', '--global', '--includes', '--null', '--list'], publishGitOptions).then(({ stdout }) => stdout).catch(() => ''),
+					]);
 					const inheritedConfigCounts = new Map<string, number>();
-					for (const { key, value } of parseGitConfig(publishGlobalConfig, 'global')) {
-						const signature = `${key}\0${value}`;
+					for (const { scope, key, value } of [
+						...parseGitConfig(publishSystemConfig, 'system'),
+						...parseGitConfig(publishGlobalConfig, 'global'),
+					]) {
+						const signature = `${scope}\0${key}\0${value}`;
 						inheritedConfigCounts.set(signature, (inheritedConfigCounts.get(signature) || 0) + 1);
 					}
 
@@ -253,11 +261,11 @@ Pre-bundle these dependencies before publishing.`);
 							return true;
 						}
 
-						if (scope !== 'global') {
+						if (scope !== 'system' && scope !== 'global') {
 							return false;
 						}
 
-						const signature = `${key}\0${value}`;
+						const signature = `${scope}\0${key}\0${value}`;
 						const inheritedCount = inheritedConfigCounts.get(signature) || 0;
 						if (inheritedCount === 0) {
 							return true;
