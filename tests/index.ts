@@ -346,6 +346,35 @@ Pre-bundle these dependencies before publishing.`);
 			await expect(remoteGit('rev-parse', [`npm/${branchName}`])).rejects.toThrow();
 		});
 
+		test('uses the remote receive-pack command', async () => {
+			const branchName = 'test-receive-pack';
+			await using commandFixture = await createFixture(async (fixture) => {
+				const markerPath = fixture.getPath('called');
+				await fixture.writeFile('receive-pack', `#!/bin/sh
+touch '${markerPath}'
+exec git-receive-pack "$@"
+`);
+				await fs.chmod(fixture.getPath('receive-pack'), 0o755);
+			});
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+			await git('config', ['remote.origin.receivepack', commandFixture.getPath('receive-pack')]);
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(await commandFixture.exists('called')).toBe(true);
+		});
+
 		test('uses an exact tag from detached HEAD', async () => {
 			const tagName = 'v1.2.3';
 			await using fixture = await createFixture({
@@ -473,6 +502,42 @@ Pre-bundle these dependencies before publishing.`);
 			});
 		});
 
+		test('preserves an already-shallow source repository', async () => {
+			await using upstreamFixture = await createFixture(async (fixture) => {
+				await createGit(fixture.path).init(['--bare']);
+			});
+			await using sourceFixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+				'index.js': 'export const version = 1;',
+			});
+			const sourceGit = createGit(sourceFixture.path);
+			await sourceGit.init(['--initial-branch=main']);
+			await sourceGit('add', ['package.json', 'index.js']);
+			await sourceGit('commit', ['-m', 'Initial commit']);
+			await sourceGit('remote', ['add', 'origin', upstreamFixture.path]);
+			await sourceGit('push', ['origin', 'HEAD:main']);
+
+			await using shallowFixture = await createFixture();
+			await spawn('git', ['clone', '--depth=1', `file://${upstreamFixture.path}`, shallowFixture.path]);
+			const shallowGit = createGit(shallowFixture.path);
+			await shallowGit('config', ['user.name', 'name']);
+			await shallowGit('config', ['user.email', 'email']);
+			await shallowGit('remote', ['add', 'destination', remoteFixture.path]);
+
+			const firstPublish = await gitPublish(shallowFixture.path, ['--remote', 'destination', '--fresh']);
+			expect('exitCode' in firstPublish).toBe(false);
+			await shallowFixture.writeFile('index.js', 'export const version = 2;');
+			await shallowGit('add', ['index.js']);
+			await shallowGit('commit', ['-m', 'Update package']);
+
+			const nextPublish = await gitPublish(shallowFixture.path, ['--remote', 'destination']);
+			expect('exitCode' in nextPublish).toBe(false);
+			expect(await shallowGit('rev-parse', ['--is-shallow-repository'])).toBe('true');
+		});
+
 		test('--fresh resets history', async () => {
 			const branchName = 'test-fresh';
 
@@ -515,7 +580,7 @@ Pre-bundle these dependencies before publishing.`);
 			expect(Number(commitCount)).toBe(1);
 		});
 
-		test('cleans up temporary branches after orphan publishes', async () => {
+		test('removes temporary branches after publishing', async () => {
 			const branchName = 'test-orphan-branch-cleanup';
 			await using fixture = await createFixture({
 				'package.json': JSON.stringify({
