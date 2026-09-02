@@ -125,7 +125,6 @@ Pre-bundle these dependencies before publishing.`);
 		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 	}
 
-	// This reads local Git configuration without connecting to the remote.
 	const remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => {
 		if (usedDefaultRemote) {
 			throw new Error(`Git remote ${stringify(remote)} does not exist`);

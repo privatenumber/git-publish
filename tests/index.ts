@@ -144,15 +144,15 @@ describe('git-publish', () => {
 
 		test('Cleans up after pack worktree creation fails', async () => {
 			await using hooksFixture = await createFixture(async (fixture) => {
-				const checkoutCountPath = fixture.getPath('checkout-count');
+				const publishCheckoutPath = fixture.getPath('publish-checkout');
 				const packCheckoutPath = fixture.getPath('pack-checkout');
 				await fixture.writeFile('post-checkout', `#!/bin/sh
-if [ -f '${checkoutCountPath}' ]; then
+if [ -f '${publishCheckoutPath}' ]; then
 	touch '${packCheckoutPath}'
 	exit 1
 fi
 
-touch '${checkoutCountPath}'
+touch '${publishCheckoutPath}'
 `);
 				await fs.chmod(fixture.getPath('post-checkout'), 0o755);
 			});
@@ -508,37 +508,37 @@ exec git-receive-pack "$@"
 		});
 
 		test('preserves an already-shallow source repository', async () => {
-			await using upstreamFixture = await createFixture(async (fixture) => {
+			await using sourceRemoteFixture = await createFixture(async (fixture) => {
 				await createGit(fixture.path).init(['--bare']);
 			});
-			await using sourceFixture = await createFixture({
+			await using fullSourceFixture = await createFixture({
 				'package.json': JSON.stringify({
 					name: 'test-pkg',
 					version: '1.0.0',
 				}, null, 2),
 				'index.js': 'export const version = 1;',
 			});
-			const sourceGit = createGit(sourceFixture.path);
+			const sourceGit = createGit(fullSourceFixture.path);
 			await sourceGit.init(['--initial-branch=main']);
 			await sourceGit('add', ['package.json', 'index.js']);
 			await sourceGit('commit', ['-m', 'Initial commit']);
-			await sourceGit('remote', ['add', 'origin', upstreamFixture.path]);
+			await sourceGit('remote', ['add', 'origin', sourceRemoteFixture.path]);
 			await sourceGit('push', ['origin', 'HEAD:main']);
 
-			await using shallowFixture = await createFixture();
-			await spawn('git', ['clone', '--branch=main', '--depth=1', `file://${upstreamFixture.path}`, shallowFixture.path]);
-			const shallowGit = createGit(shallowFixture.path);
+			await using shallowSourceFixture = await createFixture();
+			await spawn('git', ['clone', '--branch=main', '--depth=1', `file://${sourceRemoteFixture.path}`, shallowSourceFixture.path]);
+			const shallowGit = createGit(shallowSourceFixture.path);
 			await shallowGit('config', ['user.name', 'name']);
 			await shallowGit('config', ['user.email', 'email']);
 			await shallowGit('remote', ['add', 'destination', remoteFixture.path]);
 
-			const firstPublish = await gitPublish(shallowFixture.path, ['--remote', 'destination', '--fresh']);
+			const firstPublish = await gitPublish(shallowSourceFixture.path, ['--remote', 'destination', '--fresh']);
 			expect('exitCode' in firstPublish).toBe(false);
-			await shallowFixture.writeFile('index.js', 'export const version = 2;');
+			await shallowSourceFixture.writeFile('index.js', 'export const version = 2;');
 			await shallowGit('add', ['index.js']);
 			await shallowGit('commit', ['-m', 'Update package']);
 
-			const nextPublish = await gitPublish(shallowFixture.path, ['--remote', 'destination']);
+			const nextPublish = await gitPublish(shallowSourceFixture.path, ['--remote', 'destination']);
 			expect('exitCode' in nextPublish).toBe(false);
 			expect(await shallowGit('rev-parse', ['--is-shallow-repository'])).toBe('true');
 		});
