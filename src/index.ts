@@ -207,6 +207,7 @@ Pre-bundle these dependencies before publishing.`);
 							await spawn('git', [
 								'fetch',
 								'--depth=1',
+								'--no-tags',
 								remote,
 								`${publishBranch}:${localTemporaryBranch}`,
 							], { cwd: publishWorktreePath });

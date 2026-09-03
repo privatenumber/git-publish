@@ -407,6 +407,32 @@ Pre-bundle these dependencies before publishing.`);
 			expect(Number(commitCount)).toBe(2);
 		});
 
+		test('does not import destination tags', async () => {
+			const branchName = 'test-destination-tags';
+			const destinationTag = 'publish-history-tag';
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+				'index.js': 'export const version = 1;',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json', 'index.js']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+			expect('exitCode' in await gitPublish(fixture.path, ['--fresh'])).toBe(false);
+			await remoteGit('tag', ['--no-sign', destinationTag, `refs/heads/npm/${branchName}`]);
+
+			await fixture.writeFile('index.js', 'export const version = 2;');
+			await git('add', ['index.js']);
+			await git('commit', ['-m', 'Update package']);
+			expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
+			expect(await git('tag', ['--list', destinationTag])).toBe('');
+		});
+
 		test('--fresh resets history', async () => {
 			const branchName = 'test-fresh';
 
