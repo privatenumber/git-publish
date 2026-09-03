@@ -5,12 +5,13 @@ import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { simpleSpawn } from '../utils/simple-spawn.ts';
 import { materializePublishGitConfig } from './git-config.ts';
 import {
-	getGitServerCommand, getPublishRemote, isLocalGitUrl, type PublishRemote,
+	getGitServerCommand, isLocalGitUrl, type PublishRemote,
 } from './remote.ts';
 
 export type PublishRepository = {
 	repositoryPath: string;
 	packWorktreePath: string;
+	packTemporaryDirectory: string;
 	gitOptions: SpawnOptions;
 	pushRemoteNames: string[];
 	remote: PublishRemote;
@@ -19,18 +20,16 @@ export type PublishRepository = {
 
 export const createPublishRepository = async ({
 	sourceRepositoryPath,
-	remote,
-	usesDefaultRemote,
+	publishRemote,
 }: {
 	sourceRepositoryPath: string;
-	remote: string;
-	usesDefaultRemote: boolean;
+	publishRemote: PublishRemote;
 }): Promise<PublishRepository> => {
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
-	const publishRemote = await getPublishRemote(sourceRepositoryPath, remote, usesDefaultRemote);
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const repositoryPath = path.join(temporaryDirectory, 'publish-worktree');
 	const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
+	const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
 	const gitEnvironment = {
 		GIT_CONFIG_SYSTEM: path.join(temporaryDirectory, 'system-config'),
 		GIT_CONFIG_GLOBAL: path.join(temporaryDirectory, 'global-config'),
@@ -100,6 +99,7 @@ export const createPublishRepository = async ({
 	return {
 		repositoryPath,
 		packWorktreePath,
+		packTemporaryDirectory,
 		gitOptions,
 		pushRemoteNames,
 		remote: publishRemote,

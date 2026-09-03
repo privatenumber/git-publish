@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
+import spawn, { SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
 import type { PackageJson } from '@npmcli/package-json';
@@ -18,7 +18,8 @@ import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { packPackage } from './utils/pack-package.ts';
 import { extractTarball } from './utils/extract-tarball.ts';
 import { getGitHubRepositoryName } from './utils/github.ts';
-import { createPublishRepository } from './publish-repository/create.ts';
+import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
+import { getPublishRemote } from './publish-repository/remote.ts';
 
 const { stringify } = JSON;
 
@@ -125,13 +126,8 @@ Pre-bundle these dependencies before publishing.`);
 	} catch {
 		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 	}
-	if (usedDefaultRemote) {
-		await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => {
-			throw new Error(`Git remote ${stringify(remote)} does not exist`);
-		});
-	}
-
-	let remoteUrl = '';
+	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
+	const remoteUrl = publishRemote.fetchUrl;
 
 	await task(
 		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
@@ -143,12 +139,7 @@ Pre-bundle these dependencies before publishing.`);
 			}
 
 			const localTemporaryBranch = `git-publish-${randomBytes(16).toString('hex')}`;
-			let publishWorktreePath = '';
-			let packWorktreePath = '';
-			let packTemporaryDirectory = '';
-			let publishGitOptions: SpawnOptions;
-			let pushRemoteNames: string[] = [];
-			let disposePublishRepository: (() => Promise<void>) | undefined;
+			let publishRepository: PublishRepository;
 
 			let success = false;
 
@@ -163,18 +154,10 @@ Pre-bundle these dependencies before publishing.`);
 						return;
 					}
 
-					const publishRepository = await createPublishRepository({
+					publishRepository = await createPublishRepository({
 						sourceRepositoryPath: gitRootPath,
-						remote,
-						usesDefaultRemote: usedDefaultRemote,
+						publishRemote,
 					});
-					publishWorktreePath = publishRepository.repositoryPath;
-					packWorktreePath = publishRepository.packWorktreePath;
-					packTemporaryDirectory = path.join(path.dirname(publishWorktreePath), 'pack');
-					publishGitOptions = publishRepository.gitOptions;
-					pushRemoteNames = publishRepository.pushRemoteNames;
-					remoteUrl = publishRepository.remote.fetchUrl;
-					disposePublishRepository = publishRepository[Symbol.asyncDispose];
 				});
 
 				if (!dry) {
@@ -198,7 +181,7 @@ Pre-bundle these dependencies before publishing.`);
 								'--branches',
 								'origin',
 								`refs/heads/${publishBranch}`,
-							], publishGitOptions);
+							], publishRepository.gitOptions);
 						} catch (error) {
 							if (!(error instanceof SubprocessError) || error.exitCode !== 2) {
 								throw error;
@@ -214,25 +197,25 @@ Pre-bundle these dependencies before publishing.`);
 								'--no-tags',
 								'origin',
 								`${publishBranch}:${localTemporaryBranch}`,
-							], publishGitOptions);
+							], publishRepository.gitOptions);
 						}
 					}
 
 					if (orphan) {
 						// Fresh orphan branch with no history
-						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], publishGitOptions);
+						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], publishRepository.gitOptions);
 					} else {
 						// Repoint HEAD to the fetched branch without checkout
-						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], publishGitOptions);
+						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], publishRepository.gitOptions);
 					}
 
 					// Remove all files from index and working directory
 
 					// removes tracked files from index (.catch() since it fails on empty orphan branches)
-					await spawn('git', ['rm', '--cached', '-r', ':/'], publishGitOptions).catch(() => {});
+					await spawn('git', ['rm', '--cached', '-r', ':/'], publishRepository.gitOptions).catch(() => {});
 
 					// removes all untracked files from the working directory
-					await spawn('git', ['clean', '-fdx'], publishGitOptions);
+					await spawn('git', ['clean', '-fdx'], publishRepository.gitOptions);
 				});
 
 				if (!dry) {
@@ -249,8 +232,8 @@ Pre-bundle these dependencies before publishing.`);
 					try {
 						tarballPath = await packPackage(
 							packageManager,
-							packWorktreePath,
-							packTemporaryDirectory,
+							publishRepository.packWorktreePath,
+							publishRepository.packTemporaryDirectory,
 							cwd,
 							gitRootPath,
 							gitSubdirectory,
@@ -269,8 +252,14 @@ Pre-bundle these dependencies before publishing.`);
 						throw error;
 					}
 
-					const publishFiles = await extractTarball(tarballPath, publishWorktreePath);
-					const publishedPackageJsonPath = path.join(publishWorktreePath, packageJsonPath);
+					const publishFiles = await extractTarball(
+						tarballPath,
+						publishRepository.repositoryPath,
+					);
+					const publishedPackageJsonPath = path.join(
+						publishRepository.repositoryPath,
+						packageJsonPath,
+					);
 					const publishedPackageJson = await readJson(publishedPackageJsonPath) as PackageJson;
 					const { scripts } = publishedPackageJson;
 					if (scripts && ('prepare' in scripts || 'prepack' in scripts)) {
@@ -296,7 +285,7 @@ Pre-bundle these dependencies before publishing.`);
 						return;
 					}
 
-					await spawn('git', ['add', '-A'], publishGitOptions);
+					await spawn('git', ['add', '-A'], publishRepository.gitOptions);
 
 					const publishFiles = await packTask.result;
 					if (!publishFiles || publishFiles.length === 0) {
@@ -309,7 +298,7 @@ Pre-bundle these dependencies before publishing.`);
 					console.log(publishFiles.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
-					const trackedFiles = await gitStatusTracked(publishGitOptions);
+					const trackedFiles = await gitStatusTracked(publishRepository.gitOptions);
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
@@ -331,11 +320,11 @@ Pre-bundle these dependencies before publishing.`);
 								commitMessage,
 								'--author=git-publish <bot@git-publish>',
 							],
-							publishGitOptions,
+							publishRepository.gitOptions,
 						);
 					}
 
-					commitSha = (await getCurrentCommit(publishGitOptions))!;
+					commitSha = (await getCurrentCommit(publishRepository.gitOptions))!;
 				});
 
 				if (!dry) {
@@ -350,14 +339,14 @@ Pre-bundle these dependencies before publishing.`);
 							return;
 						}
 
-						for (const pushRemoteName of pushRemoteNames) {
+						for (const pushRemoteName of publishRepository.pushRemoteNames) {
 							await spawn('git', [
 								'push',
 								...(fresh ? ['--force'] : []),
 								'--no-verify',
 								pushRemoteName,
 								`HEAD:${publishBranch}`,
-							], publishGitOptions);
+							], publishRepository.gitOptions);
 						}
 						success = true;
 					},
@@ -376,8 +365,8 @@ Pre-bundle these dependencies before publishing.`);
 						return;
 					}
 
-					if (disposePublishRepository) {
-						await disposePublishRepository().catch((error: unknown) => {
+					if (publishRepository) {
+						await publishRepository[Symbol.asyncDispose]().catch((error: unknown) => {
 							setWarning(error instanceof Error ? error.message : String(error));
 							if (!primaryError) {
 								throw error;
