@@ -1,9 +1,9 @@
-import type { Options as SpawnOptions } from 'nano-spawn';
-import { simpleSpawn } from './simple-spawn.ts';
+import spawn, { type Options as SpawnOptions } from 'nano-spawn';
+import { getStdout } from './get-stdout.ts';
 
 export const gitStatusTracked = (
 	options?: SpawnOptions,
-) => simpleSpawn('git', ['status', '--porcelain', '--untracked-files=no'], options);
+) => getStdout(spawn('git', ['status', '--porcelain', '--untracked-files=no'], options));
 
 export const assertCleanTree = async () => {
 	const stdout = await gitStatusTracked().catch((error) => {
@@ -20,24 +20,24 @@ export const assertCleanTree = async () => {
 };
 
 export const getCurrentSourceName = async () => {
-	const branch = await simpleSpawn('git', ['branch', '--show-current']);
+	const branch = await getStdout(spawn('git', ['branch', '--show-current']));
 	if (branch) {
 		return branch;
 	}
 
-	const tag = await simpleSpawn('git', ['describe', '--tags', '--exact-match']).catch(() => {
+	const tag = await getStdout(spawn('git', ['describe', '--tags', '--exact-match'])).catch(() => {
 		// Git exits with 128 when HEAD has no exact tag.
 	});
 	if (tag) {
 		return tag;
 	}
 
-	return await simpleSpawn('git', ['rev-parse', '--short', 'HEAD']);
+	return await getStdout(spawn('git', ['rev-parse', '--short', 'HEAD']));
 };
 
 export const getCurrentCommit = async (
 	options?: SpawnOptions,
 ) => (
 	// Can be empty if new git repository with no commits
-	simpleSpawn('git', ['rev-parse', '--short', 'HEAD'], options).catch(() => {})
+	getStdout(spawn('git', ['rev-parse', '--short', 'HEAD'], options)).catch(() => {})
 );

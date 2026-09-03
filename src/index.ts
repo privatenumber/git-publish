@@ -9,7 +9,7 @@ import byteSize from 'byte-size';
 import { cyan, dim, lightBlue } from 'kolorist';
 import terminalLink from 'terminal-link';
 import packageMeta from '../package.json' with { type: 'json' };
-import { simpleSpawn } from './utils/simple-spawn.ts';
+import { getStdout } from './utils/get-stdout.ts';
 import {
 	assertCleanTree, getCurrentSourceName, gitStatusTracked, getCurrentCommit,
 } from './utils/git.ts';
@@ -73,7 +73,7 @@ const { stringify } = JSON;
 	await assertCleanTree();
 
 	const cwd = process.cwd();
-	const gitRootPath = await simpleSpawn('git', ['rev-parse', '--show-toplevel']);
+	const gitRootPath = await getStdout(spawn('git', ['rev-parse', '--show-toplevel']));
 	const gitSubdirectory = path.relative(gitRootPath, cwd);
 	const sourceName = await getCurrentSourceName();
 	const sourceCommit = await getCurrentCommit();
@@ -122,7 +122,7 @@ Pre-bundle these dependencies before publishing.`);
 			: `npm/${sourceName}`
 	);
 	try {
-		await simpleSpawn('git', ['check-ref-format', '--branch', publishBranch]);
+		await getStdout(spawn('git', ['check-ref-format', '--branch', publishBranch]));
 	} catch {
 		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 	}

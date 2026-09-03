@@ -1,4 +1,5 @@
-import { simpleSpawn } from '../utils/simple-spawn.ts';
+import spawn from 'nano-spawn';
+import { getStdout } from '../utils/get-stdout.ts';
 
 export type PublishRemote = {
 	fetchUrl: string;
@@ -13,7 +14,7 @@ export const getPublishRemote = async (
 ): Promise<PublishRemote> => {
 	const options = { cwd: repositoryPath };
 	let configuredName: string | undefined = remote;
-	const fetchUrl = await simpleSpawn('git', ['remote', 'get-url', remote], options).catch(() => {
+	const fetchUrl = await getStdout(spawn('git', ['remote', 'get-url', remote], options)).catch(() => {
 		configuredName = undefined;
 		if (usesDefaultRemote) {
 			throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
@@ -21,7 +22,7 @@ export const getPublishRemote = async (
 
 		return remote;
 	});
-	const pushUrlOutput = await simpleSpawn('git', ['remote', 'get-url', '--push', '--all', remote], options).catch(() => fetchUrl);
+	const pushUrlOutput = await getStdout(spawn('git', ['remote', 'get-url', '--push', '--all', remote], options)).catch(() => fetchUrl);
 	return {
 		fetchUrl,
 		pushUrls: pushUrlOutput.split('\n'),
