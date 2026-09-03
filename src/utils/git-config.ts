@@ -1,5 +1,5 @@
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
-import { simpleSpawn } from './simple-spawn.ts';
+import { getStdout } from './get-stdout.ts';
 
 export type GitConfigScope = 'system' | 'global' | 'local' | 'worktree';
 
@@ -20,10 +20,10 @@ export const parseGitConfig = (config: string, scope: GitConfigScope) => config.
 
 export const getGitConfig = async (options?: SpawnOptions) => {
 	const localConfig = await spawn('git', ['config', '--local', '--includes', '--null', '--list'], options);
-	const worktreeConfigEnabled = await simpleSpawn('git', ['config', '--bool', 'extensions.worktreeConfig'], options).then(value => value === 'true').catch(() => false);
+	const worktreeConfigEnabled = await getStdout(spawn('git', ['config', '--bool', 'extensions.worktreeConfig'], options)).then(value => value === 'true', () => false);
 	const [systemConfig, globalConfig, worktreeConfig] = await Promise.all([
-		spawn('git', ['config', '--system', '--includes', '--null', '--list'], options).then(({ stdout }) => stdout).catch(() => ''),
-		spawn('git', ['config', '--global', '--includes', '--null', '--list'], options).then(({ stdout }) => stdout).catch(() => ''),
+		spawn('git', ['config', '--system', '--includes', '--null', '--list'], options).then(({ stdout }) => stdout, () => ''),
+		spawn('git', ['config', '--global', '--includes', '--null', '--list'], options).then(({ stdout }) => stdout, () => ''),
 		worktreeConfigEnabled
 			? spawn('git', ['config', '--worktree', '--includes', '--null', '--list'], options).then(({ stdout }) => stdout)
 			: undefined,

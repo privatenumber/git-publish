@@ -10,7 +10,7 @@ import byteSize from 'byte-size';
 import { cyan, dim, lightBlue } from 'kolorist';
 import terminalLink from 'terminal-link';
 import packageMeta from '../package.json' with { type: 'json' };
-import { simpleSpawn } from './utils/simple-spawn.ts';
+import { getStdout } from './utils/get-stdout.ts';
 import {
 	assertCleanTree, getCurrentSourceName, gitStatusTracked, getCurrentCommit,
 } from './utils/git.ts';
@@ -90,7 +90,7 @@ const getGitServerCommand = (url: string, command: string) => (isLocalGitUrl(url
 	await assertCleanTree();
 
 	const cwd = process.cwd();
-	const gitRootPath = await simpleSpawn('git', ['rev-parse', '--show-toplevel']);
+	const gitRootPath = await getStdout(spawn('git', ['rev-parse', '--show-toplevel']));
 	const gitSubdirectory = path.relative(gitRootPath, cwd);
 	const sourceName = await getCurrentSourceName();
 	const sourceCommit = await getCurrentCommit();
@@ -139,13 +139,13 @@ Pre-bundle these dependencies before publishing.`);
 			: `npm/${sourceName}`
 	);
 	try {
-		await simpleSpawn('git', ['check-ref-format', '--branch', publishBranch]);
+		await getStdout(spawn('git', ['check-ref-format', '--branch', publishBranch]));
 	} catch {
 		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 	}
 
 	let configuredRemote = true;
-	const remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => {
+	const remoteUrl = await getStdout(spawn('git', ['remote', 'get-url', remote])).catch(() => {
 		configuredRemote = false;
 		if (usedDefaultRemote) {
 			throw new Error(`Git remote ${stringify(remote)} does not exist`);
@@ -154,7 +154,7 @@ Pre-bundle these dependencies before publishing.`);
 		// Git accepts raw destinations as well as configured remote names.
 		return remote;
 	});
-	const pushUrlOutput = await simpleSpawn('git', ['remote', 'get-url', '--push', '--all', remote]).catch(() => remoteUrl);
+	const pushUrlOutput = await getStdout(spawn('git', ['remote', 'get-url', '--push', '--all', remote])).catch(() => remoteUrl);
 	const sourceGitConfig = await getGitConfig();
 	const remoteConfigPrefix = `remote.${remote}.`;
 	const sourceRemoteConfig = configuredRemote
@@ -233,7 +233,7 @@ Pre-bundle these dependencies before publishing.`);
 						}))),
 					].map(serializeGitConfig).join(''));
 					if (isLocalGitUrl(remoteUrl)) {
-						const uploadPack = await simpleSpawn('git', ['config', '--get', 'remote.origin.uploadpack'], publishGitOptions).catch(() => 'git-upload-pack');
+						const uploadPack = await getStdout(spawn('git', ['config', '--get', 'remote.origin.uploadpack'], publishGitOptions)).catch(() => 'git-upload-pack');
 						await spawn('git', ['config', 'remote.origin.uploadpack', getGitServerCommand(remoteUrl, uploadPack)], publishGitOptions);
 					}
 					for (const [index, pushUrl] of pushUrls.entries()) {
@@ -241,7 +241,7 @@ Pre-bundle these dependencies before publishing.`);
 							continue;
 						}
 
-						const receivePack = await simpleSpawn('git', ['config', '--get', `remote.${pushRemoteNames[index]}.receivepack`], publishGitOptions).catch(() => 'git-receive-pack');
+						const receivePack = await getStdout(spawn('git', ['config', '--get', `remote.${pushRemoteNames[index]}.receivepack`], publishGitOptions)).catch(() => 'git-receive-pack');
 						await spawn('git', ['config', `remote.${pushRemoteNames[index]}.receivepack`, getGitServerCommand(pushUrl, receivePack)], publishGitOptions);
 					}
 
