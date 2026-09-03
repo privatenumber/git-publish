@@ -12,7 +12,7 @@ type GitConfigEntry = {
 	value: string;
 };
 
-const parseGitConfig = (config: string, scope: GitConfigScope) => config.split('\0').filter(Boolean).map((entry) => {
+export const parseGitConfig = (config: string, scope: GitConfigScope) => config.split('\0').filter(Boolean).map((entry) => {
 	const separatorIndex = entry.indexOf('\n');
 	return {
 		scope,
@@ -21,7 +21,7 @@ const parseGitConfig = (config: string, scope: GitConfigScope) => config.split('
 	};
 });
 
-const getGitConfig = async (options: SpawnOptions) => {
+export const getGitConfig = async (options: SpawnOptions) => {
 	const localConfig = await spawn('git', ['config', '--local', '--includes', '--null', '--list'], options);
 	const worktreeConfigEnabled = await simpleSpawn('git', ['config', '--bool', 'extensions.worktreeConfig'], options).then(value => value === 'true').catch(() => false);
 	const [systemConfig, globalConfig, worktreeConfig] = await Promise.all([
@@ -40,7 +40,7 @@ const getGitConfig = async (options: SpawnOptions) => {
 	];
 };
 
-const serializeGitConfig = ({ key, value }: GitConfigEntry) => {
+export const serializeGitConfig = ({ key, value }: GitConfigEntry) => {
 	const firstSeparatorIndex = key.indexOf('.');
 	const lastSeparatorIndex = key.lastIndexOf('.');
 	const section = key.slice(0, firstSeparatorIndex);

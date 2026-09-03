@@ -7,7 +7,7 @@ import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
 import yaml from 'js-yaml';
 import { getGitHubRepositoryName } from '../src/utils/github.ts';
-import { getGitConfig, parseGitConfig, serializeGitConfig } from '../src/utils/git-config.ts';
+import { getGitConfig, parseGitConfig, serializeGitConfig } from '../src/publish-repository/git-config.ts';
 import { createGit } from './utils/create-git.ts';
 import { gitPublish } from './utils/git-publish.ts';
 
