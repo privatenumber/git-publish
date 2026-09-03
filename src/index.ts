@@ -22,6 +22,52 @@ import { getGitHubRepositoryName } from './utils/github.ts';
 
 const { stringify } = JSON;
 
+type GitConfigEntry = {
+	scope: 'system' | 'global' | 'local' | 'worktree';
+	key: string;
+	value: string;
+};
+
+const parseGitConfig = (config: string, scope: GitConfigEntry['scope']) => config.split('\0').filter(Boolean).map((entry) => {
+	const separatorIndex = entry.indexOf('\n');
+	return {
+		scope,
+		key: entry.slice(0, separatorIndex),
+		value: entry.slice(separatorIndex + 1),
+	};
+});
+
+const serializeGitConfig = ({ key, value }: GitConfigEntry) => {
+	const firstSeparatorIndex = key.indexOf('.');
+	const lastSeparatorIndex = key.lastIndexOf('.');
+	const section = key.slice(0, firstSeparatorIndex);
+	const subsection = firstSeparatorIndex === lastSeparatorIndex
+		? ''
+		: ` "${key.slice(firstSeparatorIndex + 1, lastSeparatorIndex).replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`)}"`;
+	const variable = key.slice(lastSeparatorIndex + 1);
+	const escapedValue = value
+		.replaceAll('\\', String.raw`\\`)
+		.replaceAll('"', String.raw`\"`)
+		.replaceAll('\n', String.raw`\n`)
+		.replaceAll('\t', String.raw`\t`);
+	return `[${section}${subsection}]\n\t${variable} = "${escapedValue}"\n`;
+};
+
+const isSerializableGitConfig = ({ key }: GitConfigEntry) => key !== 'core.bare'
+	&& key !== 'core.worktree'
+	&& key !== 'core.repositoryformatversion'
+	&& !key.startsWith('extensions.')
+	&& key !== 'include.path'
+	&& !key.startsWith('includeif.');
+
+const isLocalGitUrl = (url: string) => url.startsWith('file://')
+	|| /^[a-z]:[\\/]/i.test(url)
+	|| (!/^[a-z][a-z\d+.-]*:\/\//i.test(url) && !/^[^/:]+:/.test(url));
+
+const getGitServerCommand = (url: string, command: string) => (isLocalGitUrl(url)
+	? `env -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_GLOBAL ${command}`
+	: command);
+
 (async () => {
 	let usedDefaultRemote = false;
 	const argv = cli({
@@ -126,7 +172,9 @@ Pre-bundle these dependencies before publishing.`);
 		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 	}
 
+	let configuredRemote = true;
 	const remoteUrl = await simpleSpawn('git', ['remote', 'get-url', remote]).catch(() => {
+		configuredRemote = false;
 		if (usedDefaultRemote) {
 			throw new Error(`Git remote ${stringify(remote)} does not exist`);
 		}
@@ -134,6 +182,31 @@ Pre-bundle these dependencies before publishing.`);
 		// Git accepts raw destinations as well as configured remote names.
 		return remote;
 	});
+	const pushUrlOutput = await simpleSpawn('git', ['remote', 'get-url', '--push', '--all', remote]).catch(() => remoteUrl);
+	const sourceLocalConfigResult = await spawn('git', ['config', '--local', '--includes', '--null', '--list']);
+	const sourceLocalConfig = parseGitConfig(sourceLocalConfigResult.stdout, 'local');
+	const worktreeConfigEnabled = await simpleSpawn('git', ['config', '--bool', 'extensions.worktreeConfig']).then(value => value === 'true').catch(() => false);
+	const [sourceSystemConfig, sourceGlobalConfig, sourceWorktreeConfig] = await Promise.all([
+		spawn('git', ['config', '--system', '--includes', '--null', '--list']).then(({ stdout }) => stdout).catch(() => ''),
+		spawn('git', ['config', '--global', '--includes', '--null', '--list']).then(({ stdout }) => stdout).catch(() => ''),
+		worktreeConfigEnabled
+			? spawn('git', ['config', '--worktree', '--includes', '--null', '--list']).then(({ stdout }) => stdout)
+			: undefined,
+	]);
+	const sourceGitConfig = [
+		...parseGitConfig(sourceSystemConfig, 'system'),
+		...parseGitConfig(sourceGlobalConfig, 'global'),
+		...sourceLocalConfig,
+		...(sourceWorktreeConfig ? parseGitConfig(sourceWorktreeConfig, 'worktree') : []),
+	];
+	const remoteConfigPrefix = `remote.${remote}.`;
+	const sourceRemoteConfig = configuredRemote
+		? sourceGitConfig.filter(({ key }) => key.startsWith(remoteConfigPrefix) && key !== `${remoteConfigPrefix}url` && key !== `${remoteConfigPrefix}pushurl`)
+		: [];
+	const sourceTransportConfig = sourceGitConfig
+		.filter(({ key }) => !key.startsWith('remote.'))
+		.filter(isSerializableGitConfig);
+	const pushUrls = pushUrlOutput.split('\n');
 
 	await task(
 		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
@@ -149,18 +222,25 @@ Pre-bundle these dependencies before publishing.`);
 			let publishWorktreePath = '';
 			let packWorktreePath = '';
 			let packTemporaryDirectory = '';
+			const publishGitEnvironment = {
+				GIT_CONFIG_SYSTEM: '',
+				GIT_CONFIG_GLOBAL: '',
+			};
+			const publishGitOptions = {
+				cwd: '',
+				env: publishGitEnvironment,
+			};
+			const pushRemoteNames = pushUrls.map((_, index) => `publish-${index}`);
 
 			let success = false;
 
 			let commitSha: string;
 			const packageManager = await detectPackageManager(cwd, gitRootPath);
-			let publishWorktreeNeedsCleanup = false;
 			let packWorktreeNeedsCleanup = false;
-			let localTemporaryBranchExists = false;
 			let primaryError: unknown;
 
 			try {
-				const creatingWorktrees = await task('Creating worktrees', async ({ setWarning }) => {
+				const creatingWorktrees = await task('Creating temporary repositories', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
@@ -172,13 +252,44 @@ Pre-bundle these dependencies before publishing.`);
 					publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
 					packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
 					packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
+					publishGitEnvironment.GIT_CONFIG_SYSTEM = path.join(temporaryDirectory, 'system-config');
+					publishGitEnvironment.GIT_CONFIG_GLOBAL = path.join(temporaryDirectory, 'global-config');
+					publishGitOptions.cwd = publishWorktreePath;
+					const sourcePublishConfig = [
+						...sourceTransportConfig,
+					];
+					await Promise.all([
+						fs.writeFile(publishGitEnvironment.GIT_CONFIG_SYSTEM, sourcePublishConfig.filter(({ scope }) => scope === 'system').map(serializeGitConfig).join('')),
+						fs.writeFile(publishGitEnvironment.GIT_CONFIG_GLOBAL, sourcePublishConfig.filter(({ scope }) => scope === 'global').map(serializeGitConfig).join('')),
+					]);
+					await spawn('git', ['clone', '--shared', '--no-checkout', gitRootPath, publishWorktreePath], { env: publishGitEnvironment });
+					await spawn('git', ['remote', 'set-url', 'origin', remoteUrl], publishGitOptions);
+					for (const [index, pushUrl] of pushUrls.entries()) {
+						await spawn('git', ['remote', 'add', pushRemoteNames[index], pushUrl], publishGitOptions);
+					}
+					const remoteNames = ['origin', ...pushRemoteNames];
+					await fs.appendFile(path.join(publishWorktreePath, '.git', 'config'), [
+						...sourcePublishConfig.filter(({ scope }) => scope === 'local' || scope === 'worktree'),
+						...remoteNames.flatMap(remoteName => sourceRemoteConfig.map(entry => ({
+							...entry,
+							key: `remote.${remoteName}.${entry.key.slice(remoteConfigPrefix.length)}`,
+						}))),
+					].map(serializeGitConfig).join(''));
+					if (isLocalGitUrl(remoteUrl)) {
+						const uploadPack = await simpleSpawn('git', ['config', '--get', 'remote.origin.uploadpack'], publishGitOptions).catch(() => 'git-upload-pack');
+						await spawn('git', ['config', 'remote.origin.uploadpack', getGitServerCommand(remoteUrl, uploadPack)], publishGitOptions);
+					}
+					for (const [index, pushUrl] of pushUrls.entries()) {
+						if (!isLocalGitUrl(pushUrl)) {
+							continue;
+						}
 
-					// A failed hook can leave Git's worktree registration behind.
-					publishWorktreeNeedsCleanup = true;
-					await spawn('git', ['worktree', 'add', '--force', publishWorktreePath, 'HEAD']);
+						const receivePack = await simpleSpawn('git', ['config', '--get', `remote.${pushRemoteNames[index]}.receivepack`], publishGitOptions).catch(() => 'git-receive-pack');
+						await spawn('git', ['config', `remote.${pushRemoteNames[index]}.receivepack`, getGitServerCommand(pushUrl, receivePack)], publishGitOptions);
+					}
 
 					packWorktreeNeedsCleanup = true;
-					await spawn('git', ['worktree', 'add', '--force', packWorktreePath, 'HEAD']);
+					await spawn('git', ['worktree', 'add', '--force', packWorktreePath, 'HEAD'], publishGitOptions);
 				});
 
 				if (!dry) {
@@ -200,9 +311,9 @@ Pre-bundle these dependencies before publishing.`);
 								'ls-remote',
 								'--exit-code',
 								'--branches',
-								remote,
+								'origin',
 								`refs/heads/${publishBranch}`,
-							], { cwd: publishWorktreePath });
+							], publishGitOptions);
 						} catch (error) {
 							if (!(error instanceof SubprocessError) || error.exitCode !== 2) {
 								throw error;
@@ -216,30 +327,27 @@ Pre-bundle these dependencies before publishing.`);
 								'fetch',
 								'--depth=1',
 								'--no-tags',
-								remote,
+								'origin',
 								`${publishBranch}:${localTemporaryBranch}`,
-							], { cwd: publishWorktreePath });
-							localTemporaryBranchExists = true;
+							], publishGitOptions);
 						}
 					}
 
 					if (orphan) {
 						// Fresh orphan branch with no history
-						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], { cwd: publishWorktreePath });
-						// `checkout --orphan` creates a local branch that cleanup must remove.
-						localTemporaryBranchExists = true;
+						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], publishGitOptions);
 					} else {
 						// Repoint HEAD to the fetched branch without checkout
-						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: publishWorktreePath });
+						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], publishGitOptions);
 					}
 
 					// Remove all files from index and working directory
 
 					// removes tracked files from index (.catch() since it fails on empty orphan branches)
-					await spawn('git', ['rm', '--cached', '-r', ':/'], { cwd: publishWorktreePath }).catch(() => {});
+					await spawn('git', ['rm', '--cached', '-r', ':/'], publishGitOptions).catch(() => {});
 
 					// removes all untracked files from the working directory
-					await spawn('git', ['clean', '-fdx'], { cwd: publishWorktreePath });
+					await spawn('git', ['clean', '-fdx'], publishGitOptions);
 				});
 
 				if (!dry) {
@@ -303,7 +411,7 @@ Pre-bundle these dependencies before publishing.`);
 						return;
 					}
 
-					await spawn('git', ['add', '-A'], { cwd: publishWorktreePath });
+					await spawn('git', ['add', '-A'], publishGitOptions);
 
 					const publishFiles = await packTask.result;
 					if (!publishFiles || publishFiles.length === 0) {
@@ -316,7 +424,7 @@ Pre-bundle these dependencies before publishing.`);
 					console.log(publishFiles.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
-					const trackedFiles = await gitStatusTracked({ cwd: publishWorktreePath });
+					const trackedFiles = await gitStatusTracked(publishGitOptions);
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
@@ -338,11 +446,11 @@ Pre-bundle these dependencies before publishing.`);
 								commitMessage,
 								'--author=git-publish <bot@git-publish>',
 							],
-							{ cwd: publishWorktreePath },
+							publishGitOptions,
 						);
 					}
 
-					commitSha = (await getCurrentCommit({ cwd: publishWorktreePath }))!;
+					commitSha = (await getCurrentCommit(publishGitOptions))!;
 				});
 
 				if (!dry) {
@@ -357,13 +465,15 @@ Pre-bundle these dependencies before publishing.`);
 							return;
 						}
 
-						await spawn('git', [
-							'push',
-							...(fresh ? ['--force'] : []),
-							'--no-verify',
-							remote,
-							`HEAD:${publishBranch}`,
-						], { cwd: publishWorktreePath });
+						for (const pushRemoteName of pushRemoteNames) {
+							await spawn('git', [
+								'push',
+								...(fresh ? ['--force'] : []),
+								'--no-verify',
+								pushRemoteName,
+								`HEAD:${publishBranch}`,
+							], publishGitOptions);
+						}
 						success = true;
 					},
 				);
@@ -390,16 +500,8 @@ Pre-bundle these dependencies before publishing.`);
 						}
 					};
 
-					if (publishWorktreeNeedsCleanup) {
-						await runCleanup(spawn('git', ['worktree', 'remove', '--force', publishWorktreePath]));
-					}
-
 					if (packWorktreeNeedsCleanup) {
-						await runCleanup(spawn('git', ['worktree', 'remove', '--force', packWorktreePath]));
-					}
-
-					if (localTemporaryBranchExists) {
-						await runCleanup(spawn('git', ['branch', '-D', localTemporaryBranch]));
+						await runCleanup(spawn('git', ['worktree', 'remove', '--force', packWorktreePath], publishGitOptions));
 					}
 
 					await runCleanup(fs.rm(temporaryDirectory, {

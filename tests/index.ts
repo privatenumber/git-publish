@@ -144,19 +144,14 @@ describe('git-publish', () => {
 
 		test('Cleans up after pack worktree creation fails', async () => {
 			await using hooksFixture = await createFixture(async (fixture) => {
-				const publishCheckoutPath = fixture.getPath('publish-checkout');
 				const packCheckoutPath = fixture.getPath('pack-checkout');
 				const temporaryDirectoryModePath = fixture.getPath('temporary-directory-mode');
 				const temporaryDirectoryPath = fixture.getPath('temporary-directory-path');
 				await fixture.writeFile('post-checkout', `#!/bin/sh
 stat -f '%Lp' "$PWD/.." > '${temporaryDirectoryModePath}' 2>/dev/null || stat -c '%a' "$PWD/.." > '${temporaryDirectoryModePath}'
 printf '%s\n' "$PWD/.." > '${temporaryDirectoryPath}'
-if [ -f '${publishCheckoutPath}' ]; then
-	touch '${packCheckoutPath}'
-	exit 1
-fi
-
-touch '${publishCheckoutPath}'
+touch '${packCheckoutPath}'
+exit 1
 `);
 				await fs.chmod(fixture.getPath('post-checkout'), 0o755);
 			});
@@ -182,7 +177,6 @@ touch '${publishCheckoutPath}'
 			try {
 				const gitPublishProcess = await gitPublish(fixture.path);
 				expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-				expect(await hooksFixture.exists('publish-checkout')).toBe(true);
 				expect(await hooksFixture.exists('pack-checkout')).toBe(true);
 				expect(await hooksFixture.readFile('temporary-directory-mode', 'utf8')).toBe('700\n');
 				const temporaryDirectory = await hooksFixture.readFile('temporary-directory-path', 'utf8');
@@ -352,6 +346,106 @@ Pre-bundle these dependencies before publishing.`);
 			]);
 		});
 
+		test('uses selected-remote configuration without applying origin settings', async () => {
+			const branchName = 'test-selected-remote-configuration';
+			await using commandsFixture = await createFixture(async (fixture) => {
+				await fixture.writeFile('blocked-receive-pack', `#!/bin/sh
+touch '${fixture.getPath('blocked')}'
+exit 1
+`);
+				await fs.chmod(fixture.getPath('blocked-receive-pack'), 0o755);
+			});
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+			await git('remote', ['add', 'publish', remoteFixture.path]);
+			await git('config', ['remote.origin.receivepack', commandsFixture.getPath('blocked-receive-pack')]);
+
+			for (const destination of ['publish', remoteFixture.path]) {
+				expect('exitCode' in await gitPublish(fixture.path, [
+					'--fresh',
+					'--remote',
+					destination,
+				])).toBe(false);
+			}
+
+			expect(await commandsFixture.exists('blocked')).toBe(false);
+			expect(await remoteGit('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+		});
+
+		test('keeps SSH receive-pack commands unsanitized', async () => {
+			const branchName = 'test-ssh-push-url';
+			await using sshFixture = await createFixture(async (fixture) => {
+				await fixture.writeFile('ssh', `#!/bin/sh
+shift
+case "$*" in
+"env "*) exit 1 ;;
+esac
+exec sh -c "$*"
+`);
+				await fs.chmod(fixture.getPath('ssh'), 0o755);
+			});
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+			await git('config', ['core.sshCommand', sshFixture.getPath('ssh')]);
+			await git('config', ['ssh.variant', 'simple']);
+			await git('config', ['--add', 'remote.origin.pushurl', `git@example.test:${remoteFixture.path}`]);
+
+			expect('exitCode' in await gitPublish(fixture.path, ['--fresh'])).toBe(false);
+			expect(await remoteGit('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+		});
+
+		test('preserves worktree transport configuration', async () => {
+			const branchName = 'test-worktree-ssh-configuration';
+			await using sshFixture = await createFixture(async (fixture) => {
+				await fixture.writeFile('ssh', `#!/bin/sh
+shift
+exec sh -c "$*"
+`);
+				await fs.chmod(fixture.getPath('ssh'), 0o755);
+			});
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('config', ['extensions.worktreeConfig', 'true']);
+			await git('config', ['--worktree', 'core.sshCommand', sshFixture.getPath('ssh')]);
+			await git('config', ['--worktree', 'ssh.variant', 'simple']);
+
+			expect('exitCode' in await gitPublish(fixture.path, [
+				'--fresh',
+				'--remote',
+				`git@example.test:${remoteFixture.path}`,
+			])).toBe(false);
+			expect(await remoteGit('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+		});
+
 		test('uses an exact tag from detached HEAD', async () => {
 			const tagName = 'v1.2.3';
 			await using fixture = await createFixture({
@@ -463,6 +557,136 @@ Pre-bundle these dependencies before publishing.`);
 			await git('commit', ['-m', 'Update package']);
 			expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
 			expect(await git('tag', ['--list', destinationTag])).toBe('');
+		});
+
+		test('fetches one publish commit without changing source metadata', async () => {
+			const branchName = 'test-publish-fetch-metadata';
+			const destinationTag = `publish-history-tag-${branchName}`;
+			await using secondPushFixture = await createFixture(async (fixture) => {
+				await createGit(fixture.path).init(['--bare']);
+			});
+			await using commandsFixture = await createFixture(async (fixture) => {
+				const headersPath = fixture.getPath('headers');
+				await fixture.writeFile('upload-pack', `#!/bin/sh
+printf x >> '${fixture.getPath('upload-pack-called')}'
+exec git-upload-pack "$@"
+`);
+				await fixture.writeFile('receive-pack', `#!/bin/sh
+printf x >> '${fixture.getPath('receive-pack-called')}'
+exec git-receive-pack "$@"
+`);
+				await fixture.writeFile('post-commit', `#!/bin/sh
+git config --null --get-all http.extraHeader > '${headersPath}'
+`);
+				await fixture.writeFile('system-config', '');
+				await Promise.all([
+					fs.chmod(fixture.getPath('upload-pack'), 0o755),
+					fs.chmod(fixture.getPath('receive-pack'), 0o755),
+					fs.chmod(fixture.getPath('post-commit'), 0o755),
+				]);
+			});
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+				'index.js': 'export const version = 1;',
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json', 'index.js']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+			const remoteConfigPath = commandsFixture.getPath('remote-config');
+			const globalConfigPath = commandsFixture.getPath('global-config');
+			await git('config', ['--file', remoteConfigPath, 'remote.origin.uploadpack', commandsFixture.getPath('upload-pack')]);
+			await git('config', ['--file', remoteConfigPath, 'remote.origin.receivepack', commandsFixture.getPath('receive-pack')]);
+			await git('config', ['--file', remoteConfigPath, '--add', 'remote.origin.pushurl', remoteFixture.path]);
+			await git('config', ['--file', remoteConfigPath, '--add', 'remote.origin.pushurl', secondPushFixture.path]);
+			await git('config', ['--file', globalConfigPath, `includeIf.gitdir:${fixture.path}/.git.path`, remoteConfigPath]);
+			await git('config', ['--file', globalConfigPath, '--add', 'http.extraHeader', 'X-Test: first']);
+			await git('config', ['--file', globalConfigPath, '--add', 'http.extraHeader', 'X-Test: second']);
+			await git('config', ['core.hooksPath', commandsFixture.path]);
+			const environment = {
+				GIT_CONFIG_SYSTEM: commandsFixture.getPath('system-config'),
+				GIT_CONFIG_GLOBAL: globalConfigPath,
+			};
+
+			expect('exitCode' in await gitPublish(fixture.path, ['--fresh'], environment)).toBe(false);
+			expect(await commandsFixture.readFile('headers', 'utf8')).toBe('X-Test: first\0X-Test: second\0');
+			expect(await createGit(secondPushFixture.path)('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+			await remoteGit('tag', ['--no-sign', destinationTag, `refs/heads/npm/${branchName}`]);
+			await fixture.writeFile('index.js', 'export const version = 2;');
+			await git('add', ['index.js']);
+			await git('commit', ['-m', 'Update package']);
+			const shallowPath = path.resolve(fixture.path, await git('rev-parse', ['--git-path', 'shallow']));
+			const [sourceReferences, sourceTags, sourceWorktrees, sourceShallow] = await Promise.all([
+				git('for-each-ref'),
+				git('tag', ['--list']),
+				git('worktree', ['list', '--porcelain']),
+				fs.readFile(shallowPath, 'utf8').catch(() => ''),
+			]);
+			const tracePath = commandsFixture.getPath('trace');
+			expect('exitCode' in await gitPublish(fixture.path, [], {
+				...environment,
+				GIT_TRACE_PACKET: tracePath,
+			})).toBe(false);
+			expect(await fs.readFile(tracePath, 'utf8')).toContain('deepen 1');
+			expect(await commandsFixture.readFile('upload-pack-called', 'utf8')).toContain('x');
+			expect(await commandsFixture.readFile('receive-pack-called', 'utf8')).toBe('xxxx');
+			expect(await createGit(secondPushFixture.path)('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+			const [nextReferences, nextTags, nextWorktrees, nextShallow] = await Promise.all([
+				git('for-each-ref'),
+				git('tag', ['--list']),
+				git('worktree', ['list', '--porcelain']),
+				fs.readFile(shallowPath, 'utf8').catch(() => ''),
+			]);
+			expect({
+				references: nextReferences,
+				tags: nextTags,
+				worktrees: nextWorktrees,
+				shallow: nextShallow,
+			}).toStrictEqual({
+				references: sourceReferences,
+				tags: sourceTags,
+				worktrees: sourceWorktrees,
+				shallow: sourceShallow,
+			});
+		});
+
+		test('preserves an already-shallow source repository', async () => {
+			await using sourceRemoteFixture = await createFixture(async (fixture) => {
+				await createGit(fixture.path).init(['--bare']);
+			});
+			await using fullSourceFixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+				'index.js': 'export const version = 1;',
+			});
+			const sourceGit = createGit(fullSourceFixture.path);
+			await sourceGit.init(['--initial-branch=main']);
+			await sourceGit('add', ['package.json', 'index.js']);
+			await sourceGit('commit', ['-m', 'Initial commit']);
+			await sourceGit('remote', ['add', 'origin', sourceRemoteFixture.path]);
+			await sourceGit('push', ['origin', 'HEAD:main']);
+			expect('exitCode' in await gitPublish(fullSourceFixture.path, ['--fresh'])).toBe(false);
+
+			await using shallowSourceFixture = await createFixture();
+			await spawn('git', ['clone', '--branch=main', '--depth=1', `file://${sourceRemoteFixture.path}`, shallowSourceFixture.path]);
+			const shallowGit = createGit(shallowSourceFixture.path);
+			await shallowGit('config', ['user.name', 'name']);
+			await shallowGit('config', ['user.email', 'email']);
+			const shallowFilePath = path.resolve(shallowSourceFixture.path, await shallowGit('rev-parse', ['--git-path', 'shallow']));
+			const shallowFile = await fs.readFile(shallowFilePath, 'utf8');
+			await shallowSourceFixture.writeFile('index.js', 'export const version = 2;');
+			await shallowGit('add', ['index.js']);
+			await shallowGit('commit', ['-m', 'Update package']);
+
+			expect('exitCode' in await gitPublish(shallowSourceFixture.path)).toBe(false);
+			expect(await fs.readFile(shallowFilePath, 'utf8')).toBe(shallowFile);
 		});
 
 		test('--fresh resets history', async () => {
