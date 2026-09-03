@@ -31,7 +31,7 @@ export const getPublishRemote = async (
 };
 
 export const isLocalGitUrl = (url: string) => url.startsWith('file://')
-	|| /^[a-z]:[\\/]/i.test(url)
+	|| /^[a-z]:/i.test(url)
 	|| (!/^[a-z][a-z\d+.-]*:\/\//i.test(url) && !/^[^/:]+:/.test(url));
 
 export const getGitServerCommand = (url: string, command: string) => (isLocalGitUrl(url)
