@@ -490,6 +490,47 @@ exec sh -c "$*"
 			expect(await remoteGit('rev-parse', [`npm/${branchName}`])).toBeTruthy();
 		});
 
+		test('sanitizes server commands for local push URLs', async () => {
+			const branchName = 'test-local-push-url';
+			await using commandsFixture = await createFixture(async (fixture) => {
+				await fixture.writeFile('ssh', `#!/bin/sh
+shift
+exec sh -c "$*"
+`);
+				await fixture.writeFile('receive-pack', `#!/bin/sh
+if [ -n "$GIT_CONFIG_SYSTEM$GIT_CONFIG_GLOBAL" ]; then
+	exit 1
+fi
+exec git-receive-pack "$@"
+`);
+				await fs.chmod(fixture.getPath('ssh'), 0o755);
+				await fs.chmod(fixture.getPath('receive-pack'), 0o755);
+			});
+			await using fixture = await createFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}, null, 2),
+			});
+
+			const git = createGit(fixture.path);
+			await git.init([`--initial-branch=${branchName}`]);
+			await git('add', ['package.json']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', `git@example.test:${remoteFixture.path}`]);
+			await git('config', ['core.sshCommand', commandsFixture.getPath('ssh')]);
+			await git('config', ['ssh.variant', 'simple']);
+			await git('config', ['remote.origin.receivepack', commandsFixture.getPath('receive-pack')]);
+			await git('config', ['--add', 'remote.origin.pushurl', remoteFixture.path]);
+
+			expect('exitCode' in await gitPublish(fixture.path, ['--fresh'])).toBe(false);
+			await fixture.writeFile('index.js', 'export const version = 2;');
+			await git('add', ['index.js']);
+			await git('commit', ['-m', 'Update package']);
+			expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
+			expect(await remoteGit('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+		});
+
 		test('preserves worktree transport configuration', async () => {
 			const branchName = 'test-worktree-ssh-configuration';
 			await using sshFixture = await createFixture(async (fixture) => {
