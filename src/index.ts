@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
+import { randomBytes } from 'node:crypto';
 import spawn, { SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
@@ -143,7 +144,7 @@ Pre-bundle these dependencies before publishing.`);
 				setStatus('Dry run');
 			}
 
-			const localTemporaryBranch = `git-publish-${Date.now()}-${process.pid}`;
+			const localTemporaryBranch = `git-publish-${randomBytes(16).toString('hex')}`;
 			let temporaryDirectory = '';
 			let publishWorktreePath = '';
 			let packWorktreePath = '';

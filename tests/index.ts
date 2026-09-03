@@ -186,7 +186,10 @@ touch '${publishCheckoutPath}'
 				expect(await hooksFixture.exists('pack-checkout')).toBe(true);
 				expect(await hooksFixture.readFile('temporary-directory-mode', 'utf8')).toBe('700\n');
 				const temporaryDirectory = await hooksFixture.readFile('temporary-directory-path', 'utf8');
-				expect(await fs.access(temporaryDirectory.trim()).then(() => true).catch(() => false)).toBe(false);
+				const temporaryDirectoryExists = await fs.access(temporaryDirectory.trim())
+					.then(() => true)
+					.catch(() => false);
+				expect(temporaryDirectoryExists).toBe(false);
 
 				// A failed creation must not leave temporary registrations behind.
 				const worktrees = await git('worktree', ['list', '--porcelain']);
