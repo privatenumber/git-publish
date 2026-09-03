@@ -167,6 +167,7 @@ Pre-bundle these dependencies before publishing.`);
 					}
 
 					temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
+					// Restrict package files and Git metadata in the workspace to the current user.
 					await fs.chmod(temporaryDirectory, 0o700);
 					publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
 					packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
