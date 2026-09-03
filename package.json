@@ -47,7 +47,7 @@
 		"clean-pkg-json": "^2.0.0",
 		"cleye": "^2.6.0",
 		"find-up-simple": "^1.0.1",
-		"fs-fixture": "^2.15.0",
+		"fs-fixture": "^2.16.0",
 		"js-yaml": "^4.2.0",
 		"kolorist": "^1.8.0",
 		"lintroll": "^1.30.2",
