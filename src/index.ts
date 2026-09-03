@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
+import { randomBytes } from 'node:crypto';
 import spawn, { SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
@@ -143,11 +144,11 @@ Pre-bundle these dependencies before publishing.`);
 				setStatus('Dry run');
 			}
 
-			const localTemporaryBranch = `git-publish-${Date.now()}-${process.pid}`;
-			const temporaryDirectory = path.join(os.tmpdir(), 'git-publish', localTemporaryBranch);
-			const publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
-			const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
-			const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
+			const localTemporaryBranch = `git-publish-${randomBytes(16).toString('hex')}`;
+			let temporaryDirectory = '';
+			let publishWorktreePath = '';
+			let packWorktreePath = '';
+			let packTemporaryDirectory = '';
 
 			let success = false;
 
@@ -164,6 +165,13 @@ Pre-bundle these dependencies before publishing.`);
 						setWarning('');
 						return;
 					}
+
+					temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
+					// Restrict package files and Git metadata in the workspace to the current user.
+					await fs.chmod(temporaryDirectory, 0o700);
+					publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
+					packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
+					packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
 
 					// A failed hook can leave Git's worktree registration behind.
 					publishWorktreeNeedsCleanup = true;
