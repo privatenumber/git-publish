@@ -19,39 +19,11 @@ import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { packPackage } from './utils/pack-package.ts';
 import { extractTarball } from './utils/extract-tarball.ts';
 import { getGitHubRepositoryName } from './utils/github.ts';
+import {
+	getGitConfig, serializeGitConfig, type GitConfigEntry,
+} from './utils/git-config.ts';
 
 const { stringify } = JSON;
-
-type GitConfigEntry = {
-	scope: 'system' | 'global' | 'local' | 'worktree';
-	key: string;
-	value: string;
-};
-
-const parseGitConfig = (config: string, scope: GitConfigEntry['scope']) => config.split('\0').filter(Boolean).map((entry) => {
-	const separatorIndex = entry.indexOf('\n');
-	return {
-		scope,
-		key: entry.slice(0, separatorIndex),
-		value: entry.slice(separatorIndex + 1),
-	};
-});
-
-const serializeGitConfig = ({ key, value }: GitConfigEntry) => {
-	const firstSeparatorIndex = key.indexOf('.');
-	const lastSeparatorIndex = key.lastIndexOf('.');
-	const section = key.slice(0, firstSeparatorIndex);
-	const subsection = firstSeparatorIndex === lastSeparatorIndex
-		? ''
-		: ` "${key.slice(firstSeparatorIndex + 1, lastSeparatorIndex).replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`)}"`;
-	const variable = key.slice(lastSeparatorIndex + 1);
-	const escapedValue = value
-		.replaceAll('\\', String.raw`\\`)
-		.replaceAll('"', String.raw`\"`)
-		.replaceAll('\n', String.raw`\n`)
-		.replaceAll('\t', String.raw`\t`);
-	return `[${section}${subsection}]\n\t${variable} = "${escapedValue}"\n`;
-};
 
 const isSerializableGitConfig = ({ key }: GitConfigEntry) => key !== 'core.bare'
 	&& key !== 'core.worktree'
@@ -183,22 +155,7 @@ Pre-bundle these dependencies before publishing.`);
 		return remote;
 	});
 	const pushUrlOutput = await simpleSpawn('git', ['remote', 'get-url', '--push', '--all', remote]).catch(() => remoteUrl);
-	const sourceLocalConfigResult = await spawn('git', ['config', '--local', '--includes', '--null', '--list']);
-	const sourceLocalConfig = parseGitConfig(sourceLocalConfigResult.stdout, 'local');
-	const worktreeConfigEnabled = await simpleSpawn('git', ['config', '--bool', 'extensions.worktreeConfig']).then(value => value === 'true').catch(() => false);
-	const [sourceSystemConfig, sourceGlobalConfig, sourceWorktreeConfig] = await Promise.all([
-		spawn('git', ['config', '--system', '--includes', '--null', '--list']).then(({ stdout }) => stdout).catch(() => ''),
-		spawn('git', ['config', '--global', '--includes', '--null', '--list']).then(({ stdout }) => stdout).catch(() => ''),
-		worktreeConfigEnabled
-			? spawn('git', ['config', '--worktree', '--includes', '--null', '--list']).then(({ stdout }) => stdout)
-			: undefined,
-	]);
-	const sourceGitConfig = [
-		...parseGitConfig(sourceSystemConfig, 'system'),
-		...parseGitConfig(sourceGlobalConfig, 'global'),
-		...sourceLocalConfig,
-		...(sourceWorktreeConfig ? parseGitConfig(sourceWorktreeConfig, 'worktree') : []),
-	];
+	const sourceGitConfig = await getGitConfig();
 	const remoteConfigPrefix = `remote.${remote}.`;
 	const sourceRemoteConfig = configuredRemote
 		? sourceGitConfig.filter(({ key }) => key.startsWith(remoteConfigPrefix) && key !== `${remoteConfigPrefix}url` && key !== `${remoteConfigPrefix}pushurl`)
