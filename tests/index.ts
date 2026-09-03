@@ -147,8 +147,10 @@ describe('git-publish', () => {
 				const publishCheckoutPath = fixture.getPath('publish-checkout');
 				const packCheckoutPath = fixture.getPath('pack-checkout');
 				const temporaryDirectoryModePath = fixture.getPath('temporary-directory-mode');
+				const temporaryDirectoryPath = fixture.getPath('temporary-directory-path');
 				await fixture.writeFile('post-checkout', `#!/bin/sh
 stat -f '%Lp' "$PWD/.." > '${temporaryDirectoryModePath}' 2>/dev/null || stat -c '%a' "$PWD/.." > '${temporaryDirectoryModePath}'
+printf '%s\n' "$PWD/.." > '${temporaryDirectoryPath}'
 if [ -f '${publishCheckoutPath}' ]; then
 	touch '${packCheckoutPath}'
 	exit 1
@@ -183,6 +185,8 @@ touch '${publishCheckoutPath}'
 				expect(await hooksFixture.exists('publish-checkout')).toBe(true);
 				expect(await hooksFixture.exists('pack-checkout')).toBe(true);
 				expect(await hooksFixture.readFile('temporary-directory-mode', 'utf8')).toBe('700\n');
+				const temporaryDirectory = await hooksFixture.readFile('temporary-directory-path', 'utf8');
+				expect(await fs.access(temporaryDirectory.trim()).then(() => true).catch(() => false)).toBe(false);
 
 				// A failed creation must not leave temporary registrations behind.
 				const worktrees = await git('worktree', ['list', '--porcelain']);
@@ -196,6 +200,29 @@ touch '${publishCheckoutPath}'
 
 				await Promise.all(worktreePaths.map(worktree => git('worktree', ['remove', '--force', worktree])));
 			}
+		});
+
+		test('Does not create a workspace during dry runs', async () => {
+			await using remoteFixture = await createFixture(async (fixture) => {
+				await createGit(fixture.path).init(['--bare']);
+			});
+			await using temporaryFixture = await createFixture();
+			await using fixture = await createFixture(async (fixture) => {
+				await fixture.writeJson('package.json', {
+					name: 'test-pkg',
+					version: '1.0.0',
+				});
+
+				const git = createGit(fixture.path);
+				await git.init();
+				await git('add', ['package.json']);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
+			});
+
+			const gitPublishProcess = await gitPublish(fixture.path, ['--dry'], { TMPDIR: temporaryFixture.path });
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(await fs.readdir(temporaryFixture.path)).toStrictEqual([]);
 		});
 
 		test('Workspace dependencies', async () => {
