@@ -14,7 +14,7 @@ export type PublishRepository = {
 	packTemporaryDirectory: string;
 	gitOptions: SpawnOptions;
 	pushRemoteNames: string[];
-	remote: PublishRemote;
+	fetchRemoteName: string;
 	[Symbol.asyncDispose](): Promise<void>;
 };
 
@@ -26,6 +26,7 @@ export const createPublishRepository = async ({
 	publishRemote: PublishRemote;
 }): Promise<PublishRepository> => {
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
+	const fetchRemoteName = 'publish-source';
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const repositoryPath = path.join(temporaryDirectory, 'publish-worktree');
 	const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
@@ -58,8 +59,8 @@ export const createPublishRepository = async ({
 	try {
 		// The isolated client can hold credentials copied from the source remote.
 		await fs.chmod(temporaryDirectory, 0o700);
-		await spawn('git', ['clone', '--shared', '--no-checkout', sourceRepositoryPath, repositoryPath], { env: gitEnvironment });
-		await spawn('git', ['remote', 'set-url', 'origin', publishRemote.fetchUrl], gitOptions);
+		await spawn('git', ['clone', '--origin', fetchRemoteName, '--shared', '--no-checkout', sourceRepositoryPath, repositoryPath], { env: gitEnvironment });
+		await spawn('git', ['remote', 'set-url', fetchRemoteName, publishRemote.fetchUrl], gitOptions);
 		for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
 			await spawn('git', ['remote', 'add', pushRemoteNames[index], pushUrl], gitOptions);
 		}
@@ -67,14 +68,14 @@ export const createPublishRepository = async ({
 			sourceRepositoryOptions,
 			destinationRepositoryPath: repositoryPath,
 			remote: publishRemote,
-			fetchRemoteName: 'origin',
+			fetchRemoteName,
 			pushRemoteNames,
 			systemConfigPath: gitEnvironment.GIT_CONFIG_SYSTEM,
 			globalConfigPath: gitEnvironment.GIT_CONFIG_GLOBAL,
 		});
 		if (isLocalGitUrl(publishRemote.fetchUrl)) {
-			const uploadPack = await getStdout(spawn('git', ['config', '--get', 'remote.origin.uploadpack'], gitOptions)).catch(() => 'git-upload-pack');
-			await spawn('git', ['config', 'remote.origin.uploadpack', getGitServerCommand(publishRemote.fetchUrl, uploadPack)], gitOptions);
+			const uploadPack = await getStdout(spawn('git', ['config', '--get', `remote.${fetchRemoteName}.uploadpack`], gitOptions)).catch(() => 'git-upload-pack');
+			await spawn('git', ['config', `remote.${fetchRemoteName}.uploadpack`, getGitServerCommand(publishRemote.fetchUrl, uploadPack)], gitOptions);
 		}
 		for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
 			if (!isLocalGitUrl(pushUrl)) {
@@ -102,7 +103,7 @@ export const createPublishRepository = async ({
 		packTemporaryDirectory,
 		gitOptions,
 		pushRemoteNames,
-		remote: publishRemote,
+		fetchRemoteName,
 		[Symbol.asyncDispose]: cleanup,
 	};
 };

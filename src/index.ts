@@ -179,7 +179,7 @@ Pre-bundle these dependencies before publishing.`);
 								'ls-remote',
 								'--exit-code',
 								'--branches',
-								'origin',
+								publishRepository.fetchRemoteName,
 								`refs/heads/${publishBranch}`,
 							], publishRepository.gitOptions);
 						} catch (error) {
@@ -195,7 +195,7 @@ Pre-bundle these dependencies before publishing.`);
 								'fetch',
 								'--depth=1',
 								'--no-tags',
-								'origin',
+								publishRepository.fetchRemoteName,
 								`${publishBranch}:${localTemporaryBranch}`,
 							], publishRepository.gitOptions);
 						}
