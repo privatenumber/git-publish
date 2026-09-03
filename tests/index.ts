@@ -224,7 +224,7 @@ touch '${publishCheckoutPath}'
 
 			const gitPublishProcess = await gitPublish(fixture.path, ['--dry'], { TMPDIR: temporaryFixture.path });
 			expect('exitCode' in gitPublishProcess).toBe(false);
-			expect(await fs.readdir(temporaryFixture.path)).toStrictEqual([]);
+			expect(await temporaryFixture.readdir()).toStrictEqual([]);
 		});
 
 		test('Workspace dependencies', async () => {
