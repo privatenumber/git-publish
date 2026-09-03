@@ -187,8 +187,7 @@ touch '${publishCheckoutPath}'
 				expect(await hooksFixture.readFile('temporary-directory-mode', 'utf8')).toBe('700\n');
 				const temporaryDirectory = await hooksFixture.readFile('temporary-directory-path', 'utf8');
 				const temporaryDirectoryExists = await fs.access(temporaryDirectory.trim())
-					.then(() => true)
-					.catch(() => false);
+					.then(() => true, () => false);
 				expect(temporaryDirectoryExists).toBe(false);
 
 				// A failed creation must not leave temporary registrations behind.
