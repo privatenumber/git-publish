@@ -19,20 +19,20 @@ export const parseGitConfig = (config: string, scope: GitConfigScope) => config.
 });
 
 export const getGitConfig = async (options?: SpawnOptions) => {
-	const localConfig = await spawn('git', ['config', '--local', '--includes', '--null', '--list'], options);
+	const localConfig = await getStdout(spawn('git', ['config', '--local', '--includes', '--null', '--list'], options));
 	const worktreeConfigEnabled = await getStdout(spawn('git', ['config', '--bool', 'extensions.worktreeConfig'], options)).then(value => value === 'true', () => false);
 	const [systemConfig, globalConfig, worktreeConfig] = await Promise.all([
-		spawn('git', ['config', '--system', '--includes', '--null', '--list'], options).then(({ stdout }) => stdout, () => ''),
-		spawn('git', ['config', '--global', '--includes', '--null', '--list'], options).then(({ stdout }) => stdout, () => ''),
+		getStdout(spawn('git', ['config', '--system', '--includes', '--null', '--list'], options)).catch(() => ''),
+		getStdout(spawn('git', ['config', '--global', '--includes', '--null', '--list'], options)).catch(() => ''),
 		worktreeConfigEnabled
-			? spawn('git', ['config', '--worktree', '--includes', '--null', '--list'], options).then(({ stdout }) => stdout)
+			? getStdout(spawn('git', ['config', '--worktree', '--includes', '--null', '--list'], options))
 			: undefined,
 	]);
 
 	return [
 		...parseGitConfig(systemConfig, 'system'),
 		...parseGitConfig(globalConfig, 'global'),
-		...parseGitConfig(localConfig.stdout, 'local'),
+		...parseGitConfig(localConfig, 'local'),
 		...(worktreeConfig ? parseGitConfig(worktreeConfig, 'worktree') : []),
 	];
 };
