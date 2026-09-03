@@ -146,7 +146,9 @@ describe('git-publish', () => {
 			await using hooksFixture = await createFixture(async (fixture) => {
 				const publishCheckoutPath = fixture.getPath('publish-checkout');
 				const packCheckoutPath = fixture.getPath('pack-checkout');
+				const temporaryDirectoryModePath = fixture.getPath('temporary-directory-mode');
 				await fixture.writeFile('post-checkout', `#!/bin/sh
+stat -f '%Lp' "$PWD/.." > '${temporaryDirectoryModePath}' 2>/dev/null || stat -c '%a' "$PWD/.." > '${temporaryDirectoryModePath}'
 if [ -f '${publishCheckoutPath}' ]; then
 	touch '${packCheckoutPath}'
 	exit 1
@@ -180,6 +182,7 @@ touch '${publishCheckoutPath}'
 				expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
 				expect(await hooksFixture.exists('publish-checkout')).toBe(true);
 				expect(await hooksFixture.exists('pack-checkout')).toBe(true);
+				expect(await hooksFixture.readFile('temporary-directory-mode', 'utf8')).toBe('700\n');
 
 				// A failed creation must not leave temporary registrations behind.
 				const worktrees = await git('worktree', ['list', '--porcelain']);
@@ -188,7 +191,7 @@ touch '${publishCheckoutPath}'
 				// Remove leaked registrations when the regression fails.
 				const worktrees = await git('worktree', ['list', '--porcelain']);
 				const worktreePaths = worktrees.split('\n')
-					.filter(worktree => worktree.startsWith('worktree ') && worktree.includes('/git-publish/'))
+					.filter(worktree => worktree.startsWith('worktree ') && worktree.includes('/git-publish-'))
 					.map(worktree => worktree.slice('worktree '.length));
 
 				await Promise.all(worktreePaths.map(worktree => git('worktree', ['remove', '--force', worktree])));

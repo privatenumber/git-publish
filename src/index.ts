@@ -144,10 +144,10 @@ Pre-bundle these dependencies before publishing.`);
 			}
 
 			const localTemporaryBranch = `git-publish-${Date.now()}-${process.pid}`;
-			const temporaryDirectory = path.join(os.tmpdir(), 'git-publish', localTemporaryBranch);
-			const publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
-			const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
-			const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
+			let temporaryDirectory = '';
+			let publishWorktreePath = '';
+			let packWorktreePath = '';
+			let packTemporaryDirectory = '';
 
 			let success = false;
 
@@ -164,6 +164,12 @@ Pre-bundle these dependencies before publishing.`);
 						setWarning('');
 						return;
 					}
+
+					temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
+					await fs.chmod(temporaryDirectory, 0o700);
+					publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
+					packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
+					packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
 
 					// A failed hook can leave Git's worktree registration behind.
 					publishWorktreeNeedsCleanup = true;
