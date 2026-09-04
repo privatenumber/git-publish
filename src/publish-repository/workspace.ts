@@ -1,0 +1,52 @@
+import { getPackages, type Package } from '@manypkg/get-packages';
+import {
+	BunTool, NpmTool, PnpmTool, YarnTool, type Tool,
+} from '@manypkg/tools';
+import type { PackageManager } from '../utils/detect-package-manager.ts';
+
+export type WorkspacePackage = {
+	name: string;
+	dir: string;
+	relativeDir: string;
+	packageJson: Package['packageJson'];
+};
+
+export type Workspace = {
+	rootDir: string;
+	packageManager: PackageManager;
+	packages: WorkspacePackage[];
+};
+
+// Manypkg checks tools in its own precedence order (yarn before pnpm, npm,
+// and bun), which differs from lockfile-based detection. Passing only the
+// matching tool constrains discovery to the detected manager instead of
+// verifying after the fact, so mixed markers such as a stale yarn.lock in a
+// pnpm workspace cannot select the wrong tool.
+const workspaceTools: Record<PackageManager, Tool> = {
+	npm: NpmTool,
+	pnpm: PnpmTool,
+	yarn: YarnTool,
+	bun: BunTool,
+};
+
+export const discoverWorkspacePackages = async (
+	directory: string,
+	packageManager: PackageManager,
+): Promise<Workspace> => {
+	const tool = workspaceTools[packageManager];
+	const options = { tools: [tool] };
+	const { packages, rootDir } = await getPackages(directory, options).catch((error: unknown) => {
+		const reason = error instanceof Error ? error.message : String(error);
+		throw new Error(`No ${packageManager} workspace found in ${directory}: ${reason}`);
+	});
+	return {
+		rootDir,
+		packageManager,
+		packages: packages.map(({ packageJson, dir, relativeDir }) => ({
+			name: packageJson.name,
+			dir,
+			relativeDir,
+			packageJson,
+		})),
+	};
+};

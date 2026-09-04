@@ -1,6 +1,7 @@
 import { describe } from 'manten';
 
 describe('git-publish', () => {
+	import('./specs/workspace-discovery.ts');
 	import('./specs/github-remotes.ts');
 	import('./specs/git-config.ts');
 	import('./specs/validation-errors.ts');
