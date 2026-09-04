@@ -15,6 +15,7 @@ export type PublishRepository = {
 	gitOptions: SpawnOptions;
 	pushRemoteNames: string[];
 	fetchRemoteName: string;
+	dispose(): Promise<void>;
 	[Symbol.asyncDispose](): Promise<void>;
 };
 
@@ -42,7 +43,7 @@ export const createPublishRepository = async ({
 	const pushRemoteNames = publishRemote.pushUrls.map((_, index) => `publish-${index}`);
 	let packWorktreeCreated = false;
 
-	const cleanup = async () => {
+	const dispose = async () => {
 		const cleanupErrors: unknown[] = [];
 		if (packWorktreeCreated) {
 			await spawn('git', ['worktree', 'remove', '--force', packWorktreePath], gitOptions).catch(error => cleanupErrors.push(error));
@@ -89,7 +90,7 @@ export const createPublishRepository = async ({
 		await spawn('git', ['worktree', 'add', '--force', packWorktreePath, 'HEAD'], gitOptions);
 	} catch (error) {
 		try {
-			await cleanup();
+			await dispose();
 		} catch (cleanupError) {
 			throw new AggregateError([error, cleanupError], 'Failed to create temporary publish repository.');
 		}
@@ -104,6 +105,7 @@ export const createPublishRepository = async ({
 		gitOptions,
 		pushRemoteNames,
 		fetchRemoteName,
-		[Symbol.asyncDispose]: cleanup,
+		dispose,
+		[Symbol.asyncDispose]: dispose,
 	};
 };

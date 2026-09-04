@@ -366,7 +366,7 @@ Pre-bundle these dependencies before publishing.`);
 					}
 
 					if (publishRepository) {
-						await publishRepository[Symbol.asyncDispose]().catch((error: unknown) => {
+						await publishRepository.dispose().catch((error: unknown) => {
 							if (error instanceof AggregateError) {
 								setWarning(error.errors.map(nested => (nested instanceof Error ? nested.message : String(nested))).join('\n'));
 							} else {
