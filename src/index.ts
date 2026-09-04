@@ -19,6 +19,7 @@ import { packPackage } from './utils/pack-package.ts';
 import { extractTarball } from './utils/extract-tarball.ts';
 import { getGitHubRepositoryName } from './utils/github.ts';
 import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
+import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 
 const { stringify } = JSON;
@@ -170,52 +171,12 @@ Pre-bundle these dependencies before publishing.`);
 						return;
 					}
 
-					let orphan = false;
-					if (fresh) {
-						orphan = true;
-					} else {
-						try {
-							await spawn('git', [
-								'ls-remote',
-								'--exit-code',
-								'--branches',
-								publishRepository.fetchRemoteName,
-								`refs/heads/${publishBranch}`,
-							], publishRepository.gitOptions);
-						} catch (error) {
-							if (!(error instanceof SubprocessError) || error.exitCode !== 2) {
-								throw error;
-							}
-
-							orphan = true;
-						}
-
-						if (!orphan) {
-							await spawn('git', [
-								'fetch',
-								'--depth=1',
-								'--no-tags',
-								publishRepository.fetchRemoteName,
-								`${publishBranch}:${localTemporaryBranch}`,
-							], publishRepository.gitOptions);
-						}
-					}
-
-					if (orphan) {
-						// Fresh orphan branch with no history
-						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], publishRepository.gitOptions);
-					} else {
-						// Repoint HEAD to the fetched branch without checkout
-						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], publishRepository.gitOptions);
-					}
-
-					// Remove all files from index and working directory
-
-					// removes tracked files from index (.catch() since it fails on empty orphan branches)
-					await spawn('git', ['rm', '--cached', '-r', ':/'], publishRepository.gitOptions).catch(() => {});
-
-					// removes all untracked files from the working directory
-					await spawn('git', ['clean', '-fdx'], publishRepository.gitOptions);
+					await preparePublishBranch({
+						repository: publishRepository,
+						publishBranch,
+						localBranch: localTemporaryBranch,
+						fresh,
+					});
 				});
 
 				if (!dry) {
@@ -254,10 +215,10 @@ Pre-bundle these dependencies before publishing.`);
 
 					const publishFiles = await extractTarball(
 						tarballPath,
-						publishRepository.repositoryPath,
+						publishRepository.publishWorktreePath,
 					);
 					const publishedPackageJsonPath = path.join(
-						publishRepository.repositoryPath,
+						publishRepository.publishWorktreePath,
 						packageJsonPath,
 					);
 					const publishedPackageJson = await readJson(publishedPackageJsonPath) as PackageJson;
