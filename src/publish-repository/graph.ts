@@ -169,6 +169,20 @@ export const createPublishGraph = (
 		return name;
 	};
 
+	const tryResolveTarget = (
+		from: WorkspacePackage,
+		key: string,
+		specification: string,
+	): string | undefined => {
+		try {
+			return resolveTarget(from, key, specification);
+		} catch {
+			// Peer diagnostics never fail graph construction. Unresolvable
+			// references are reported with an undefined target.
+			return undefined;
+		}
+	};
+
 	const nodes = new Map<string, PublishGraphNode>();
 	const peers: WorkspacePeer[] = [];
 	const visited = new Set<string>();
@@ -202,14 +216,24 @@ export const createPublishGraph = (
 		}
 		const peerEntries = current.packageJson.peerDependencies ?? {};
 		for (const [key, specification] of Object.entries(peerEntries)) {
-			if (typeof specification !== 'string' || !byName.has(key)) {
+			if (typeof specification !== 'string') {
+				continue;
+			}
+			const isWorkspaceProtocol = specification.startsWith('workspace:');
+			let target: string | undefined;
+			if (isWorkspaceProtocol) {
+				target = tryResolveTarget(current, key, specification);
+			} else if (byName.has(key)) {
+				target = key;
+			}
+			if (target === undefined && !isWorkspaceProtocol) {
 				continue;
 			}
 			peers.push({
 				from: current.name,
 				key,
 				specification,
-				target: key,
+				target,
 			});
 		}
 		visiting.pop();

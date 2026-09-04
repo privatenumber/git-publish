@@ -201,6 +201,77 @@ describe('Publication graph', () => {
 		}]);
 	});
 
+	test('diagnoses aliased internal peers without traversing them', async () => {
+		const workspace = await discoverTestWorkspace({
+			core: {
+				name: '@test/core',
+				version: '1.0.0',
+			},
+			app: {
+				name: '@test/app',
+				version: '1.0.0',
+				peerDependencies: {
+					'@test/alias': 'workspace:@test/core@*',
+				},
+			},
+		});
+
+		const graph = createPublishGraph(workspace, '@test/app');
+		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app']);
+		expect(graph.peers).toStrictEqual([{
+			from: '@test/app',
+			key: '@test/alias',
+			specification: 'workspace:@test/core@*',
+			target: '@test/core',
+		}]);
+	});
+
+	test('diagnoses relative internal peers without traversing them', async () => {
+		const workspace = await discoverTestWorkspace({
+			core: {
+				name: '@test/core',
+				version: '1.0.0',
+			},
+			app: {
+				name: '@test/app',
+				version: '1.0.0',
+				peerDependencies: {
+					'@test/core': 'workspace:../core',
+				},
+			},
+		});
+
+		const graph = createPublishGraph(workspace, '@test/app');
+		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app']);
+		expect(graph.peers).toStrictEqual([{
+			from: '@test/app',
+			key: '@test/core',
+			specification: 'workspace:../core',
+			target: '@test/core',
+		}]);
+	});
+
+	test('diagnoses unresolvable peers without failing', async () => {
+		const workspace = await discoverTestWorkspace({
+			app: {
+				name: '@test/app',
+				version: '1.0.0',
+				peerDependencies: {
+					'@test/ghost': 'workspace:*',
+				},
+			},
+		});
+
+		const graph = createPublishGraph(workspace, '@test/app');
+		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app']);
+		expect(graph.peers).toStrictEqual([{
+			from: '@test/app',
+			key: '@test/ghost',
+			specification: 'workspace:*',
+			target: undefined,
+		}]);
+	});
+
 	test('resolves aliases separately from entry keys', async () => {
 		const workspace = await discoverTestWorkspace({
 			actual: {
