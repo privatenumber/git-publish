@@ -4,22 +4,20 @@ import {
 } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { detectPackageManager } from '../../src/utils/detect-package-manager.ts';
-import { createGit } from '../utils/create-git.ts';
+import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Lifecycle hooks', async () => {
-	const remoteFixture = await createFixture(async (fixture) => {
-		await createGit(fixture.path).init(['--bare']);
-	});
+	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
-	const remoteGit = createGit(remoteFixture.path);
+	const { git: remoteGit } = remoteFixture;
 
 	test('npm pack is used', async () => {
 		const branchName = 'test-npm-pack';
 
 		// This test verifies that npm pack is used (with lifecycle hooks)
 		// by creating a package with prepare/prepack scripts that generate files
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-npm-pack',
 				version: '1.0.0',
@@ -35,10 +33,9 @@ describe('Lifecycle hooks', async () => {
 			src: {
 				'excluded.ts': '// This should not be in the pack',
 			},
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -72,7 +69,7 @@ describe('Lifecycle hooks', async () => {
 	test('installs published Git dependencies without build hooks', async () => {
 		const branchName = 'test-git-install-hooks';
 		const packageName = 'test-git-install-hooks';
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: packageName,
 				version: '1.0.0',
@@ -85,10 +82,9 @@ describe('Lifecycle hooks', async () => {
 			scripts: {
 				'build.js': "import fs from 'node:fs'; fs.mkdirSync('dist', { recursive: true }); fs.writeFileSync('dist/index.js', 'export default true;');",
 			},
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['package.json', 'scripts/build.js']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -118,7 +114,7 @@ describe('Lifecycle hooks', async () => {
 	test('dependencies are accessible in pack hooks', async () => {
 		const branchName = 'test-deps-in-hooks';
 
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-deps-hooks',
 				version: '1.0.0',
@@ -143,14 +139,13 @@ describe('Lifecycle hooks', async () => {
 require('node:fs').writeFileSync('build-output.txt', 'built');
 `,
 			},
-		});
+		}, [`--initial-branch=${branchName}`]);
 
 		const packageManager = await detectPackageManager(fixture.path, fixture.path);
 		expect(packageManager).toBe('npm');
 		await spawn(packageManager, ['install', '--no-audit', '--no-fund'], { cwd: fixture.path });
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -172,7 +167,7 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 
 		// This test verifies that prepack hooks don't pollute the working directory
 		// The hook creates a file, but it should only exist in the published branch
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-prepack-isolation',
 				version: '1.0.0',
@@ -181,10 +176,9 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 				},
 			}, null, 2),
 			'index.js': 'export const main = true;',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -217,7 +211,7 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 
 		// Test that script doesn't crash on ENOENT when symlinking node_modules
 		// Pack should fail gracefully with proper error message
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-missing-deps',
 				version: '1.0.0',
@@ -226,10 +220,9 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 				},
 			}, null, 2),
 			'index.js': 'export const main = true;',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -260,7 +253,7 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 		// When pack fails, the subprocess's stderr/stdout (the actual reason,
 		// e.g. a failing prepack/build script) must be surfaced. Otherwise the
 		// user only sees "Command failed with exit code N" with no way to debug.
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pack-error-output',
 				version: '1.0.0',
@@ -269,10 +262,9 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 				},
 			}, null, 2),
 			'index.js': 'export const main = true;',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);

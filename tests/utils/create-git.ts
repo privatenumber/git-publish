@@ -2,6 +2,9 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import spawn from 'nano-spawn';
+import {
+	createFixture, type FileTree, type FsFixture,
+} from 'fs-fixture';
 import { getStdout } from '../../src/utils/get-stdout.ts';
 
 export const createGit = (
@@ -23,6 +26,30 @@ export const createGit = (
 			await git('config', ['user.email', 'email']);
 		},
 	});
+};
+
+type Git = ReturnType<typeof createGit>;
+type GitFixture = FsFixture & { git: Git };
+type GitFixtureInitializer = (
+	fixture: GitFixture,
+) => FileTree | void | Promise<FileTree | void>;
+
+export const createGitFixture = async (
+	source?: FileTree | GitFixtureInitializer,
+	initArguments?: string[],
+) => {
+	const fixture = await createFixture(async (fixture) => {
+		const gitFixture = Object.assign(fixture, {
+			git: createGit(fixture.path),
+		});
+		await gitFixture.git.init(initArguments);
+
+		return typeof source === 'function'
+			? source(gitFixture)
+			: source;
+	});
+
+	return fixture as GitFixture;
 };
 
 export const gitWorktree = async (

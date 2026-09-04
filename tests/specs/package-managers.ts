@@ -4,23 +4,20 @@ import yaml from 'js-yaml';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
-import { createFixture } from 'fs-fixture';
-import { createGit } from '../utils/create-git.ts';
+import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Package managers', async () => {
-	const remoteFixture = await createFixture(async (fixture) => {
-		await createGit(fixture.path).init(['--bare']);
-	});
+	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
-	const remoteGit = createGit(remoteFixture.path);
+	const { git: remoteGit } = remoteFixture;
 
 	describe('pnpm', () => {
 		test('catalog protocol is resolved', async () => {
 			const branchName = 'test-pnpm-catalog';
 			const msVersion = '2.1.3';
 
-			await using fixture = await createFixture({
+			await using fixture = await createGitFixture({
 				'pnpm-workspace.yaml': yaml.dump({
 					catalog: {
 						ms: msVersion,
@@ -33,12 +30,11 @@ describe('Package managers', async () => {
 						ms: 'catalog:',
 					},
 				}, null, 2),
-			});
+			}, [`--initial-branch=${branchName}`]);
 
 			await spawn('pnpm', ['install'], { cwd: fixture.path });
 
-			const git = createGit(fixture.path);
-			await git.init([`--initial-branch=${branchName}`]);
+			const { git } = fixture;
 
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
@@ -61,7 +57,7 @@ describe('Package managers', async () => {
 			const packageName = '@org/monorepo-test';
 			const msVersion = '2.1.3';
 
-			await using fixture = await createFixture({
+			await using fixture = await createGitFixture({
 				'pnpm-workspace.yaml': yaml.dump({
 					packages: ['packages/*'],
 					catalog: {
@@ -81,12 +77,11 @@ describe('Package managers', async () => {
 						},
 					}, null, 2),
 				},
-			});
+			}, [`--initial-branch=${branchName}`]);
 
 			await spawn('pnpm', ['install'], { cwd: fixture.path });
 
-			const git = createGit(fixture.path);
-			await git.init([`--initial-branch=${branchName}`]);
+			const { git } = fixture;
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -114,7 +109,7 @@ describe('Package managers', async () => {
 			const packageName = '@org/root-deps-test';
 
 			// Test that prepack hooks can access binaries from root node_modules
-			await using fixture = await createFixture({
+			await using fixture = await createGitFixture({
 				'pnpm-workspace.yaml': yaml.dump({
 					packages: ['packages/*'],
 				}),
@@ -134,12 +129,11 @@ describe('Package managers', async () => {
 					}, null, 2),
 					'index.js': 'export const main = true;',
 				},
-			});
+			}, [`--initial-branch=${branchName}`]);
 
 			await spawn('pnpm', ['install'], { cwd: fixture.path });
 
-			const git = createGit(fixture.path);
-			await git.init([`--initial-branch=${branchName}`]);
+			const { git } = fixture;
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -165,7 +159,7 @@ describe('Package managers', async () => {
 			const packageName = '@org/pkg-deps-test';
 
 			// Test that prepack hooks can access binaries from package-level node_modules
-			await using fixture = await createFixture({
+			await using fixture = await createGitFixture({
 				'pnpm-workspace.yaml': yaml.dump({
 					packages: ['packages/*'],
 				}),
@@ -186,12 +180,11 @@ describe('Package managers', async () => {
 					}, null, 2),
 					'index.js': 'export const main = true;',
 				},
-			});
+			}, [`--initial-branch=${branchName}`]);
 
 			await spawn('pnpm', ['install'], { cwd: fixture.path });
 
-			const git = createGit(fixture.path);
-			await git.init([`--initial-branch=${branchName}`]);
+			const { git } = fixture;
 			await git('add', ['.']);
 			await git('commit', ['-m', 'Initial commit']);
 			await git('remote', ['add', 'origin', remoteFixture.path]);

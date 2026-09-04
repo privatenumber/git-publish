@@ -5,27 +5,24 @@ import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
-import { createGit } from '../utils/create-git.ts';
+import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Publish history', async () => {
-	const remoteFixture = await createFixture(async (fixture) => {
-		await createGit(fixture.path).init(['--bare']);
-	});
+	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
-	const remoteGit = createGit(remoteFixture.path);
+	const { git: remoteGit } = remoteFixture;
 
 	test('uses an exact tag from detached HEAD', async () => {
 		const tagName = 'v1.2.3';
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
 		});
 
-		const git = createGit(fixture.path);
-		await git.init();
+		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('tag', ['--no-sign', tagName]);
@@ -39,15 +36,14 @@ describe('Publish history', async () => {
 	});
 
 	test('uses a short commit ID from untagged detached HEAD', async () => {
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
 		});
 
-		const git = createGit(fixture.path);
-		await git.init();
+		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
 		const sourceCommit = await git('rev-parse', ['--short', 'HEAD']);
@@ -63,16 +59,15 @@ describe('Publish history', async () => {
 	test('preserves history', async () => {
 		const branchName = 'test-preserve-history';
 
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
 			'index.js': 'console.log("v1");',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -105,16 +100,15 @@ describe('Publish history', async () => {
 	test('does not import destination tags', async () => {
 		const branchName = 'test-destination-tags';
 		const destinationTag = 'publish-history-tag';
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
 			'index.js': 'export const version = 1;',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['package.json', 'index.js']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -131,9 +125,7 @@ describe('Publish history', async () => {
 	test('fetches one publish commit without changing source metadata', async () => {
 		const branchName = 'test-publish-fetch-metadata';
 		const destinationTag = `publish-history-tag-${branchName}`;
-		await using secondPushFixture = await createFixture(async (fixture) => {
-			await createGit(fixture.path).init(['--bare']);
-		});
+		await using secondPushFixture = await createGitFixture(undefined, ['--bare']);
 		await using commandsFixture = await createFixture(async (fixture) => {
 			const headersPath = fixture.getPath('headers');
 			await fixture.writeFile('upload-pack', `#!/bin/sh
@@ -154,16 +146,15 @@ describe('Publish history', async () => {
 				fs.chmod(fixture.getPath('post-commit'), 0o755),
 			]);
 		});
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
 			'index.js': 'export const version = 1;',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['package.json', 'index.js']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -184,7 +175,7 @@ describe('Publish history', async () => {
 
 		expect('exitCode' in await gitPublish(fixture.path, ['--fresh'], environment)).toBe(false);
 		expect(await commandsFixture.readFile('headers', 'utf8')).toBe('X-Test: first\0X-Test: second\0');
-		expect(await createGit(secondPushFixture.path)('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+		expect(await secondPushFixture.git('rev-parse', [`npm/${branchName}`])).toBeTruthy();
 		await remoteGit('tag', ['--no-sign', destinationTag, `refs/heads/npm/${branchName}`]);
 		await fixture.writeFile('index.js', 'export const version = 2;');
 		await git('add', ['index.js']);
@@ -204,7 +195,7 @@ describe('Publish history', async () => {
 		expect(await fs.readFile(tracePath, 'utf8')).toContain('deepen 1');
 		expect(await commandsFixture.readFile('upload-pack-called', 'utf8')).toContain('x');
 		expect(await commandsFixture.readFile('receive-pack-called', 'utf8')).toBe('xxxx');
-		expect(await createGit(secondPushFixture.path)('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+		expect(await secondPushFixture.git('rev-parse', [`npm/${branchName}`])).toBeTruthy();
 		const [nextReferences, nextTags, nextWorktrees, nextShallow] = await Promise.all([
 			git('for-each-ref'),
 			git('tag', ['--list']),
@@ -225,18 +216,15 @@ describe('Publish history', async () => {
 	});
 
 	test('preserves an already-shallow source repository', async () => {
-		await using sourceRemoteFixture = await createFixture(async (fixture) => {
-			await createGit(fixture.path).init(['--bare']);
-		});
-		await using fullSourceFixture = await createFixture({
+		await using sourceRemoteFixture = await createGitFixture(undefined, ['--bare']);
+		await using fullSourceFixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
 			'index.js': 'export const version = 1;',
-		});
-		const sourceGit = createGit(fullSourceFixture.path);
-		await sourceGit.init(['--initial-branch=main']);
+		}, ['--initial-branch=main']);
+		const { git: sourceGit } = fullSourceFixture;
 		await sourceGit('add', ['package.json', 'index.js']);
 		await sourceGit('commit', ['-m', 'Initial commit']);
 		await sourceGit('remote', ['add', 'origin', sourceRemoteFixture.path]);
@@ -261,16 +249,15 @@ describe('Publish history', async () => {
 	test('--fresh resets history', async () => {
 		const branchName = 'test-fresh';
 
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
 			'index.js': 'console.log("v1");',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -302,15 +289,14 @@ describe('Publish history', async () => {
 
 	test('cleans up temporary branches after orphan publishes', async () => {
 		const branchName = 'test-orphan-branch-cleanup';
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
