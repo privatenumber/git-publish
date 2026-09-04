@@ -1,4 +1,4 @@
-import spawn from 'nano-spawn';
+import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
 
 export type PublishRemote = {
@@ -37,3 +37,28 @@ export const isLocalGitUrl = (url: string) => url.startsWith('file://')
 export const getGitServerCommand = (url: string, command: string) => (isLocalGitUrl(url)
 	? `env -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_GLOBAL ${command}`
 	: command);
+
+export const configurePublishTransport = async ({
+	gitOptions,
+	publishRemote,
+	fetchRemoteName,
+	pushRemoteNames,
+}: {
+	gitOptions: SpawnOptions;
+	publishRemote: PublishRemote;
+	fetchRemoteName: string;
+	pushRemoteNames: string[];
+}) => {
+	if (isLocalGitUrl(publishRemote.fetchUrl)) {
+		const uploadPack = await getStdout(spawn('git', ['config', '--get', `remote.${fetchRemoteName}.uploadpack`], gitOptions)).catch(() => 'git-upload-pack');
+		await spawn('git', ['config', `remote.${fetchRemoteName}.uploadpack`, getGitServerCommand(publishRemote.fetchUrl, uploadPack)], gitOptions);
+	}
+	for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
+		if (!isLocalGitUrl(pushUrl)) {
+			continue;
+		}
+
+		const receivePack = await getStdout(spawn('git', ['config', '--get', `remote.${pushRemoteNames[index]}.receivepack`], gitOptions)).catch(() => 'git-receive-pack');
+		await spawn('git', ['config', `remote.${pushRemoteNames[index]}.receivepack`, getGitServerCommand(pushUrl, receivePack)], gitOptions);
+	}
+};
