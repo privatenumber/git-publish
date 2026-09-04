@@ -16,7 +16,6 @@ export type PublishRepository = {
 	pushRemoteNames: string[];
 	fetchRemoteName: string;
 	dispose(): Promise<void>;
-	[Symbol.asyncDispose](): Promise<void>;
 };
 
 export const createPublishRepository = async ({
@@ -106,6 +105,5 @@ export const createPublishRepository = async ({
 		pushRemoteNames,
 		fetchRemoteName,
 		dispose,
-		[Symbol.asyncDispose]: dispose,
 	};
 };
