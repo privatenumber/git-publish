@@ -21,6 +21,12 @@ import { getGitHubRepositoryName } from './utils/github.ts';
 import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
 import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
+import {
+	formatClosurePlan,
+	planWorkspacePublication,
+	publishWorkspaceClosure,
+	type PackagePreparation,
+} from './publish-repository/publish-closure.ts';
 
 const { stringify } = JSON;
 
@@ -92,6 +98,13 @@ const { stringify } = JSON;
 	}
 
 	const workspaceDependencies: string[] = [];
+	const closurePackageManager = await detectPackageManager(cwd, gitRootPath);
+	const closurePlan = await planWorkspacePublication({
+		cwd,
+		gitRootPath,
+		sourceName,
+		packageManager: closurePackageManager,
+	}).catch(() => undefined);
 	for (const [field, dependencies] of Object.entries({
 		dependencies: packageJson.dependencies,
 		optionalDependencies: packageJson.optionalDependencies,
@@ -107,7 +120,7 @@ const { stringify } = JSON;
 		}
 	}
 
-	if (workspaceDependencies.length > 0) {
+	if (!closurePlan && workspaceDependencies.length > 0) {
 		throw new Error(`Cannot publish packages with workspace dependencies:
 ${workspaceDependencies.join('\n')}
 Pre-bundle these dependencies before publishing.`);
@@ -129,6 +142,95 @@ Pre-bundle these dependencies before publishing.`);
 	}
 	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
 	const remoteUrl = publishRemote.fetchUrl;
+
+	if (closurePlan) {
+		if (branch) {
+			throw new Error('The --branch flag is not supported for workspace publication. Each package publishes to its own derived branch.');
+		}
+		if (publishRemote.pushUrls.length !== 1) {
+			throw new Error(`Workspace publication requires exactly one push URL, but remote ${stringify(remote)} has ${publishRemote.pushUrls.length}.`);
+		}
+
+		if (dry) {
+			console.log(formatClosurePlan(closurePlan, sourceName));
+		}
+
+		const packageCount = closurePlan.graph.nodes.length;
+		await task(
+			`Publishing workspace closure ${stringify(closurePlan.graph.selected)} from ${stringify(sourceName)} (${packageCount} packages)`,
+			async ({ setTitle, setStatus, setOutput }) => {
+				if (dry) {
+					setStatus('Dry run');
+				}
+
+				let success = false;
+				let preparations: PackagePreparation[] = [];
+
+				try {
+					if (!dry) {
+						preparations = await publishWorkspaceClosure({
+							plan: closurePlan,
+							packageManager: closurePackageManager,
+							sourceRepositoryPath: gitRootPath,
+							gitRootPath,
+							publishRemote,
+							sourceName,
+							sourceCommit: sourceCommit ?? undefined,
+							fresh,
+						});
+						success = true;
+					}
+				} catch (error) {
+					if (error instanceof SubprocessError) {
+						const details = error.output || error.stderr;
+						if (details) {
+							console.error(details);
+						}
+					}
+					throw error;
+				}
+
+				for (const preparation of preparations) {
+					console.log(lightBlue(`Publishing ${preparation.publication.packageName}`));
+					console.log(preparation.files.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
+					console.log(`\n${lightBlue('Total size')}`, byteSize(preparation.files.reduce((total, { size }) => total + size, 0)).toString());
+				}
+
+				if (success) {
+					const selectedName = closurePlan.graph.selected;
+					const selected = preparations.find(
+						preparation => preparation.publication.packageName === selectedName,
+					);
+					if (!selected) {
+						throw new Error(`Missing publication for ${JSON.stringify(selectedName)}.`);
+					}
+					const repositoryName = getGitHubRepositoryName(remoteUrl);
+					if (repositoryName) {
+						const successLink = terminalLink(
+							`${cyan(selected.publication.branch)} ${dim(`(${selected.publication.commit})`)}`,
+							`https://github.com/${repositoryName}/tree/${selected.publication.branch!}`,
+						);
+						setTitle(`Successfully published ${packageCount} packages: ${successLink}`);
+					} else {
+						setTitle(`Successfully published ${packageCount} packages`);
+					}
+
+					const output = [
+						'Install command',
+						`${closurePackageManager} i '${selected.publication.installSpecifier}'`,
+					].join('\n');
+
+					setOutput(output);
+				}
+			},
+		).catch(() => {
+			// Any failure here is already rendered within the task tree above
+			// (including the pack subprocess output), so exit without re-printing it.
+			// Set exitCode (instead of process.exit) so tasuku can flush its final render.
+			process.exitCode = 1;
+		});
+		return;
+	}
 
 	await task(
 		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,

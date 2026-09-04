@@ -2,6 +2,7 @@ import { describe } from 'manten';
 
 describe('git-publish', () => {
 	import('./specs/workspace-discovery.ts');
+	import('./specs/workspace-publication.ts');
 	import('./specs/run-graph.ts');
 	import('./specs/publish-graph.ts');
 	import('./specs/github-remotes.ts');
