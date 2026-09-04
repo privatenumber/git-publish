@@ -362,12 +362,9 @@ Pre-bundle these dependencies before publishing.`);
 						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${temporaryPublishBranch}`], publishGitOptions);
 					}
 
-					// Remove all files from index and working directory
-
-					// removes tracked files from index (.catch() since it fails on empty orphan branches)
+					// An empty orphan branch has no index entries to remove.
 					await spawn('git', ['rm', '--cached', '-r', ':/'], publishGitOptions).catch(() => {});
 
-					// removes all untracked files from the working directory
 					await spawn('git', ['clean', '-fdx'], publishGitOptions);
 				});
 
