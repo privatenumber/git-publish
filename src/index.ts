@@ -215,10 +215,10 @@ Pre-bundle these dependencies before publishing.`);
 
 					const publishFiles = await extractTarball(
 						tarballPath,
-						publishRepository.repositoryPath,
+						publishRepository.publishWorktreePath,
 					);
 					const publishedPackageJsonPath = path.join(
-						publishRepository.repositoryPath,
+						publishRepository.publishWorktreePath,
 						packageJsonPath,
 					);
 					const publishedPackageJson = await readJson(publishedPackageJsonPath) as PackageJson;

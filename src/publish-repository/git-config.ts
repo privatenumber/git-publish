@@ -56,7 +56,7 @@ export const serializeGitConfig = ({ key, value }: GitConfigEntry) => {
 	return `[${section}${subsection}]\n\t${variable} = "${escapedValue}"\n`;
 };
 
-const isPublishConfig = ({ key }: GitConfigEntry) => key !== 'core.bare'
+const isPortableGitConfig = ({ key }: GitConfigEntry) => key !== 'core.bare'
 	&& key !== 'core.worktree'
 	&& key !== 'core.repositoryformatversion'
 	&& !key.startsWith('extensions.')
@@ -85,7 +85,7 @@ export const materializePublishGitConfig = async ({
 	const remoteConfig = remoteConfigPrefix
 		? sourceConfig.filter(({ key }) => key.startsWith(remoteConfigPrefix) && key !== `${remoteConfigPrefix}url` && key !== `${remoteConfigPrefix}pushurl`)
 		: [];
-	const publishConfig = sourceConfig.filter(({ key }) => !key.startsWith('remote.')).filter(isPublishConfig);
+	const publishConfig = sourceConfig.filter(({ key }) => !key.startsWith('remote.')).filter(isPortableGitConfig);
 	await Promise.all([
 		fs.writeFile(systemConfigPath, publishConfig.filter(({ scope }) => scope === 'system').map(serializeGitConfig).join('')),
 		fs.writeFile(globalConfigPath, publishConfig.filter(({ scope }) => scope === 'global').map(serializeGitConfig).join('')),
