@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import spawn from 'nano-spawn';
+import { getStdout } from '../../src/utils/get-stdout.ts';
 
 export const createGit = (
 	cwd: string,
@@ -9,14 +10,11 @@ export const createGit = (
 	const git = async (
 		command: string,
 		args?: string[],
-	) => {
-		const result = await spawn(
-			'git',
-			[command, ...(args || [])],
-			{ cwd },
-		);
-		return result.stdout.trim();
-	};
+	) => getStdout(spawn(
+		'git',
+		[command, ...(args || [])],
+		{ cwd },
+	));
 
 	return Object.assign(git, {
 		init: async (args: string[] = []) => {

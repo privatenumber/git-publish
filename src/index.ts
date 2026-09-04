@@ -1,6 +1,5 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import spawn, { SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
@@ -19,6 +18,9 @@ import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { packPackage } from './utils/pack-package.ts';
 import { extractTarball } from './utils/extract-tarball.ts';
 import { getGitHubRepositoryName } from './utils/github.ts';
+import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
+import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
+import { getPublishRemote } from './publish-repository/remote.ts';
 
 const { stringify } = JSON;
 
@@ -125,15 +127,8 @@ Pre-bundle these dependencies before publishing.`);
 	} catch {
 		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 	}
-
-	const remoteUrl = await getStdout(spawn('git', ['remote', 'get-url', remote])).catch(() => {
-		if (usedDefaultRemote) {
-			throw new Error(`Git remote ${stringify(remote)} does not exist`);
-		}
-
-		// Git accepts raw destinations as well as configured remote names.
-		return remote;
-	});
+	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
+	const remoteUrl = publishRemote.fetchUrl;
 
 	await task(
 		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
@@ -145,101 +140,43 @@ Pre-bundle these dependencies before publishing.`);
 			}
 
 			const localTemporaryBranch = `git-publish-${randomBytes(16).toString('hex')}`;
-			let temporaryDirectory = '';
-			let publishWorktreePath = '';
-			let packWorktreePath = '';
-			let packTemporaryDirectory = '';
+			let publishRepository: PublishRepository;
 
 			let success = false;
 
 			let commitSha: string;
 			const packageManager = await detectPackageManager(cwd, gitRootPath);
-			let publishWorktreeNeedsCleanup = false;
-			let packWorktreeNeedsCleanup = false;
-			let localTemporaryBranchExists = false;
 			let primaryError: unknown;
 
 			try {
-				const creatingWorktrees = await task('Creating worktrees', async ({ setWarning }) => {
+				const creatingWorktrees = await task('Creating temporary repositories', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
 					}
 
-					temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
-					// Restrict package files and Git metadata in the workspace to the current user.
-					await fs.chmod(temporaryDirectory, 0o700);
-					publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
-					packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
-					packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
-
-					// A failed hook can leave Git's worktree registration behind.
-					publishWorktreeNeedsCleanup = true;
-					await spawn('git', ['worktree', 'add', '--force', publishWorktreePath, 'HEAD']);
-
-					packWorktreeNeedsCleanup = true;
-					await spawn('git', ['worktree', 'add', '--force', packWorktreePath, 'HEAD']);
+					publishRepository = await createPublishRepository({
+						sourceRepositoryPath: gitRootPath,
+						publishRemote,
+					});
 				});
 
 				if (!dry) {
 					creatingWorktrees.clear();
 				}
 
-				const checkoutBranch = await task('Checking out branch', async ({ setWarning }) => {
+				const checkoutBranch = await task('Loading publish branch', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
 					}
 
-					let orphan = false;
-					if (fresh) {
-						orphan = true;
-					} else {
-						try {
-							await spawn('git', [
-								'ls-remote',
-								'--exit-code',
-								'--branches',
-								remote,
-								`refs/heads/${publishBranch}`,
-							], { cwd: publishWorktreePath });
-						} catch (error) {
-							if (!(error instanceof SubprocessError) || error.exitCode !== 2) {
-								throw error;
-							}
-
-							orphan = true;
-						}
-
-						if (!orphan) {
-							await spawn('git', [
-								'fetch',
-								'--depth=1',
-								'--no-tags',
-								remote,
-								`${publishBranch}:${localTemporaryBranch}`,
-							], { cwd: publishWorktreePath });
-							localTemporaryBranchExists = true;
-						}
-					}
-
-					if (orphan) {
-						// Fresh orphan branch with no history
-						await spawn('git', ['checkout', '--orphan', localTemporaryBranch], { cwd: publishWorktreePath });
-						// `checkout --orphan` creates a local branch that cleanup must remove.
-						localTemporaryBranchExists = true;
-					} else {
-						// Repoint HEAD to the fetched branch without checkout
-						await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localTemporaryBranch}`], { cwd: publishWorktreePath });
-					}
-
-					// Remove all files from index and working directory
-
-					// removes tracked files from index (.catch() since it fails on empty orphan branches)
-					await spawn('git', ['rm', '--cached', '-r', ':/'], { cwd: publishWorktreePath }).catch(() => {});
-
-					// removes all untracked files from the working directory
-					await spawn('git', ['clean', '-fdx'], { cwd: publishWorktreePath });
+					await preparePublishBranch({
+						repository: publishRepository,
+						publishBranch,
+						localBranch: localTemporaryBranch,
+						fresh,
+					});
 				});
 
 				if (!dry) {
@@ -256,8 +193,8 @@ Pre-bundle these dependencies before publishing.`);
 					try {
 						tarballPath = await packPackage(
 							packageManager,
-							packWorktreePath,
-							packTemporaryDirectory,
+							publishRepository.packWorktreePath,
+							publishRepository.packTemporaryDirectory,
 							cwd,
 							gitRootPath,
 							gitSubdirectory,
@@ -276,8 +213,14 @@ Pre-bundle these dependencies before publishing.`);
 						throw error;
 					}
 
-					const publishFiles = await extractTarball(tarballPath, publishWorktreePath);
-					const publishedPackageJsonPath = path.join(publishWorktreePath, packageJsonPath);
+					const publishFiles = await extractTarball(
+						tarballPath,
+						publishRepository.publishWorktreePath,
+					);
+					const publishedPackageJsonPath = path.join(
+						publishRepository.publishWorktreePath,
+						packageJsonPath,
+					);
 					const publishedPackageJson = await readJson(publishedPackageJsonPath) as PackageJson;
 					const { scripts } = publishedPackageJson;
 					if (scripts && ('prepare' in scripts || 'prepack' in scripts)) {
@@ -297,13 +240,13 @@ Pre-bundle these dependencies before publishing.`);
 					packTask.clear();
 				}
 
-				const commit = await task('Commiting publish assets', async ({ setWarning }) => {
+				const commit = await task('Committing publish assets', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
 					}
 
-					await spawn('git', ['add', '-A'], { cwd: publishWorktreePath });
+					await spawn('git', ['add', '-A'], publishRepository.gitOptions);
 
 					const publishFiles = await packTask.result;
 					if (!publishFiles || publishFiles.length === 0) {
@@ -316,7 +259,7 @@ Pre-bundle these dependencies before publishing.`);
 					console.log(publishFiles.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
-					const trackedFiles = await gitStatusTracked({ cwd: publishWorktreePath });
+					const trackedFiles = await gitStatusTracked(publishRepository.gitOptions);
 					if (trackedFiles.length === 0) {
 						console.warn('⚠️  No new changes found to commit.');
 					} else {
@@ -338,11 +281,11 @@ Pre-bundle these dependencies before publishing.`);
 								commitMessage,
 								'--author=git-publish <bot@git-publish>',
 							],
-							{ cwd: publishWorktreePath },
+							publishRepository.gitOptions,
 						);
 					}
 
-					commitSha = (await getCurrentCommit({ cwd: publishWorktreePath }))!;
+					commitSha = (await getCurrentCommit(publishRepository.gitOptions))!;
 				});
 
 				if (!dry) {
@@ -351,19 +294,23 @@ Pre-bundle these dependencies before publishing.`);
 
 				const push = await task(
 					`Pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
-					async ({ setWarning }) => {
+					async ({ setStatus, setWarning }) => {
 						if (dry) {
 							setWarning('');
 							return;
 						}
 
-						await spawn('git', [
-							'push',
-							...(fresh ? ['--force'] : []),
-							'--no-verify',
-							remote,
-							`HEAD:${publishBranch}`,
-						], { cwd: publishWorktreePath });
+						const { pushRemoteNames } = publishRepository;
+						for (const [index, pushRemoteName] of pushRemoteNames.entries()) {
+							setStatus(`${index + 1} of ${pushRemoteNames.length}`);
+							await spawn('git', [
+								'push',
+								...(fresh ? ['--force'] : []),
+								'--no-verify',
+								pushRemoteName,
+								`HEAD:${publishBranch}`,
+							], publishRepository.gitOptions);
+						}
 						success = true;
 					},
 				);
@@ -381,37 +328,17 @@ Pre-bundle these dependencies before publishing.`);
 						return;
 					}
 
-					const cleanupErrors: unknown[] = [];
-					const runCleanup = async (operation: Promise<unknown>) => {
-						try {
-							await operation;
-						} catch (error) {
-							cleanupErrors.push(error);
-						}
-					};
-
-					if (publishWorktreeNeedsCleanup) {
-						await runCleanup(spawn('git', ['worktree', 'remove', '--force', publishWorktreePath]));
-					}
-
-					if (packWorktreeNeedsCleanup) {
-						await runCleanup(spawn('git', ['worktree', 'remove', '--force', packWorktreePath]));
-					}
-
-					if (localTemporaryBranchExists) {
-						await runCleanup(spawn('git', ['branch', '-D', localTemporaryBranch]));
-					}
-
-					await runCleanup(fs.rm(temporaryDirectory, {
-						recursive: true,
-						force: true,
-					}));
-
-					if (cleanupErrors.length > 0) {
-						setWarning(cleanupErrors.map(error => (error instanceof Error ? error.message : String(error))).join('\n'));
-						if (!primaryError) {
-							throw new AggregateError(cleanupErrors, 'Failed to clean up temporary publish resources.');
-						}
+					if (publishRepository) {
+						await publishRepository.dispose().catch((error: unknown) => {
+							if (error instanceof AggregateError) {
+								setWarning(error.errors.map(nested => (nested instanceof Error ? nested.message : String(nested))).join('\n'));
+							} else {
+								setWarning(error instanceof Error ? error.message : String(error));
+							}
+							if (!primaryError) {
+								throw error;
+							}
+						});
 					}
 				});
 
