@@ -68,6 +68,12 @@ export const runDependencyGraph = async <Key, Value, Result>(
 		pending.set(key, task);
 		return task;
 	};
-	await Promise.all(nodes.map(node => runNode(node.key)));
+	const tasks = nodes.map(node => runNode(node.key));
+	try {
+		await Promise.all(tasks);
+	} catch (error) {
+		await Promise.allSettled(tasks);
+		throw error;
+	}
 	return results;
 };

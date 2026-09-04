@@ -192,8 +192,7 @@ describe('Dependency graph runner', () => {
 
 		expect(message).toBe('boom');
 		expect(ran).not.toContain('blocked');
-		await waitFor(() => slowDone, 'independent work did not settle after the failure');
-		expect(ran).toContain('slow');
+		expect(slowDone).toBe(true);
 	});
 
 	for (const [label, nodes, message] of [
