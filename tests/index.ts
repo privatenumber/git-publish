@@ -11,6 +11,10 @@ import { getGitConfig, parseGitConfig, serializeGitConfig } from '../src/publish
 import { createGit } from './utils/create-git.ts';
 import { gitPublish } from './utils/git-publish.ts';
 
+describe('monorepo publishing', async () => {
+	await import('./monorepo/workspace.ts');
+});
+
 describe('git-publish', () => {
 	describe('GitHub remotes', () => {
 		test('normalizes supported remote URLs', () => {

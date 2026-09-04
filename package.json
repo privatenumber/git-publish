@@ -32,6 +32,7 @@
 		"prepare": "skills-npm"
 	},
 	"dependencies": {
+		"@manypkg/get-packages": "^3.1.0",
 		"fast-glob": "^3.3.3",
 		"gunzip-maybe": "^1.4.2",
 		"tar-fs": "^3.1.2",
