@@ -11,6 +11,9 @@ importers:
       '@manypkg/get-packages':
         specifier: ^3.1.0
         version: 3.1.0
+      '@manypkg/tools':
+        specifier: ^2.1.2
+        version: 2.1.2
       fast-glob:
         specifier: ^3.3.3
         version: 3.3.3

@@ -87,6 +87,55 @@ describe('workspace discovery', () => {
 		expect(workspace.packages.map(entry => entry.name)).toStrictEqual(['@test/a']);
 	});
 
+	test('discovers yarn workspace packages', async () => {
+		await using fixture = await createFixture({
+			'package.json': JSON.stringify({
+				name: 'test-monorepo',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'yarn.lock': '',
+			packages: {
+				a: {
+					'package.json': JSON.stringify({
+						name: '@test/a',
+						version: '1.0.0',
+					}),
+				},
+			},
+		});
+
+		const workspace = await discoverWorkspacePackages(fixture.path, 'yarn');
+
+		expect(workspace.packageManager).toBe('yarn');
+		expect(workspace.packages.map(entry => entry.name)).toStrictEqual(['@test/a']);
+	});
+
+	test('prefers the detected manager over stale lockfiles', async () => {
+		await using fixture = await createFixture({
+			'package.json': JSON.stringify({
+				name: 'test-monorepo',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'pnpm-workspace.yaml': 'packages:\n  - \'packages/*\'\n',
+			'yarn.lock': '',
+			packages: {
+				a: {
+					'package.json': JSON.stringify({
+						name: '@test/a',
+						version: '1.0.0',
+					}),
+				},
+			},
+		});
+
+		const workspace = await discoverWorkspacePackages(fixture.path, 'pnpm');
+
+		expect(workspace.packageManager).toBe('pnpm');
+		expect(workspace.packages.map(entry => entry.name)).toStrictEqual(['@test/a']);
+	});
+
 	test('rejects package manager mismatches', async () => {
 		await using fixture = await createFixture({
 			'package.json': JSON.stringify({
@@ -112,10 +161,10 @@ describe('workspace discovery', () => {
 			expect(error).toBeInstanceOf(Error);
 			message = (error as Error).message;
 		}
-		expect(message).toContain('does not match');
+		expect(message).toContain('No pnpm workspace found');
 	});
 
-	test('rejects unsupported workspace types', async () => {
+	test('rejects directories without a matching workspace', async () => {
 		await using fixture = await createFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
@@ -130,6 +179,6 @@ describe('workspace discovery', () => {
 			expect(error).toBeInstanceOf(Error);
 			message = (error as Error).message;
 		}
-		expect(message).toContain('Unsupported workspace type');
+		expect(message).toContain('No npm workspace found');
 	});
 });
