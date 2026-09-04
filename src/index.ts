@@ -164,7 +164,7 @@ Pre-bundle these dependencies before publishing.`);
 					creatingWorktrees.clear();
 				}
 
-				const checkoutBranch = await task('Checking out branch', async ({ setWarning }) => {
+				const checkoutBranch = await task('Loading publish branch', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
@@ -279,7 +279,7 @@ Pre-bundle these dependencies before publishing.`);
 					packTask.clear();
 				}
 
-				const commit = await task('Commiting publish assets', async ({ setWarning }) => {
+				const commit = await task('Committing publish assets', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
@@ -333,13 +333,15 @@ Pre-bundle these dependencies before publishing.`);
 
 				const push = await task(
 					`Pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
-					async ({ setWarning }) => {
+					async ({ setStatus, setWarning }) => {
 						if (dry) {
 							setWarning('');
 							return;
 						}
 
-						for (const pushRemoteName of publishRepository.pushRemoteNames) {
+						const { pushRemoteNames } = publishRepository;
+						for (const [index, pushRemoteName] of pushRemoteNames.entries()) {
+							setStatus(`${index + 1} of ${pushRemoteNames.length}`);
 							await spawn('git', [
 								'push',
 								...(fresh ? ['--force'] : []),
