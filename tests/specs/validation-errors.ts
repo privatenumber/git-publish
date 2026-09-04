@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
-import { createGit } from '../utils/create-git.ts';
+import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Error cases', () => {
@@ -29,20 +29,18 @@ describe('Error cases', () => {
 
 	test('Missing default remote', async () => {
 		await using markerFixture = await createFixture();
-		await using fixture = await createFixture(async (fixture) => {
-			await fixture.writeJson('package.json', {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 				scripts: {
 					prepack: `node -e "require('node:fs').writeFileSync(process.argv[1], 'packed')" "${markerFixture.getPath('packed')}"`,
 				},
-			});
-
-			const git = createGit(fixture.path);
-			await git.init();
-			await git('add', ['package.json']);
-			await git('commit', ['-m', 'Initial commit']);
+			}, null, 2),
 		});
+		const { git } = fixture;
+		await git('add', ['package.json']);
+		await git('commit', ['-m', 'Initial commit']);
 
 		const gitPublishProcess = await gitPublish(fixture.path);
 
@@ -53,24 +51,20 @@ describe('Error cases', () => {
 
 	test('Invalid publish branch', async () => {
 		await using markerFixture = await createFixture();
-		await using remoteFixture = await createFixture(async (fixture) => {
-			await createGit(fixture.path).init(['--bare']);
-		});
-		await using fixture = await createFixture(async (fixture) => {
-			await fixture.writeJson('package.json', {
+		await using remoteFixture = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 				scripts: {
 					prepack: `node -e "require('node:fs').writeFileSync(process.argv[1], 'packed')" "${markerFixture.getPath('packed')}"`,
 				},
-			});
-
-			const git = createGit(fixture.path);
-			await git.init();
-			await git('add', ['package.json']);
-			await git('commit', ['-m', 'Initial commit']);
-			await git('remote', ['add', 'origin', remoteFixture.path]);
+			}, null, 2),
 		});
+		const { git } = fixture;
+		await git('add', ['package.json']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
 
 		const gitPublishProcess = await gitPublish(fixture.path, ['--branch', 'invalid..branch']);
 
@@ -82,21 +76,19 @@ describe('Error cases', () => {
 	test('Does not pack when remote is not a Git repository', async () => {
 		await using markerFixture = await createFixture();
 		await using remoteFixture = await createFixture();
-		await using fixture = await createFixture(async (fixture) => {
-			await fixture.writeJson('package.json', {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 				scripts: {
 					prepack: `node -e "require('node:fs').writeFileSync(process.argv[1], 'packed')" "${markerFixture.getPath('packed')}"`,
 				},
-			});
-
-			const git = createGit(fixture.path);
-			await git.init();
-			await git('add', ['package.json']);
-			await git('commit', ['-m', 'Initial commit']);
-			await git('remote', ['add', 'origin', remoteFixture.path]);
+			}, null, 2),
 		});
+		const { git } = fixture;
+		await git('add', ['package.json']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
 
 		const gitPublishProcess = await gitPublish(fixture.path);
 
@@ -117,24 +109,19 @@ exit 1
 `);
 			await fs.chmod(fixture.getPath('post-checkout'), 0o755);
 		});
-		await using remoteFixture = await createFixture(async (fixture) => {
-			await createGit(fixture.path).init(['--bare']);
-		});
-		await using fixture = await createFixture(async (fixture) => {
-			await fixture.writeJson('package.json', {
+		await using remoteFixture = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
-			});
-
-			const git = createGit(fixture.path);
-			await git.init();
-			await git('add', ['package.json']);
-			await git('commit', ['-m', 'Initial commit']);
-			await git('config', ['core.hooksPath', hooksFixture.path]);
-			await git('remote', ['add', 'origin', remoteFixture.path]);
+			}, null, 2),
 		});
 
-		const git = createGit(fixture.path);
+		const { git } = fixture;
+		await git('add', ['package.json']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('config', ['core.hooksPath', hooksFixture.path]);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
 
 		try {
 			const gitPublishProcess = await gitPublish(fixture.path);
@@ -161,22 +148,18 @@ exit 1
 	});
 
 	test('Does not create a workspace during dry runs', async () => {
-		await using remoteFixture = await createFixture(async (fixture) => {
-			await createGit(fixture.path).init(['--bare']);
-		});
+		await using remoteFixture = await createGitFixture(undefined, ['--bare']);
 		await using temporaryFixture = await createFixture();
-		await using fixture = await createFixture(async (fixture) => {
-			await fixture.writeJson('package.json', {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
-			});
-
-			const git = createGit(fixture.path);
-			await git.init();
-			await git('add', ['package.json']);
-			await git('commit', ['-m', 'Initial commit']);
-			await git('remote', ['add', 'origin', remoteFixture.path]);
+			}, null, 2),
 		});
+		const { git } = fixture;
+		await git('add', ['package.json']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
 
 		const gitPublishProcess = await gitPublish(fixture.path, ['--dry'], { TMPDIR: temporaryFixture.path });
 		expect('exitCode' in gitPublishProcess).toBe(false);
@@ -184,7 +167,7 @@ exit 1
 	});
 
 	test('Workspace dependencies', async () => {
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
@@ -203,8 +186,7 @@ exit 1
 			}, null, 2),
 		});
 
-		const git = createGit(fixture.path);
-		await git.init();
+		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
 
@@ -230,9 +212,7 @@ Pre-bundle these dependencies before publishing.`);
 	});
 
 	test('Fails if no package.json found', async () => {
-		await using fixture = await createFixture(async (fixture) => {
-			await createGit(fixture.path).init();
-		});
+		await using fixture = await createGitFixture();
 
 		const gitPublishProcess = await gitPublish(fixture.path);
 
@@ -241,15 +221,11 @@ Pre-bundle these dependencies before publishing.`);
 	});
 
 	test('Dirty working tree', async () => {
-		await using fixture = await createFixture(async (fixture) => {
-			await createGit(fixture.path).init();
-
-			return {
-				'package.json': '{}',
-			};
+		await using fixture = await createGitFixture({
+			'package.json': '{}',
 		});
 
-		const git = createGit(fixture.path);
+		const { git } = fixture;
 		await git('add', ['package.json']);
 
 		const gitPublishProcess = await gitPublish(fixture.path);
@@ -259,12 +235,11 @@ Pre-bundle these dependencies before publishing.`);
 	});
 
 	test('Private npm package', async () => {
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({ private: true }),
 		});
 
-		const git = createGit(fixture.path);
-		await git.init();
+		const { git } = fixture;
 
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);

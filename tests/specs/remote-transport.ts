@@ -3,28 +3,25 @@ import {
 	describe, test, expect, onFinish,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
-import { createGit } from '../utils/create-git.ts';
+import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Remote transport', async () => {
-	const remoteFixture = await createFixture(async (fixture) => {
-		await createGit(fixture.path).init(['--bare']);
-	});
+	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
-	const remoteGit = createGit(remoteFixture.path);
+	const { git: remoteGit } = remoteFixture;
 
 	test('raw Git destination', async () => {
 		const branchName = 'test-raw-destination';
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
 			'index.js': 'export const main = true;',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['package.json', 'index.js']);
 		await git('commit', ['-m', 'Initial commit']);
 
@@ -47,15 +44,14 @@ describe('Remote transport', async () => {
 	`);
 			await fs.chmod(fixture.getPath('blocked-receive-pack'), 0o755);
 		});
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -86,15 +82,14 @@ describe('Remote transport', async () => {
 	`);
 			await fs.chmod(fixture.getPath('ssh'), 0o755);
 		});
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -122,15 +117,14 @@ describe('Remote transport', async () => {
 			await fs.chmod(fixture.getPath('ssh'), 0o755);
 			await fs.chmod(fixture.getPath('receive-pack'), 0o755);
 		});
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', `git@example.test:${remoteFixture.path}`]);
@@ -156,15 +150,14 @@ describe('Remote transport', async () => {
 	`);
 			await fs.chmod(fixture.getPath('ssh'), 0o755);
 		});
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('config', ['extensions.worktreeConfig', 'true']);

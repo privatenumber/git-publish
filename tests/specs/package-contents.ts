@@ -2,22 +2,19 @@ import path from 'node:path';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
-import { createFixture } from 'fs-fixture';
-import { createGit } from '../utils/create-git.ts';
+import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Package contents', async () => {
-	const remoteFixture = await createFixture(async (fixture) => {
-		await createGit(fixture.path).init(['--bare']);
-	});
+	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
-	const remoteGit = createGit(remoteFixture.path);
+	const { git: remoteGit } = remoteFixture;
 
 	test('monorepo package', async () => {
 		const branchName = 'test-monorepo';
 		const packageName = '@org/test-pkg';
 
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'monorepo-root',
 				version: '1.0.0',
@@ -38,10 +35,9 @@ describe('Package contents', async () => {
 					},
 				},
 			},
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -73,7 +69,7 @@ describe('Package contents', async () => {
 		const branchName = 'test-existing-dist';
 
 		// This test verifies that existing files are published even without build hooks
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-existing-dist',
 				version: '1.0.0',
@@ -87,10 +83,9 @@ describe('Package contents', async () => {
 				'source.ts': '// This should not be published',
 			},
 			'.gitignore': 'dist',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -126,7 +121,7 @@ describe('Package contents', async () => {
 
 		// Test that glob patterns in "files" field work correctly
 		// Pattern "dist/*.js" should only match .js files in dist, not subdirectories
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-glob-pattern',
 				version: '1.0.0',
@@ -141,10 +136,9 @@ describe('Package contents', async () => {
 				},
 			},
 			'.gitignore': 'dist',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -172,7 +166,7 @@ describe('Package contents', async () => {
 		const branchName = 'test-directory-recursive';
 
 		// Test that directory in "files" field includes all files recursively
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-directory-recursive',
 				version: '1.0.0',
@@ -186,10 +180,9 @@ describe('Package contents', async () => {
 				},
 			},
 			'.gitignore': 'dist',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
@@ -218,7 +211,7 @@ describe('Package contents', async () => {
 		const branchName = 'test-dotfiles';
 
 		// Test that dotfiles specified in "files" field are published
-		await using fixture = await createFixture({
+		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-dotfiles',
 				version: '1.0.0',
@@ -230,10 +223,9 @@ describe('Package contents', async () => {
 			},
 			'.env.development': '// This should not be published',
 			'.gitignore': 'dist\n.env.*',
-		});
+		}, [`--initial-branch=${branchName}`]);
 
-		const git = createGit(fixture.path);
-		await git.init([`--initial-branch=${branchName}`]);
+		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);

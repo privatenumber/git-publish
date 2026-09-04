@@ -3,7 +3,7 @@ import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
 import { getGitConfig, parseGitConfig, serializeGitConfig } from '../../src/publish-repository/git-config.ts';
-import { createGit } from '../utils/create-git.ts';
+import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Git configuration', () => {
 	test('round trips ordered entries through Git', async () => {
@@ -29,9 +29,8 @@ describe('Git configuration', () => {
 	});
 
 	test('captures effective values from every scope and conditional includes', async () => {
-		await using fixture = await createFixture();
-		const git = createGit(fixture.path);
-		await git.init();
+		await using fixture = await createGitFixture();
+		const { git } = fixture;
 		const systemConfigPath = fixture.getPath('system-config');
 		const globalConfigPath = fixture.getPath('global-config');
 		const includedConfigPath = fixture.getPath('included-config');
