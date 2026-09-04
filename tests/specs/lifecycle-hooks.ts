@@ -3,6 +3,7 @@ import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
+import { detectPackageManager } from '../../src/utils/detect-package-manager.ts';
 import { createGit } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
@@ -117,23 +118,36 @@ describe('Lifecycle hooks', async () => {
 	test('dependencies are accessible in pack hooks', async () => {
 		const branchName = 'test-deps-in-hooks';
 
-		// This test verifies that dependencies with binaries are accessible during pack
 		await using fixture = await createFixture({
 			'package.json': JSON.stringify({
 				name: 'test-deps-hooks',
 				version: '1.0.0',
+				files: ['build-output.txt'],
 				scripts: {
-					// Use clean-pkg-json binary from devDependencies
-					prepack: 'clean-pkg-json',
+					prepack: 'fixture-build',
 				},
 				devDependencies: {
-					'clean-pkg-json': '^1.3.0',
+					'fixture-build': 'file:./fixture-build',
 				},
 			}, null, 2),
+			'.gitignore': 'node_modules',
+			'fixture-build': {
+				'package.json': JSON.stringify({
+					name: 'fixture-build',
+					version: '1.0.0',
+					bin: {
+						'fixture-build': 'index.js',
+					},
+				}),
+				'index.js': `#!/usr/bin/env node
+require('node:fs').writeFileSync('build-output.txt', 'built');
+`,
+			},
 		});
 
-		// Install dependencies so clean-pkg-json binary is available
-		await spawn('pnpm', ['install'], { cwd: fixture.path });
+		const packageManager = await detectPackageManager(fixture.path, fixture.path);
+		expect(packageManager).toBe('npm');
+		await spawn(packageManager, ['install', '--no-audit', '--no-fund'], { cwd: fixture.path });
 
 		const git = createGit(fixture.path);
 		await git.init([`--initial-branch=${branchName}`]);
@@ -149,17 +163,8 @@ describe('Lifecycle hooks', async () => {
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(gitPublishProcess.stdout).toMatch('✔');
 
-		// Verify clean-pkg-json removed unnecessary fields
-		const packageJsonString = await remoteGit('show', [`npm/${branchName}:package.json`]);
-		const packageJson = JSON.parse(packageJsonString);
-
-		// Verify required fields are still present
-		expect(packageJson.name).toBe('test-deps-hooks');
-		expect(packageJson.version).toBe('1.0.0');
-
-		// Verify clean-pkg-json ran successfully
-		expect(packageJson.devDependencies).toBeUndefined();
-		expect(packageJson.scripts).toBeUndefined();
+		const buildOutput = await remoteGit('show', [`npm/${branchName}:build-output.txt`]);
+		expect(buildOutput).toBe('built');
 	});
 
 	test('prepack hook does not modify working directory', async () => {
