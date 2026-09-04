@@ -1,18 +1,7 @@
-import { setTimeout } from 'node:timers/promises';
 import { describe, test, expect } from 'manten';
 import {
 	runDependencyGraph, type GraphNode,
 } from '../../src/publish-repository/run-graph.ts';
-
-const waitFor = async (condition: () => boolean, message: string) => {
-	const started = Date.now();
-	while (!condition()) {
-		if (Date.now() - started > 1000) {
-			throw new Error(message);
-		}
-		await setTimeout(1);
-	}
-};
 
 describe('Dependency graph runner', () => {
 	test('relays dependency results up a linear chain', async () => {
@@ -46,10 +35,8 @@ describe('Dependency graph runner', () => {
 	});
 
 	test('runs diamond dependencies concurrently without duplicating work', async () => {
-		const started = {
-			a: false,
-			b: false,
-		};
+		const aStarted = Promise.withResolvers<void>();
+		const bStarted = Promise.withResolvers<void>();
 		let coreRuns = 0;
 		const order: string[] = [];
 		const results = await runDependencyGraph<string, string, string>([
@@ -78,12 +65,12 @@ describe('Dependency graph runner', () => {
 				coreRuns += 1;
 			}
 			if (node.key === 'a') {
-				started.a = true;
-				await waitFor(() => started.b, 'a and b did not run concurrently');
+				aStarted.resolve();
+				await bStarted.promise;
 			}
 			if (node.key === 'b') {
-				started.b = true;
-				await waitFor(() => started.a, 'a and b did not run concurrently');
+				bStarted.resolve();
+				await aStarted.promise;
 			}
 			if (node.key === 'app') {
 				expect([...dependencyResults.keys()].sort()).toStrictEqual(['a', 'b']);
@@ -100,7 +87,8 @@ describe('Dependency graph runner', () => {
 	});
 
 	test('runs unrelated leaves concurrently', async () => {
-		const started = new Set<string>();
+		const allStarted = Promise.withResolvers<void>();
+		let started = 0;
 		const results = await runDependencyGraph<string, string, string>([
 			{
 				key: 'x',
@@ -118,8 +106,11 @@ describe('Dependency graph runner', () => {
 				dependencies: [],
 			},
 		], async (node) => {
-			started.add(node.key);
-			await waitFor(() => started.size === 3, 'leaves did not run concurrently');
+			started += 1;
+			if (started === 3) {
+				allStarted.resolve();
+			}
+			await allStarted.promise;
 			return node.key;
 		});
 
@@ -127,26 +118,34 @@ describe('Dependency graph runner', () => {
 	});
 
 	test('associates results by key despite completion order', async () => {
-		const results = await runDependencyGraph<string, number, string>([
+		const gates = new Map<string, ReturnType<typeof Promise.withResolvers<void>>>();
+		for (const key of ['slow', 'fast', 'medium']) {
+			gates.set(key, Promise.withResolvers<void>());
+		}
+		const graphPromise = runDependencyGraph<string, string, string>([
 			{
 				key: 'slow',
-				value: 30,
+				value: 'slow',
 				dependencies: [],
 			},
 			{
 				key: 'fast',
-				value: 1,
+				value: 'fast',
 				dependencies: [],
 			},
 			{
 				key: 'medium',
-				value: 10,
+				value: 'medium',
 				dependencies: [],
 			},
 		], async (node) => {
-			await setTimeout(node.value);
+			await gates.get(node.key)!.promise;
 			return `${node.key}-done`;
 		});
+		gates.get('medium')!.resolve();
+		gates.get('fast')!.resolve();
+		gates.get('slow')!.resolve();
+		const results = await graphPromise;
 
 		expect(results.get('slow')).toBe('slow-done');
 		expect(results.get('fast')).toBe('fast-done');
@@ -154,45 +153,62 @@ describe('Dependency graph runner', () => {
 	});
 
 	test('prevents dependents from running after a failure while independents settle', async () => {
+		const slowStarted = Promise.withResolvers<void>();
+		const releaseSlow = Promise.withResolvers<void>();
+		const failureObserved = Promise.withResolvers<void>();
 		const ran: string[] = [];
-		let slowDone = false;
+		let slowFinished = false;
+		let graphSettled = false;
+		const graphPromise = runDependencyGraph<string, string, string>([
+			{
+				key: 'failing',
+				value: 'failing',
+				dependencies: [],
+			},
+			{
+				key: 'blocked',
+				value: 'blocked',
+				dependencies: ['failing'],
+			},
+			{
+				key: 'slow',
+				value: 'slow',
+				dependencies: [],
+			},
+		], async (node) => {
+			ran.push(node.key);
+			if (node.key === 'slow') {
+				slowStarted.resolve();
+				await releaseSlow.promise;
+				slowFinished = true;
+				return node.key;
+			}
+			if (node.key === 'failing') {
+				await slowStarted.promise;
+				failureObserved.resolve();
+				throw new Error('boom');
+			}
+			return node.key;
+		}).finally(() => {
+			graphSettled = true;
+		});
+
+		await failureObserved.promise;
+		expect(graphSettled).toBe(false);
+
+		releaseSlow.resolve();
+
 		let message = '';
 		try {
-			await runDependencyGraph<string, string, string>([
-				{
-					key: 'failing',
-					value: 'failing',
-					dependencies: [],
-				},
-				{
-					key: 'blocked',
-					value: 'blocked',
-					dependencies: ['failing'],
-				},
-				{
-					key: 'slow',
-					value: 'slow',
-					dependencies: [],
-				},
-			], async (node) => {
-				ran.push(node.key);
-				if (node.key === 'failing') {
-					throw new Error('boom');
-				}
-				if (node.key === 'slow') {
-					await setTimeout(20);
-					slowDone = true;
-				}
-				return node.key;
-			});
+			await graphPromise;
 		} catch (error) {
 			expect(error).toBeInstanceOf(Error);
 			message = (error as Error).message;
 		}
-
 		expect(message).toBe('boom');
 		expect(ran).not.toContain('blocked');
-		expect(slowDone).toBe(true);
+		expect(slowFinished).toBe(true);
+		expect(graphSettled).toBe(true);
 	});
 
 	for (const [label, nodes, message] of [
