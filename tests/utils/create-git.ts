@@ -32,7 +32,13 @@ export const createGitFixture = async (
 ) => {
 	const fixture = await createFixture(files);
 	const git = createGit(fixture.path);
-	await git.init(initArguments);
+	try {
+		await git.init(initArguments);
+	} catch (error) {
+		// Preserve the Git error if removing the incomplete fixture also fails.
+		await fixture.rm().catch(() => undefined);
+		throw error;
+	}
 
 	return Object.assign(fixture, { git });
 };
