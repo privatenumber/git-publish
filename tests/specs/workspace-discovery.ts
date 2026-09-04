@@ -3,7 +3,7 @@ import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { discoverWorkspacePackages } from '../../src/publish-repository/workspace.ts';
 
-describe('workspace discovery', () => {
+describe('Workspace discovery', () => {
 	test('discovers npm workspace packages', async () => {
 		await using fixture = await createFixture({
 			'package.json': JSON.stringify({
