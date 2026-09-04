@@ -249,7 +249,7 @@ describe('Publication graph', () => {
 	});
 
 	test('resolves supported range forms', async () => {
-		for (const range of ['*', '^', '~', '^1.2.3', '~1.2.3', '1.2.3']) {
+		for (const range of ['*', '^', '~', '^1.2.3', '~1.2.3', '1.2.3', '>=1.2.3', '^1.2.3 || ^2.0.0', '1.2.x']) {
 			const workspace = await discoverTestWorkspace({
 				core: {
 					name: '@test/core',
@@ -269,7 +269,7 @@ describe('Publication graph', () => {
 	});
 
 	test('rejects invalid specifications', async () => {
-		for (const specification of ['workspace:>1.0.0', 'workspace:latest', 'workspace:', 'workspace:alias@', 'workspace:@*']) {
+		for (const specification of ['workspace:', 'workspace:alias@', 'workspace:@*']) {
 			const workspace = await discoverTestWorkspace({
 				core: {
 					name: '@test/core',

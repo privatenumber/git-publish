@@ -33,21 +33,19 @@ export type PublishGraph = {
 type WorkspaceReference =
 	| {
 		kind: 'version';
-		range: string;
 	}
 	| {
 		kind: 'alias';
 		name: string;
-		range: string;
 	}
 	| {
 		kind: 'path';
 		path: string;
 	};
 
-const versionPattern = String.raw`v?\d+(?:\.\d+)?(?:\.\d+)?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?`;
-const rangePattern = new RegExp(String.raw`^(?:[*~^]|~?${versionPattern}|\^${versionPattern})$`);
-
+// Only structural malformation is rejected here. Range content is deferred to
+// the package manager: any non-empty range resolves by name, and real version
+// mismatches surface at pack and install time.
 const parseWorkspaceSpecification = (specification: string): WorkspaceReference | undefined => {
 	if (!specification.startsWith('workspace:')) {
 		return undefined;
@@ -66,21 +64,19 @@ const parseWorkspaceSpecification = (specification: string): WorkspaceReference 
 	if (separatorIndex > 0) {
 		const name = body.slice(0, separatorIndex);
 		const range = body.slice(separatorIndex + 1);
-		if (!name || !rangePattern.test(range)) {
+		if (!name || !range) {
 			return undefined;
 		}
 		return {
 			kind: 'alias',
 			name,
-			range,
 		};
 	}
-	if (!rangePattern.test(body)) {
+	if (body.startsWith('@')) {
 		return undefined;
 	}
 	return {
 		kind: 'version',
-		range: body,
 	};
 };
 
