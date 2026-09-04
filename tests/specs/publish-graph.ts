@@ -319,8 +319,8 @@ describe('Publication graph', () => {
 		expect(app?.dependencies[0]?.target).toBe('@test/core');
 	});
 
-	test('resolves supported range forms', async () => {
-		for (const range of ['*', '^', '~', '^1.2.3', '~1.2.3', '1.2.3', '>=1.2.3', '^1.2.3 || ^2.0.0', '1.2.x']) {
+	for (const range of ['*', '^', '~', '^1.2.3', '~1.2.3', '1.2.3', '>=1.2.3', '^1.2.3 || ^2.0.0', '1.2.x']) {
+		test(`resolves workspace range ${JSON.stringify(range)}`, async () => {
 			const workspace = await discoverTestWorkspace({
 				core: {
 					name: '@test/core',
@@ -336,11 +336,11 @@ describe('Publication graph', () => {
 			});
 
 			expect(createPublishGraph(workspace, '@test/app').nodes.map(node => node.key)).toStrictEqual(['@test/core', '@test/app']);
-		}
-	});
+		});
+	}
 
-	test('rejects invalid specifications', async () => {
-		for (const specification of ['workspace:', 'workspace:alias@', 'workspace:@*']) {
+	for (const specification of ['workspace:', 'workspace:alias@', 'workspace:@*']) {
+		test(`rejects invalid workspace specification ${JSON.stringify(specification)}`, async () => {
 			const workspace = await discoverTestWorkspace({
 				core: {
 					name: '@test/core',
@@ -363,8 +363,8 @@ describe('Publication graph', () => {
 				message = (error as Error).message;
 			}
 			expect(message).toContain('Unsupported workspace specification');
-		}
-	});
+		});
+	}
 
 	test('rejects unknown selected packages', async () => {
 		const workspace = await discoverTestWorkspace({
