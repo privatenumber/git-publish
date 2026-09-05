@@ -3,7 +3,9 @@ import { randomBytes } from 'node:crypto';
 import { createPublishRepository, type PublishRepository } from '../publish-repository/create.ts';
 import { preparePublishBranch } from '../publish-repository/prepare-branch.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
-import { preparePackagePublication, type PackagePreparation } from '../package-publication/prepare.ts';
+import {
+	preparePackagePublication, type PackagePreparation, type PackagePublication,
+} from '../package-publication/prepare.ts';
 import { planPackagePublicationPush, pushPackagePublications } from '../package-publication/push.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { packPackage } from '../utils/pack-package.ts';
@@ -47,12 +49,12 @@ const packWorkspacePackages = async ({
 	plan,
 	packageManager,
 	repository,
-	gitRootPath,
+	repositoryPath,
 }: {
 	plan: WorkspacePublicationPlan;
 	packageManager: PackageManager;
 	repository: PublishRepository;
-	gitRootPath: string;
+	repositoryPath: string;
 }): Promise<Map<string, string>> => {
 	const tarballs = new Map<string, string>();
 	for (const [index, node] of plan.graph.nodes.entries()) {
@@ -61,8 +63,8 @@ const packWorkspacePackages = async ({
 			repository.packWorktreePath,
 			path.join(repository.packTemporaryDirectory, String(index)),
 			node.package.dir,
-			gitRootPath,
-			path.relative(gitRootPath, node.package.dir),
+			repositoryPath,
+			path.relative(repositoryPath, node.package.dir),
 		);
 		tarballs.set(node.key, tarball);
 	}
@@ -72,8 +74,7 @@ const packWorkspacePackages = async ({
 export const publishWorkspaceClosure = async ({
 	plan,
 	packageManager,
-	sourceRepositoryPath,
-	gitRootPath,
+	repositoryPath,
 	publishRemote,
 	sourceName,
 	sourceCommit,
@@ -81,15 +82,14 @@ export const publishWorkspaceClosure = async ({
 }: {
 	plan: WorkspacePublicationPlan;
 	packageManager: PackageManager;
-	sourceRepositoryPath: string;
-	gitRootPath: string;
+	repositoryPath: string;
 	publishRemote: PublishRemote;
 	sourceName: string;
 	sourceCommit: string | undefined;
 	fresh: boolean | undefined;
 }): Promise<ReadonlyMap<string, PackagePreparation>> => {
 	const repository = await createPublishRepository({
-		sourceRepositoryPath,
+		sourceRepositoryPath: repositoryPath,
 		publishRemote,
 	});
 	let primaryError: unknown;
@@ -104,7 +104,7 @@ export const publishWorkspaceClosure = async ({
 			plan,
 			packageManager,
 			repository,
-			gitRootPath,
+			repositoryPath,
 		});
 		const nodes: GraphNode<string, WorkspacePublicationTask>[] = plan.graph.nodes.map(node => ({
 			key: node.key,
@@ -120,7 +120,7 @@ export const publishWorkspaceClosure = async ({
 			{ key, value },
 			dependencyPreparations,
 		): Promise<PackagePreparation> => {
-			const dependencyPublications = new Map();
+			const dependencyPublications = new Map<string, PackagePublication>();
 			for (const [name, preparation] of dependencyPreparations) {
 				dependencyPublications.set(name, preparation.publication);
 			}

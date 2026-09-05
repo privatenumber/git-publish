@@ -107,7 +107,6 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 
 	const cwd = process.cwd();
 	const gitRootPath = await getStdout(spawn('git', ['rev-parse', '--show-toplevel']));
-	const gitSubdirectory = path.relative(gitRootPath, cwd);
 	const sourceName = await getCurrentSourceName();
 	const sourceCommit = await getCurrentCommit();
 	const sourceCommitId = await getCurrentCommitId();
@@ -124,60 +123,22 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		throw new Error('This package is marked as private. Use --force to publish it anyway.');
 	}
 
-	const workspaceDependencies: string[] = [];
 	const {
 		branch, remote, fresh, dry,
 	} = argv.flags;
-	const closurePackageManager = await detectPackageManager(cwd, gitRootPath);
+	const packageManager = await detectPackageManager(cwd, gitRootPath);
 	const closurePlan = await planWorkspacePublication({
 		cwd,
 		gitRootPath,
 		sourceName,
 		sourceCommitId,
-		packageManager: closurePackageManager,
+		packageManager,
 		publishBranch: branch,
 	});
-	for (const [field, dependencies] of Object.entries({
-		dependencies: packageJson.dependencies,
-		optionalDependencies: packageJson.optionalDependencies,
-	})) {
-		if (!dependencies) {
-			continue;
-		}
-
-		for (const [name, specification] of Object.entries(dependencies)) {
-			if (specification?.startsWith('workspace:')) {
-				workspaceDependencies.push(`- ${field}.${name}: ${specification}`);
-			}
-		}
-	}
-
-	if (!closurePlan && workspaceDependencies.length > 0) {
-		throw new Error(`Cannot publish packages with workspace dependencies:
-${workspaceDependencies.join('\n')}
-Pre-bundle these dependencies before publishing.`);
-	}
-
-	const defaultPublishBranch = gitSubdirectory
-		? `npm/${sourceName}-${packageJson.name}`
-		: `npm/${sourceName}`;
-	const publishBranch = branch
-		? renderPackageBranch({
-			template: branch,
-			gitRef: sourceName,
-			gitSha: sourceCommitId,
-			packageName: packageJson.name!,
-		})
-		: defaultPublishBranch;
-	try {
-		await getStdout(spawn('git', ['check-ref-format', '--branch', publishBranch]));
-	} catch {
-		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
-	}
-	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
-	const remoteUrl = publishRemote.fetchUrl;
 
 	if (closurePlan) {
+		const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
+		const remoteUrl = publishRemote.fetchUrl;
 		assertAtomicPackagePublicationDestination(publishRemote.pushUrls);
 
 		if (dry) {
@@ -199,9 +160,8 @@ Pre-bundle these dependencies before publishing.`);
 
 				const preparationsByName = await publishWorkspaceClosure({
 					plan: closurePlan,
-					packageManager: closurePackageManager,
-					sourceRepositoryPath: gitRootPath,
-					gitRootPath,
+					packageManager,
+					repositoryPath: gitRootPath,
 					publishRemote,
 					sourceName,
 					sourceCommit: sourceCommit ?? undefined,
@@ -242,7 +202,7 @@ Pre-bundle these dependencies before publishing.`);
 
 				setOutput([
 					'Install command',
-					`${closurePackageManager} i '${selected.publication.installSpecifier}'`,
+					`${packageManager} i '${selected.publication.installSpecifier}'`,
 				].join('\n'));
 			},
 		).catch(() => {
@@ -253,6 +213,47 @@ Pre-bundle these dependencies before publishing.`);
 		});
 		return;
 	}
+
+	const workspaceDependencies: string[] = [];
+	for (const [field, dependencies] of Object.entries({
+		dependencies: packageJson.dependencies,
+		optionalDependencies: packageJson.optionalDependencies,
+	})) {
+		if (!dependencies) {
+			continue;
+		}
+
+		for (const [name, specification] of Object.entries(dependencies)) {
+			if (specification?.startsWith('workspace:')) {
+				workspaceDependencies.push(`- ${field}.${name}: ${specification}`);
+			}
+		}
+	}
+	if (workspaceDependencies.length > 0) {
+		throw new Error(`Cannot publish packages with workspace dependencies:
+${workspaceDependencies.join('\n')}
+Pre-bundle these dependencies before publishing.`);
+	}
+
+	const gitSubdirectory = path.relative(gitRootPath, cwd);
+	const defaultPublishBranch = gitSubdirectory
+		? `npm/${sourceName}-${packageJson.name}`
+		: `npm/${sourceName}`;
+	const publishBranch = branch
+		? renderPackageBranch({
+			template: branch,
+			gitRef: sourceName,
+			gitSha: sourceCommitId,
+			packageName: packageJson.name!,
+		})
+		: defaultPublishBranch;
+	try {
+		await getStdout(spawn('git', ['check-ref-format', '--branch', publishBranch]));
+	} catch {
+		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
+	}
+	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
+	const remoteUrl = publishRemote.fetchUrl;
 
 	await task(
 		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
@@ -269,7 +270,6 @@ Pre-bundle these dependencies before publishing.`);
 			let success = false;
 
 			let commitSha: string;
-			const packageManager = await detectPackageManager(cwd, gitRootPath);
 			let primaryError: unknown;
 
 			try {
