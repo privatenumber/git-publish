@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
-import { discoverWorkspacePackages } from '../../src/publish-repository/workspace.ts';
+import { discoverWorkspacePackages, findWorkspacePackages } from '../../src/publish-repository/workspace.ts';
 
 describe('Workspace discovery', () => {
 	test('discovers npm workspace packages', async () => {
@@ -180,5 +180,16 @@ describe('Workspace discovery', () => {
 			message = (error as Error).message;
 		}
 		expect(message).toContain('No npm workspace found');
+	});
+
+	test('returns undefined for a package outside a workspace', async () => {
+		await using fixture = await createFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		});
+
+		expect(await findWorkspacePackages(fixture.path, 'npm')).toBeUndefined();
 	});
 });

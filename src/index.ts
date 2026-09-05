@@ -23,6 +23,7 @@ import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import {
 	formatClosurePlan,
+	formatWorkspacePeerDiagnostics,
 	planWorkspacePublication,
 	publishWorkspaceClosure,
 	type PackagePreparation,
@@ -98,13 +99,17 @@ const { stringify } = JSON;
 	}
 
 	const workspaceDependencies: string[] = [];
+	const {
+		branch, remote, fresh, dry,
+	} = argv.flags;
 	const closurePackageManager = await detectPackageManager(cwd, gitRootPath);
 	const closurePlan = await planWorkspacePublication({
 		cwd,
 		gitRootPath,
 		sourceName,
 		packageManager: closurePackageManager,
-	}).catch(() => undefined);
+		publishBranch: branch,
+	});
 	for (const [field, dependencies] of Object.entries({
 		dependencies: packageJson.dependencies,
 		optionalDependencies: packageJson.optionalDependencies,
@@ -126,10 +131,6 @@ ${workspaceDependencies.join('\n')}
 Pre-bundle these dependencies before publishing.`);
 	}
 
-	const {
-		branch, remote, fresh, dry,
-	} = argv.flags;
-
 	const publishBranch = branch || (
 		gitSubdirectory
 			? `npm/${sourceName}-${packageJson.name}`
@@ -144,15 +145,16 @@ Pre-bundle these dependencies before publishing.`);
 	const remoteUrl = publishRemote.fetchUrl;
 
 	if (closurePlan) {
-		if (branch) {
-			throw new Error('The --branch flag is not supported for workspace publication. Each package publishes to its own derived branch.');
-		}
 		if (publishRemote.pushUrls.length !== 1) {
 			throw new Error(`Workspace publication requires exactly one push URL, but remote ${stringify(remote)} has ${publishRemote.pushUrls.length}.`);
 		}
 
 		if (dry) {
 			console.log(formatClosurePlan(closurePlan, sourceName));
+		}
+		const peerDiagnostics = formatWorkspacePeerDiagnostics(closurePlan);
+		if (peerDiagnostics) {
+			console.warn(peerDiagnostics);
 		}
 
 		const packageCount = closurePlan.graph.nodes.length;

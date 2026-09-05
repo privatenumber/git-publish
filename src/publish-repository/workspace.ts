@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { getPackages, type Package } from '@manypkg/get-packages';
 import {
 	BunTool, NpmTool, PnpmTool, YarnTool, type Tool,
@@ -29,6 +30,24 @@ const workspaceTools: Record<PackageManager, Tool> = {
 	bun: BunTool,
 };
 
+const findWorkspaceRoot = async (
+	directory: string,
+	packageManager: PackageManager,
+): Promise<string | undefined> => {
+	const tool = workspaceTools[packageManager];
+	let candidate = path.resolve(directory);
+	while (true) {
+		if (await tool.isMonorepoRoot(candidate)) {
+			return candidate;
+		}
+		const parent = path.dirname(candidate);
+		if (parent === candidate) {
+			return undefined;
+		}
+		candidate = parent;
+	}
+};
+
 export const discoverWorkspacePackages = async (
 	directory: string,
 	packageManager: PackageManager,
@@ -49,4 +68,15 @@ export const discoverWorkspacePackages = async (
 			packageJson,
 		})),
 	};
+};
+
+export const findWorkspacePackages = async (
+	directory: string,
+	packageManager: PackageManager,
+): Promise<Workspace | undefined> => {
+	const rootDirectory = await findWorkspaceRoot(directory, packageManager);
+	if (!rootDirectory) {
+		return undefined;
+	}
+	return discoverWorkspacePackages(rootDirectory, packageManager);
 };

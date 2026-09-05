@@ -10,11 +10,11 @@ import { packPackage } from '../utils/pack-package.ts';
 import { extractTarball, type File } from '../utils/extract-tarball.ts';
 import { gitStatusTracked } from '../utils/git.ts';
 import {
-	createPublishGraph, resolvePackageDirectory, type PublishGraph, type PublishGraphNode,
+	createPublishGraph, findWorkspacePackageDirectory, type PublishGraph, type PublishGraphNode,
 } from './graph.ts';
 import { preparePublishBranch } from './prepare-branch.ts';
 import { runDependencyGraph, type GraphNode } from './run-graph.ts';
-import { discoverWorkspacePackages, type Workspace } from './workspace.ts';
+import { findWorkspacePackages, type Workspace } from './workspace.ts';
 import { createPublishRepository, type PublishRepository } from './create.ts';
 import type { PublishRemote } from './remote.ts';
 
@@ -50,41 +50,42 @@ export const planWorkspacePublication = async ({
 	gitRootPath,
 	sourceName,
 	packageManager,
+	publishBranch,
 }: {
 	cwd: string;
 	gitRootPath: string;
 	sourceName: string;
 	packageManager: PackageManager;
+	publishBranch?: string;
 }): Promise<ClosurePlan | undefined> => {
-	let workspace: Workspace;
-	try {
-		workspace = await discoverWorkspacePackages(cwd, packageManager);
-	} catch {
-		// Not a workspace context. The single-package flow applies, and it
-		// reports unreadable manifests through its own checks.
+	const workspace = await findWorkspacePackages(cwd, packageManager);
+	if (!workspace) {
 		return undefined;
 	}
-	let selected: string;
-	try {
-		selected = resolvePackageDirectory(workspace, cwd).name;
-	} catch {
-		// The working directory is not inside a workspace package (for
-		// example, the repository root). The single-package flow applies.
+	const selectedPackage = findWorkspacePackageDirectory(workspace, cwd);
+	if (!selectedPackage) {
 		return undefined;
 	}
+	const selected = selectedPackage.name;
 	const graph = createPublishGraph(workspace, selected);
 	const branches = new Map<string, string>();
+	const branchesByName = new Set<string>();
+	const selectedBranch = publishBranch ?? `npm/${sourceName}-${selected}`;
 	for (const node of graph.nodes) {
 		const relative = path.relative(gitRootPath, node.package.dir);
 		if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
 			throw new Error(`Workspace package ${JSON.stringify(node.key)} is outside the Git repository and cannot be published.`);
 		}
-		const branch = `npm/${sourceName}-${node.key}`;
+		const branch = node.key === selected ? selectedBranch : `${selectedBranch}-${node.key}`;
+		if (branchesByName.has(branch)) {
+			throw new Error(`Publish branch ${JSON.stringify(branch)} is assigned to more than one workspace package.`);
+		}
 		try {
 			await getStdout(spawn('git', ['check-ref-format', '--branch', branch]));
 		} catch {
 			throw new Error(`Invalid publish branch ${JSON.stringify(branch)}.`);
 		}
+		branchesByName.add(branch);
 		branches.set(node.key, branch);
 	}
 	return {
@@ -366,6 +367,20 @@ export const formatClosurePlan = (plan: ClosurePlan, sourceName: string): string
 		const branch = plan.branches.get(node.key)!;
 		const rewrites = node.dependencies.map(edge => `${edge.key} → ${plan.branches.get(edge.target)!}`).join(', ');
 		lines.push(`- ${node.key} → ${branch}${rewrites ? ` (dependencies: ${rewrites})` : ''}`);
+	}
+	return lines.join('\n');
+};
+
+export const formatWorkspacePeerDiagnostics = (plan: ClosurePlan): string | undefined => {
+	if (plan.graph.peers.length === 0) {
+		return undefined;
+	}
+	const lines = ['Internal workspace peer dependencies are not published. Consumers must provide them:'];
+	for (const peer of plan.graph.peers) {
+		const target = peer.target
+			? ` resolves to ${JSON.stringify(peer.target)}`
+			: ' does not resolve to a workspace package';
+		lines.push(`- ${JSON.stringify(peer.from)} declares ${JSON.stringify(peer.key)}: ${JSON.stringify(peer.specification)}${target}.`);
 	}
 	return lines.join('\n');
 };

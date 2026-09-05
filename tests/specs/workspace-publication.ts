@@ -13,7 +13,17 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
-	const createChainWorkspace = async (branchName: string, remote: string) => {
+	const createChainWorkspace = async (
+		branchName: string,
+		remote: string,
+		{
+			adapterSpecification = 'workspace:*',
+			peerSpecification,
+		}: {
+			adapterSpecification?: string;
+			peerSpecification?: string;
+		} = {},
+	) => {
 		const fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-monorepo',
@@ -44,8 +54,15 @@ describe('Workspace publication', async () => {
 						name: '@test/adapter',
 						version: '0.0.0',
 						dependencies: {
-							'@test/broker': 'workspace:*',
+							'@test/broker': adapterSpecification,
 						},
+						...(peerSpecification
+							? {
+								peerDependencies: {
+									'@test/core': peerSpecification,
+								},
+							}
+							: {}),
 					}, null, 2),
 					'index.js': 'module.exports = { broker: require("@test/broker") };',
 				},
@@ -58,15 +75,74 @@ describe('Workspace publication', async () => {
 		return fixture;
 	};
 
-	test('rejects --branch for workspace publication', async () => {
-		const branchName = 'test-workspace-branch-flag';
-		await using fixture = await createChainWorkspace(branchName, remoteFixture.path);
+	test('uses --branch for an independent workspace package', async () => {
+		await using branchRemoteFixture = await createGitFixture(undefined, ['--bare']);
+		const { git: branchRemoteGit } = branchRemoteFixture;
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-monorepo',
+				private: true,
+				workspaces: ['packages/*'],
+			}, null, 2),
+			'package-lock.json': '{}',
+			packages: {
+				adapter: {
+					'package.json': JSON.stringify({
+						name: '@test/adapter',
+						version: '0.0.0',
+					}, null, 2),
+					'index.js': 'module.exports = 1;',
+				},
+			},
+		}, ['--initial-branch=test-workspace-branch-flag']);
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', branchRemoteFixture.path]);
 
 		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), ['--branch', 'custom']);
 
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(await branchRemoteGit('show', ['custom:package.json'])).toContain('@test/adapter');
+	});
+
+	test('derives dependency branches from --branch', async () => {
+		await using branchRemoteFixture = await createGitFixture(undefined, ['--bare']);
+		const { git: branchRemoteGit } = branchRemoteFixture;
+		await using fixture = await createChainWorkspace('test-workspace-derived-branches', branchRemoteFixture.path);
+
+		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), ['--branch', 'custom']);
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		for (const branch of ['custom', 'custom-@test/broker', 'custom-@test/core']) {
+			expect(await branchRemoteGit('rev-parse', [branch])).toMatch(/^[0-9a-f]{40}$/);
+		}
+	});
+
+	test('reports workspace dependency planning errors', async () => {
+		const branchName = 'test-workspace-invalid-specification';
+		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
+			adapterSpecification: 'workspace:',
+		});
+
+		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'));
+
 		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-		expect(gitPublishProcess.stderr).toBe('Error: The --branch flag is not supported for workspace publication. Each package publishes to its own derived branch.');
-		expect(await remoteGit('for-each-ref')).toBe('');
+		expect(gitPublishProcess.stderr).toContain('Unsupported workspace specification "workspace:"');
+		expect(gitPublishProcess.stderr).not.toContain('Pre-bundle these dependencies');
+	});
+
+	test('warns when workspace peers are excluded from publication', async () => {
+		const branchName = 'test-workspace-peer-diagnostic';
+		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
+			peerSpecification: 'workspace:*',
+		});
+
+		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'));
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(gitPublishProcess.stderr).toContain('Internal workspace peer dependencies are not published');
+		expect(gitPublishProcess.stderr).toContain('"@test/adapter" declares "@test/core": "workspace:*" resolves to "@test/core"');
 	});
 
 	test('rejects multiple push URLs', async () => {
@@ -107,7 +183,7 @@ describe('Workspace publication', async () => {
 		expect(await rejectedRemoteGit('for-each-ref')).toBe('');
 	});
 
-	test('publishes the closure and installs the selected package', async () => {
+	test('publishes the closure and installs the selected package when pnpm allows Git subdependencies', async () => {
 		const branchName = 'test-workspace-acceptance';
 		const remoteUrl = `git@example.test:${remoteFixture.path}`;
 		const packageManagerRemoteUrl = `git+ssh://git@example.test/${remoteFixture.path}`;
@@ -135,8 +211,8 @@ exec sh -c "$*"
 		expect('exitCode' in gitPublishProcess).toBe(false);
 
 		const branches = {
-			core: `npm/${branchName}-@test/core`,
-			broker: `npm/${branchName}-@test/broker`,
+			core: `npm/${branchName}-@test/adapter-@test/core`,
+			broker: `npm/${branchName}-@test/adapter-@test/broker`,
 			adapter: `npm/${branchName}-@test/adapter`,
 		};
 		const shas = {
@@ -174,6 +250,7 @@ exec sh -c "$*"
 			env: {
 				PATH: process.env.PATH,
 				GIT_SSH_COMMAND: commandsFixture.getPath('upload-pack'),
+				// pnpm blocks Git dependencies of Git dependencies unless the consumer opts in.
 				PNPM_CONFIG_BLOCK_EXOTIC_SUBDEPS: 'false',
 			},
 		});

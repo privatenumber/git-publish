@@ -102,10 +102,10 @@ export const selectWorkspacePackage = (
 	return selected;
 };
 
-export const resolvePackageDirectory = (
+export const findWorkspacePackageDirectory = (
 	workspace: Workspace,
 	cwd: string,
-): WorkspacePackage => {
+): WorkspacePackage | undefined => {
 	const directory = path.resolve(cwd);
 	let selected: WorkspacePackage | undefined;
 	let selectedLength = -1;
@@ -119,8 +119,16 @@ export const resolvePackageDirectory = (
 			selectedLength = candidateDirectory.length;
 		}
 	}
+	return selected;
+};
+
+export const resolvePackageDirectory = (
+	workspace: Workspace,
+	cwd: string,
+): WorkspacePackage => {
+	const selected = findWorkspacePackageDirectory(workspace, cwd);
 	if (!selected) {
-		throw new Error(`Current directory ${directory} is not inside a workspace package.`);
+		throw new Error(`Current directory ${path.resolve(cwd)} is not inside a workspace package.`);
 	}
 	return selected;
 };
