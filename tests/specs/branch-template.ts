@@ -8,18 +8,18 @@ describe('Branch templates', () => {
 		expected,
 	} of [
 			{
-				title: 'replaces {gitRef}',
-				template: 'preview/{gitRef}',
+				title: 'replaces [gitRef]',
+				template: 'preview/[gitRef]',
 				expected: 'preview/feature/auth',
 			},
 			{
-				title: 'replaces {gitSha}',
-				template: 'preview/{gitSha}',
+				title: 'replaces [gitSha]',
+				template: 'preview/[gitSha]',
 				expected: 'preview/0123456789abcdef0123456789abcdef01234567',
 			},
 			{
 				title: 'replaces every occurrence of a placeholder',
-				template: 'preview/{package}/{package}',
+				template: 'preview/[package]/[package]',
 				expected: 'preview/@test/adapter/@test/adapter',
 			},
 		]) {
@@ -35,19 +35,19 @@ describe('Branch templates', () => {
 
 	test('rejects unknown placeholders', () => {
 		expect(() => renderPackageBranch({
-			template: 'preview/{version}',
+			template: 'preview/[version]',
 			gitRef: 'feature/auth',
 			gitSha: '0123456789abcdef0123456789abcdef01234567',
 			packageName: '@test/adapter',
-		})).toThrow('Unknown branch template placeholder "{version}". Supported placeholders: {gitRef}, {gitSha}, {package}.');
+		})).toThrow('Unknown branch template placeholder "[version]". Supported placeholders: [gitRef], [gitSha], [package].');
 	});
 
-	test('rejects {gitSha} without a source commit', () => {
+	test('rejects [gitSha] without a source commit', () => {
 		expect(() => renderPackageBranch({
-			template: 'preview/{gitSha}',
+			template: 'preview/[gitSha]',
 			gitRef: 'main',
 			gitSha: undefined,
 			packageName: 'test-package',
-		})).toThrow('Branch template "preview/{gitSha}" uses {gitSha}, but the source repository has no commit.');
+		})).toThrow('Branch template "preview/[gitSha]" uses [gitSha], but the source repository has no commit.');
 	});
 });

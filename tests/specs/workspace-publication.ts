@@ -151,7 +151,7 @@ describe('Workspace publication', async () => {
 		const { git: branchRemoteGit } = branchRemoteFixture;
 		await using fixture = await createChainWorkspace('test-workspace-derived-branches', branchRemoteFixture.path);
 
-		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), ['--branch', 'preview/{package}']);
+		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), ['--branch', 'preview/[package]']);
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		for (const branch of ['preview/@test/adapter', 'preview/@test/broker', 'preview/@test/core']) {
@@ -168,7 +168,7 @@ describe('Workspace publication', async () => {
 
 		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
 		expect(gitPublishProcess.stderr).toContain('renders "preview" for both "@test/core" and "@test/broker"');
-		expect(gitPublishProcess.stderr).toContain('Include {package}');
+		expect(gitPublishProcess.stderr).toContain('Include [package]');
 		expect(await collisionRemoteGit('for-each-ref')).toBe('');
 	});
 
@@ -179,12 +179,12 @@ describe('Workspace publication', async () => {
 	} of [
 			{
 				title: 'rejects unknown workspace branch template placeholders before creating refs',
-				template: 'preview/{version}',
-				error: 'Unknown branch template placeholder "{version}". Supported placeholders: {gitRef}, {gitSha}, {package}.',
+				template: 'preview/[version]',
+				error: 'Unknown branch template placeholder "[version]". Supported placeholders: [gitRef], [gitSha], [package].',
 			},
 			{
 				title: 'rejects invalid rendered workspace branches before creating refs',
-				template: 'preview/invalid..{package}',
+				template: 'preview/invalid..[package]',
 				error: 'Invalid publish branch "preview/invalid..@test/core".',
 			},
 		]) {
@@ -201,7 +201,7 @@ describe('Workspace publication', async () => {
 		});
 	}
 
-	test('rejects {gitSha} without a source commit before creating refs', async () => {
+	test('rejects [gitSha] without a source commit before creating refs', async () => {
 		await using sourceRemoteFixture = await createGitFixture(undefined, ['--bare']);
 		const { git: sourceRemoteGit } = sourceRemoteFixture;
 		await using fixture = await createGitFixture({
@@ -212,10 +212,10 @@ describe('Workspace publication', async () => {
 		}, ['--initial-branch=main']);
 		await fixture.git('remote', ['add', 'origin', sourceRemoteFixture.path]);
 
-		const gitPublishProcess = await gitPublish(fixture.path, ['--branch', 'preview/{gitSha}']);
+		const gitPublishProcess = await gitPublish(fixture.path, ['--branch', 'preview/[gitSha]']);
 
 		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-		expect(gitPublishProcess.stderr).toContain('Branch template "preview/{gitSha}" uses {gitSha}, but the source repository has no commit.');
+		expect(gitPublishProcess.stderr).toContain('Branch template "preview/[gitSha]" uses [gitSha], but the source repository has no commit.');
 		expect(await sourceRemoteGit('for-each-ref')).toBe('');
 	});
 
