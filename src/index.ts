@@ -12,18 +12,18 @@ import terminalLink from 'terminal-link';
 import packageMeta from '../package.json' with { type: 'json' };
 import { getStdout } from './utils/get-stdout.ts';
 import {
-	assertCleanTree, getCurrentSourceName, gitStatusTracked, getCurrentCommit,
+	assertCleanTree, getCurrentSourceName, getCurrentCommit,
 	getCurrentCommitId,
 } from './utils/git.ts';
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { packPackage } from './utils/pack-package.ts';
-import { extractTarball } from './utils/extract-tarball.ts';
 import { getGitHubInstallSpecifier, getGitHubRepositoryName } from './utils/github.ts';
 import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
 import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { renderPackageBranch } from './package-publication/branch.ts';
+import { preparePackagePublication } from './package-publication/prepare.ts';
 import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
 import { planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
@@ -328,27 +328,7 @@ Pre-bundle these dependencies before publishing.`);
 						throw error;
 					}
 
-					const publishFiles = await extractTarball(
-						tarballPath,
-						publishRepository.publishWorktreePath,
-					);
-					const publishedPackageJsonPath = path.join(
-						publishRepository.publishWorktreePath,
-						packageJsonPath,
-					);
-					const publishedPackageJson = await readJson(publishedPackageJsonPath) as PackageJson;
-					const { scripts } = publishedPackageJson;
-					if (scripts && ('prepare' in scripts || 'prepack' in scripts)) {
-						/*
-						 * npm reruns these hooks when installing Git dependencies:
-						 * https://github.com/npm/cli/blob/2a03860fcafe92b22770fc554b25994b29bacbdb/docs/lib/content/using-npm/scripts.md#L49-L65
-						 */
-						delete scripts.prepare;
-						delete scripts.prepack;
-						await fs.writeFile(publishedPackageJsonPath, stringify(publishedPackageJson, null, 2));
-					}
-
-					return publishFiles;
+					return tarballPath;
 				});
 
 				if (!dry) {
@@ -361,12 +341,19 @@ Pre-bundle these dependencies before publishing.`);
 						return;
 					}
 
-					await spawn('git', ['add', '-A'], publishRepository.gitOptions);
-
-					const publishFiles = await packTask.result;
-					if (!publishFiles || publishFiles.length === 0) {
-						throw new Error('No publish files found');
-					}
+					const preparation = await preparePackagePublication({
+						packageName: packageJson.name!,
+						packedTarball: packTask.result!,
+						publishWorktree: publishRepository.publishWorktreePath,
+						branch: publishBranch,
+						fetchUrl: remoteUrl,
+						sourceName,
+						sourceCommit: sourceCommit ?? undefined,
+						dependencyEdges: [],
+						dependencyPublications: new Map(),
+						gitOptions: publishRepository.gitOptions,
+					});
+					const publishFiles = preparation.files;
 
 					const totalSize = publishFiles.reduce((accumulator, { size }) => accumulator + size, 0);
 
@@ -374,33 +361,11 @@ Pre-bundle these dependencies before publishing.`);
 					console.log(publishFiles.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
 
-					const trackedFiles = await gitStatusTracked(publishRepository.gitOptions);
-					if (trackedFiles.length === 0) {
+					if (preparation.reusedExistingCommit) {
 						console.warn('⚠️  No new changes found to commit.');
-					} else {
-						let commitMessage = `Published from "${sourceName}"`;
-						if (sourceCommit) {
-							commitMessage += ` (${sourceCommit})`;
-						}
-
-						await spawn(
-							'git',
-							[
-								'-c',
-								'user.name=git-publish',
-								'-c',
-								'user.email=bot@git-publish',
-								'commit',
-								'--no-verify',
-								'-m',
-								commitMessage,
-								'--author=git-publish <bot@git-publish>',
-							],
-							publishRepository.gitOptions,
-						);
 					}
 
-					commitSha = (await getCurrentCommit(publishRepository.gitOptions))!;
+					commitSha = preparation.publication.commit;
 				});
 
 				if (!dry) {
