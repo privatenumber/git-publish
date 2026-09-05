@@ -19,6 +19,7 @@ import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { packPackage } from './utils/pack-package.ts';
 import { getGitHubInstallSpecifier, getGitHubRepositoryName } from './utils/github.ts';
+import { getErrorDetails } from './utils/error.ts';
 import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
 import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
@@ -262,6 +263,7 @@ Pre-bundle these dependencies before publishing.`);
 
 			let commitSha: string;
 			let primaryError: unknown;
+			let cleanupFailed = false;
 
 			try {
 				const creatingWorktrees = await task('Creating temporary repositories', async ({ setWarning }) => {
@@ -410,19 +412,19 @@ Pre-bundle these dependencies before publishing.`);
 
 					if (publishRepository) {
 						await publishRepository.dispose().catch((error: unknown) => {
-							if (error instanceof AggregateError) {
-								setWarning(error.errors.map(nested => (nested instanceof Error ? nested.message : String(nested))).join('\n'));
-							} else {
-								setWarning(error instanceof Error ? error.message : String(error));
-							}
+							cleanupFailed = true;
+							setWarning(getErrorDetails(error));
 							if (!primaryError) {
-								throw error;
+								return;
 							}
+							throw new AggregateError([primaryError, error], 'Failed to publish package.');
 						});
 					}
 				});
 
-				cleanup.clear();
+				if (!cleanupFailed) {
+					cleanup.clear();
+				}
 			}
 
 			if (success) {

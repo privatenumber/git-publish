@@ -5,6 +5,7 @@ import type { PublishRemote } from '../publish-repository/remote.ts';
 import type { PackagePreparation } from '../package-publication/prepare.ts';
 import { planPackagePublicationPush, pushPackagePublications } from '../package-publication/push.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
+import { getErrorDetails } from '../utils/error.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 import { processWorkspacePackage } from './process-package.ts';
 
@@ -115,11 +116,7 @@ export const publishWorkspaceClosure = async ({
 			await repository.dispose();
 		} catch (cleanupError) {
 			await task('Cleaning up temporary files', async ({ setWarning }) => {
-				if (cleanupError instanceof AggregateError) {
-					setWarning(cleanupError.errors.map(error => (error instanceof Error ? error.message : String(error))).join('\n'));
-					return;
-				}
-				setWarning(cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
+				setWarning(getErrorDetails(cleanupError));
 			});
 		}
 		return preparations;
