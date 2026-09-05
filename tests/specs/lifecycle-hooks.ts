@@ -309,5 +309,6 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 		expect('exitCode' in gitPublishProcess).toBe(true);
 		expect(gitPublishProcess.output).toContain(missingBinary);
 		expect(gitPublishProcess.output).toContain('Test cleanup failure at');
+		expect(gitPublishProcess.output).not.toContain('→ Install command');
 	});
 });

@@ -163,6 +163,7 @@ exit 1
 
 		const gitPublishProcess = await gitPublish(fixture.path, ['--dry'], { TMPDIR: temporaryFixture.path });
 		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(gitPublishProcess.stdout).not.toContain('→ Install command');
 		expect(await temporaryFixture.readdir('')).toStrictEqual([]);
 	});
 

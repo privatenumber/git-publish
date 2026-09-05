@@ -79,7 +79,10 @@ describe('Publish history', async () => {
 		const branchName = 'test-standalone-install-command';
 		const githubUrl = 'https://github.com/test/repository.git';
 		await using fixture = await createGitFixture({
-			'package.json': JSON.stringify({ name: 'test-pkg', version: '1.0.0' }, null, 2),
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}, null, 2),
 		}, [`--initial-branch=${branchName}`]);
 		await using configFixture = await createFixture();
 		const { git } = fixture;
