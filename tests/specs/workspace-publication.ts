@@ -124,13 +124,12 @@ describe('Workspace publication', async () => {
 		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'));
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
-		expect(gitPublishProcess.stdout).toContain(`Publishing "@test/adapter" from "${branchName}"`);
+		expect(gitPublishProcess.stdout).toContain(`Published "@test/adapter" from "${branchName}"`);
 		expect(gitPublishProcess.stdout).toContain('Required workspace dependencies');
 		expect(gitPublishProcess.stdout).toContain('@test/core');
 		expect(gitPublishProcess.stdout).toMatch(/@test\/core[^\n]*\(\d+(?:\.\d+)?(?:ms|s)\)/);
 		expect(gitPublishProcess.stdout).toContain('@test/broker');
 		expect(gitPublishProcess.stdout).toContain('@test/adapter');
-		expect(gitPublishProcess.stdout).toContain('Packing package and running lifecycle scripts');
 		expect(gitPublishProcess.stdout).toContain('Pushing 3 packages together');
 		expect(gitPublishProcess.stdout).not.toContain('workspace closure');
 		expect(gitPublishProcess.stdout.indexOf('→ Install command')).toBeGreaterThan(

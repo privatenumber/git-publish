@@ -1,15 +1,14 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import spawn, { SubprocessError } from 'nano-spawn';
-import task from 'tasuku';
 import { cli } from 'cleye';
 import type { PackageJson } from '@npmcli/package-json';
 import byteSize from 'byte-size';
 import { cyan, dim, lightBlue } from 'kolorist';
 import terminalLink from 'terminal-link';
 import packageMeta from '../package.json' with { type: 'json' };
+import task from './utils/task.ts';
 import { getStdout } from './utils/get-stdout.ts';
 import {
 	assertCleanTree, getCurrentSourceName, getCurrentCommit,
@@ -157,7 +156,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		const workspacePublish = await task(
 			`Publishing ${stringify(closurePlan.selected)} from ${stringify(sourceName)}`,
 			async ({
-				task: parentTask, setTitle, setStatus,
+				setTitle, setStatus,
 			}) => {
 				if (dry) {
 					setStatus('Dry run');
@@ -172,7 +171,6 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 					sourceName,
 					sourceCommit: sourceCommit ?? undefined,
 					fresh,
-					task: parentTask,
 				});
 
 				const selected = preparationsByName.get(closurePlan.selected)!;
@@ -195,11 +193,9 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			// Set exitCode (instead of process.exit) so tasuku can flush its final render.
 			process.exitCode = 1;
 		});
-		const selected = workspacePublish?.result;
+		const selected = workspacePublish;
 		if (selected) {
-			process.once('exit', () => {
-				fsSync.writeSync(process.stdout.fd, `\n→ Install command\n  ${formatInstallCommand(packageManager, remoteUrl, selected.publication, selected.publication.commit)}\n`);
-			});
+			console.log(`\n→ Install command\n  ${formatInstallCommand(packageManager, remoteUrl, selected.publication, selected.publication.commit)}`);
 		}
 		return;
 	}
@@ -248,7 +244,7 @@ Pre-bundle these dependencies before publishing.`);
 	await task(
 		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
 		async ({
-			task, setTitle, setStatus, setOutput,
+			setTitle, setStatus, setOutput,
 		}) => {
 			if (dry) {
 				setStatus('Dry run');
@@ -264,7 +260,7 @@ Pre-bundle these dependencies before publishing.`);
 			let cleanupFailed = false;
 
 			try {
-				const creatingWorktrees = await task('Creating temporary repositories', async ({ setWarning }) => {
+				const creatingWorktrees = task('Creating temporary repositories', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
@@ -276,11 +272,9 @@ Pre-bundle these dependencies before publishing.`);
 					});
 				});
 
-				if (!dry) {
-					creatingWorktrees.clear();
-				}
+				await (dry ? creatingWorktrees : creatingWorktrees.clear());
 
-				const checkoutBranch = await task('Loading publish branch', async ({ setWarning }) => {
+				const checkoutBranch = task('Loading publish branch', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
@@ -294,11 +288,9 @@ Pre-bundle these dependencies before publishing.`);
 					});
 				});
 
-				if (!dry) {
-					checkoutBranch.clear();
-				}
+				await (dry ? checkoutBranch : checkoutBranch.clear());
 
-				const packTask = await task('Packing package', async ({ streamPreview, setWarning }) => {
+				const packTask = task('Packing package', async ({ streamPreview, setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
@@ -331,11 +323,9 @@ Pre-bundle these dependencies before publishing.`);
 					return tarballPath;
 				});
 
-				if (!dry) {
-					packTask.clear();
-				}
+				const packedTarball = await (dry ? packTask : packTask.clear());
 
-				const commit = await task('Committing publish assets', async ({ setWarning }) => {
+				const commit = task('Committing publish assets', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
@@ -343,7 +333,7 @@ Pre-bundle these dependencies before publishing.`);
 
 					const preparation = await preparePackagePublication({
 						packageName: packageJson.name!,
-						packedTarball: packTask.result!,
+						packedTarball: packedTarball!,
 						publishWorktree: publishRepository.publishWorktreePath,
 						branch: publishBranch,
 						fetchUrl: remoteUrl,
@@ -367,11 +357,9 @@ Pre-bundle these dependencies before publishing.`);
 					publication = preparation.publication;
 				});
 
-				if (!dry) {
-					commit.clear();
-				}
+				await (dry ? commit : commit.clear());
 
-				const push = await task(
+				const push = task(
 					`Pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
 					async ({ setStatus, setWarning }) => {
 						if (dry) {
@@ -394,14 +382,12 @@ Pre-bundle these dependencies before publishing.`);
 					},
 				);
 
-				if (!dry) {
-					push.clear();
-				}
+				await (dry ? push : push.clear());
 			} catch (error) {
 				primaryError = error;
 				throw error;
 			} finally {
-				const cleanup = await task('Cleaning up', async ({ setWarning }) => {
+				const cleanup = task('Cleaning up', async ({ setWarning }) => {
 					if (dry) {
 						setWarning('');
 						return;
@@ -419,9 +405,7 @@ Pre-bundle these dependencies before publishing.`);
 					}
 				});
 
-				if (!cleanupFailed) {
-					cleanup.clear();
-				}
+				await (cleanupFailed ? cleanup : cleanup.clear());
 			}
 
 			if (success) {

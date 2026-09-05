@@ -1,5 +1,6 @@
 import { SubprocessError } from 'nano-spawn';
 import type { TaskInnerAPI } from 'tasuku';
+import task from '../utils/task.ts';
 import { createPublishRepository } from '../publish-repository/create.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
 import type { PackagePreparation } from '../package-publication/prepare.ts';
@@ -17,7 +18,6 @@ export const publishWorkspaceClosure = async ({
 	sourceName,
 	sourceCommit,
 	fresh,
-	task,
 }: {
 	plan: WorkspacePublicationPlan;
 	packageManager: PackageManager;
@@ -26,7 +26,6 @@ export const publishWorkspaceClosure = async ({
 	sourceName: string;
 	sourceCommit: string | undefined;
 	fresh: boolean | undefined;
-	task: TaskInnerAPI['task'];
 }): Promise<ReadonlyMap<string, PackagePreparation>> => {
 	const repository = await createPublishRepository({
 		sourceRepositoryPath: repositoryPath,
@@ -80,7 +79,7 @@ export const publishWorkspaceClosure = async ({
 		};
 		const selectedIndex = plan.nodes.findIndex(node => node.key === plan.selected);
 		if (selectedIndex > 0) {
-			await task('Required workspace dependencies', async ({ task: dependencyTask }) => dependencyTask.group(
+			await task('Required workspace dependencies', async () => task.group(
 				createTask => plan.nodes.slice(0, selectedIndex).map((_, index) => createTask(
 					plan.nodes[index]!.key,
 					async taskApi => processPackage(index, taskApi),

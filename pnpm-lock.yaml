@@ -24,8 +24,8 @@ importers:
         specifier: ^3.1.2
         version: 3.1.2
       tasuku:
-        specifier: ^2.3.0
-        version: 2.3.0
+        specifier: 3.0.0-beta.5
+        version: 3.0.0-beta.5
     devDependencies:
       '@types/gunzip-maybe':
         specifier: ^1.4.3
@@ -2869,8 +2869,9 @@ packages:
   tar-stream@3.1.8:
     resolution: {integrity: sha512-U6QpVRyCGHva435KoNWy9PRoi2IFYCgtEhq9nmrPPpbRacPs9IH4aJ3gbrFC8dPcXvdSZ4XXfXT5Fshbp2MtlQ==}
 
-  tasuku@2.3.0:
-    resolution: {integrity: sha512-9Jtk+XAnttslCw4i9RceSZGr2PT5TLn0vUyWnoP2SdlSYzkiYRY6kB5qnPi5IQ/Em8e4oBow1rpaA39iijTIrA==}
+  tasuku@3.0.0-beta.5:
+    resolution: {integrity: sha512-y5tQGUy1eeeF4f3EiKrhqiDdFVnBA9/aAw86fFft2xJeszfSdY6o845kvBRmJOY8PdAt8gEm4h9iYnMG6lRGsw==}
+    engines: {node: '>=20.20'}
 
   teex@1.0.1:
     resolution: {integrity: sha512-eYE6iEI62Ni1H8oIa7KlDU6uQBtqr4Eajni3wX7rpfXD8ysFx8z0+dri+KWEPWpBsxXfxu58x/0jvTVT1ekOSg==}
@@ -6220,7 +6221,7 @@ snapshots:
       - bare-buffer
       - react-native-b4a
 
-  tasuku@2.3.0: {}
+  tasuku@3.0.0-beta.5: {}
 
   teex@1.0.1:
     dependencies:
