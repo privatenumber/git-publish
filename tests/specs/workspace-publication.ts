@@ -113,6 +113,24 @@ describe('Workspace publication', async () => {
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(await branchRemoteGit('show', ['custom:package.json'])).toContain('@test/adapter');
+		expect(gitPublishProcess.stdout).not.toContain('Required workspace dependencies');
+		expect(gitPublishProcess.stdout).toContain('Pushing 1 package');
+	});
+
+	test('groups required dependencies under the selected package publication', async () => {
+		const branchName = 'test-workspace-progress';
+		await using fixture = await createChainWorkspace(branchName, remoteFixture.path);
+
+		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'));
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(gitPublishProcess.stdout).toContain(`Publishing "@test/adapter" from "${branchName}"`);
+		expect(gitPublishProcess.stdout).toContain('Required workspace dependencies');
+		expect(gitPublishProcess.stdout).toContain('@test/core');
+		expect(gitPublishProcess.stdout).toContain('@test/broker');
+		expect(gitPublishProcess.stdout).toContain('@test/adapter');
+		expect(gitPublishProcess.stdout).toContain('Pushing 3 packages together');
+		expect(gitPublishProcess.stdout).not.toContain('workspace closure');
 	});
 
 	test('ignores an outer workspace beyond the Git root', async () => {

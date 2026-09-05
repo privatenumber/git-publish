@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
+import { setTimeout } from 'node:timers/promises';
 import spawn, { SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
@@ -33,7 +34,7 @@ const formatWorkspacePublicationPlan = (
 	plan: WorkspacePublicationPlan,
 	sourceName: string,
 ): string => {
-	const lines = [`Publishing workspace closure from ${JSON.stringify(sourceName)}:`];
+	const lines = [`Publishing packages for ${JSON.stringify(plan.selected)} from ${JSON.stringify(sourceName)}:`];
 	const nodesByName = new Map(plan.nodes.map(node => [node.key, node]));
 	for (const node of plan.nodes) {
 		const rewrites = node.dependencies.map(edge => `${edge.key} → ${nodesByName.get(edge.target)!.branch}`).join(', ');
@@ -151,10 +152,11 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			console.warn(peerDiagnostics);
 		}
 
-		const packageCount = closurePlan.nodes.length;
-		await task(
-			`Publishing workspace closure ${stringify(closurePlan.selected)} from ${stringify(sourceName)} (${packageCount} packages)`,
-			async ({ setTitle, setStatus, setOutput }) => {
+		const workspacePublish = await task(
+			`Publishing ${stringify(closurePlan.selected)} from ${stringify(sourceName)}`,
+			async ({
+				task: parentTask, setTitle, setStatus,
+			}) => {
 				if (dry) {
 					setStatus('Dry run');
 					return;
@@ -168,27 +170,8 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 					sourceName,
 					sourceCommit: sourceCommit ?? undefined,
 					fresh,
-				}).catch((error: unknown) => {
-					if (error instanceof SubprocessError) {
-						const details = error.output || error.stderr;
-						if (details) {
-							console.error(details);
-						}
-					}
-					throw error;
+					task: parentTask,
 				});
-				const preparations = closurePlan.nodes.map(
-					node => preparationsByName.get(node.key)!,
-				);
-
-				for (const preparation of preparations) {
-					if (preparation.reusedExistingCommit) {
-						console.warn(`⚠️  No new changes found for ${preparation.publication.packageName}, keeping the existing publish branch.`);
-					}
-					console.log(lightBlue(`Publishing ${preparation.publication.packageName}`));
-					console.log(preparation.files.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
-					console.log(`\n${lightBlue('Total size')}`, byteSize(preparation.files.reduce((total, { size }) => total + size, 0)).toString());
-				}
 
 				const selected = preparationsByName.get(closurePlan.selected)!;
 				const repositoryName = getGitHubRepositoryName(remoteUrl);
@@ -197,15 +180,12 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 						`${cyan(selected.publication.branch)} ${dim(`(${selected.publication.commit})`)}`,
 						`https://github.com/${repositoryName}/tree/${selected.publication.branch!}`,
 					);
-					setTitle(`Successfully published ${packageCount} packages: ${successLink}`);
+					setTitle(`Published ${stringify(closurePlan.selected)} from ${stringify(sourceName)}: ${successLink}`);
 				} else {
-					setTitle(`Successfully published ${packageCount} packages`);
+					setTitle(`Published ${stringify(closurePlan.selected)} from ${stringify(sourceName)}`);
 				}
 
-				setOutput([
-					'Install command',
-					`${packageManager} i '${getGitHubInstallSpecifier(remoteUrl, selected.publication.commit) ?? selected.publication.installSpecifier}'`,
-				].join('\n'));
+				return selected;
 			},
 		).catch(() => {
 			// Any failure here is already rendered within the task tree above
@@ -213,6 +193,15 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			// Set exitCode (instead of process.exit) so tasuku can flush its final render.
 			process.exitCode = 1;
 		});
+		if (workspacePublish?.result) {
+			// Tasuku batches terminal renders for 33 ms. Wait for the completed task tree
+			// before writing the top-level install command outside that tree.
+			await setTimeout(34);
+			console.log([
+				'Install command',
+				`${packageManager} i '${getGitHubInstallSpecifier(remoteUrl, workspacePublish.result.publication.commit) ?? workspacePublish.result.publication.installSpecifier}'`,
+			].join('\n'));
+		}
 		return;
 	}
 
