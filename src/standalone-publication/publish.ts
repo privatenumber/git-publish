@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import spawn, { SubprocessError } from 'nano-spawn';
+import spawn from 'nano-spawn';
 import byteSize from 'byte-size';
 import { dim, lightBlue } from 'kolorist';
 import task from '../utils/task.ts';
@@ -8,7 +8,7 @@ import type { PublishRemote } from '../publish-repository/remote.ts';
 import { preparePublishBranch } from '../publish-repository/prepare-branch.ts';
 import { preparePackagePublication, type PackagePreparation } from '../package-publication/prepare.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
-import { getErrorDetails } from '../utils/error.ts';
+import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { packPackage } from '../utils/pack-package.ts';
 
 const { stringify } = JSON;
@@ -90,12 +90,7 @@ export const publishStandalonePackage = async ({
 					gitSubdirectory,
 				);
 			} catch (error) {
-				if (error instanceof SubprocessError) {
-					const details = error.output || error.stderr;
-					if (details) {
-						streamPreview.write(details);
-					}
-				}
+				writeSubprocessErrorOutput(streamPreview, error);
 				throw error;
 			}
 		});
