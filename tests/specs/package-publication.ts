@@ -50,8 +50,7 @@ describe('Package publication', () => {
 			publishWorktree: publishFixture.path,
 			branch: 'npm/adapter',
 			fetchUrl: '/remote.git',
-			sourceName: 'main',
-			sourceCommit: '1234567',
+			commitMessage: 'Published "@test/adapter" from "main" (1234567)',
 			dependencyEdges: [
 				{
 					key: 'core-alias',

@@ -56,6 +56,25 @@ describe('Publish history', async () => {
 		expect(await remoteGit('rev-parse', [`npm/${sourceCommit}`])).toBeTruthy();
 	});
 
+	test('preserves standalone publication commit messages', async () => {
+		const branchName = 'test-standalone-commit-message';
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}, null, 2),
+		}, [`--initial-branch=${branchName}`]);
+
+		const { git } = fixture;
+		await git('add', ['package.json']);
+		await git('commit', ['-m', 'Initial commit']);
+		const sourceCommit = await git('rev-parse', ['--short', 'HEAD']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
+
+		expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
+		expect(await remoteGit('show', ['--format=%s', '--no-patch', `npm/${branchName}`])).toBe(`Published from "${branchName}" (${sourceCommit})`);
+	});
+
 	test('preserves history', async () => {
 		const branchName = 'test-preserve-history';
 

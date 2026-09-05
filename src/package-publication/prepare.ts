@@ -50,8 +50,7 @@ export const preparePackagePublication = async ({
 	publishWorktree,
 	branch,
 	fetchUrl,
-	sourceName,
-	sourceCommit,
+	commitMessage,
 	dependencyEdges,
 	dependencyPublications,
 	gitOptions,
@@ -61,8 +60,7 @@ export const preparePackagePublication = async ({
 	publishWorktree: string;
 	branch: string;
 	fetchUrl: string;
-	sourceName: string;
-	sourceCommit: string | undefined;
+	commitMessage: string;
 	dependencyEdges: PackagePublicationDependency[];
 	dependencyPublications: ReadonlyMap<string, PackagePublication>;
 	gitOptions: SpawnOptions;
@@ -103,10 +101,6 @@ export const preparePackagePublication = async ({
 			files,
 			reusedExistingCommit: true,
 		};
-	}
-	let commitMessage = `Published ${JSON.stringify(packageName)} from ${JSON.stringify(sourceName)}`;
-	if (sourceCommit) {
-		commitMessage += ` (${sourceCommit})`;
 	}
 	await spawn('git', [
 		'-c',
