@@ -1,11 +1,11 @@
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
-import { discoverWorkspacePackages } from '../../src/publish-repository/workspace.ts';
+import { discoverWorkspacePackages } from '../../src/workspace-publication/discover.ts';
 import {
 	createPublishGraph,
 	resolvePackageDirectory,
 	selectWorkspacePackage,
-} from '../../src/publish-repository/graph.ts';
+} from '../../src/workspace-publication/graph.ts';
 
 const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 	await using fixture = await createFixture({

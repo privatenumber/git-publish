@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
-import { discoverWorkspacePackages, findWorkspacePackages } from '../../src/publish-repository/workspace.ts';
+import { discoverWorkspacePackages, findWorkspacePackages } from '../../src/workspace-publication/discover.ts';
 
 describe('Workspace discovery', () => {
 	test('discovers npm workspace packages', async () => {

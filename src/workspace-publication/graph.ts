@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { Workspace, WorkspacePackage } from './workspace.ts';
+import type { Workspace, WorkspacePackage } from './discover.ts';
 
 export type DependencyField = 'dependencies' | 'optionalDependencies';
 

@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'manten';
 import {
 	runDependencyGraph, type GraphNode,
-} from '../../src/publish-repository/run-graph.ts';
+} from '../../src/workspace-publication/run-graph.ts';
 
 describe('Dependency graph runner', () => {
 	test('relays dependency results up a linear chain', async () => {

@@ -21,15 +21,39 @@ import { getGitHubRepositoryName } from './utils/github.ts';
 import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
 import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
-import {
-	formatClosurePlan,
-	formatWorkspacePeerDiagnostics,
-	planWorkspacePublication,
-	publishWorkspaceClosure,
-	type PackagePreparation,
-} from './publish-repository/publish-closure.ts';
+import type { PackagePreparation } from './package-publication/prepare.ts';
+import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
+import { planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
+import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
 
 const { stringify } = JSON;
+
+const formatWorkspacePublicationPlan = (
+	plan: WorkspacePublicationPlan,
+	sourceName: string,
+): string => {
+	const lines = [`Publishing workspace closure from ${JSON.stringify(sourceName)}:`];
+	for (const node of plan.graph.nodes) {
+		const branch = plan.branches.get(node.key)!;
+		const rewrites = node.dependencies.map(edge => `${edge.key} → ${plan.branches.get(edge.target)!}`).join(', ');
+		lines.push(`- ${node.key} → ${branch}${rewrites ? ` (dependencies: ${rewrites})` : ''}`);
+	}
+	return lines.join('\n');
+};
+
+const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string | undefined => {
+	if (plan.graph.peers.length === 0) {
+		return undefined;
+	}
+	const lines = ['Internal workspace peer dependencies are not published. Consumers must provide them:'];
+	for (const peer of plan.graph.peers) {
+		const target = peer.target
+			? ` resolves to ${JSON.stringify(peer.target)}`
+			: ' does not resolve to a workspace package';
+		lines.push(`- ${JSON.stringify(peer.from)} declares ${JSON.stringify(peer.key)}: ${JSON.stringify(peer.specification)}${target}.`);
+	}
+	return lines.join('\n');
+};
 
 (async () => {
 	let usedDefaultRemote = false;
@@ -145,12 +169,10 @@ Pre-bundle these dependencies before publishing.`);
 	const remoteUrl = publishRemote.fetchUrl;
 
 	if (closurePlan) {
-		if (publishRemote.pushUrls.length !== 1) {
-			throw new Error(`Workspace publication requires exactly one push URL, but remote ${stringify(remote)} has ${publishRemote.pushUrls.length}.`);
-		}
+		assertAtomicPackagePublicationDestination(publishRemote.pushUrls);
 
 		if (dry) {
-			console.log(formatClosurePlan(closurePlan, sourceName));
+			console.log(formatWorkspacePublicationPlan(closurePlan, sourceName));
 		}
 		const peerDiagnostics = formatWorkspacePeerDiagnostics(closurePlan);
 		if (peerDiagnostics) {
@@ -170,7 +192,7 @@ Pre-bundle these dependencies before publishing.`);
 
 				try {
 					if (!dry) {
-						preparations = await publishWorkspaceClosure({
+						const result = await publishWorkspaceClosure({
 							plan: closurePlan,
 							packageManager: closurePackageManager,
 							sourceRepositoryPath: gitRootPath,
@@ -180,6 +202,7 @@ Pre-bundle these dependencies before publishing.`);
 							sourceCommit: sourceCommit ?? undefined,
 							fresh,
 						});
+						preparations = closurePlan.graph.nodes.map(node => result.preparations.get(node.key)!);
 						success = true;
 					}
 				} catch (error) {
@@ -193,6 +216,9 @@ Pre-bundle these dependencies before publishing.`);
 				}
 
 				for (const preparation of preparations) {
+					if (preparation.reusedExistingCommit) {
+						console.warn(`⚠️  No new changes found for ${preparation.publication.packageName}, keeping the existing publish branch.`);
+					}
 					console.log(lightBlue(`Publishing ${preparation.publication.packageName}`));
 					console.log(preparation.files.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
 					console.log(`\n${lightBlue('Total size')}`, byteSize(preparation.files.reduce((total, { size }) => total + size, 0)).toString());
