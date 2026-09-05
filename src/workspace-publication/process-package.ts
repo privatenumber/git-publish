@@ -1,6 +1,5 @@
 import path from 'node:path';
 import spawn from 'nano-spawn';
-import type { TaskInnerAPI } from 'tasuku';
 import {
 	preparePackagePublication, type PackagePreparation, type PackagePublication,
 } from '../package-publication/prepare.ts';
@@ -34,7 +33,7 @@ export const processWorkspacePackage = async ({
 	sourceCommit: string | undefined;
 	fresh: boolean | undefined;
 	preparations: ReadonlyMap<string, PackagePreparation>;
-	setStatus: TaskInnerAPI['setStatus'];
+	setStatus: (status?: string) => void;
 }): Promise<PackagePreparation> => {
 	setStatus('Preparing isolated checkout');
 	const packWorktreeOptions = {

@@ -89,30 +89,19 @@ export const preparePackagePublication = async ({
 	}
 	await spawn('git', ['add', '--all'], worktreeOptions);
 	const tracked = await gitStatusTracked(worktreeOptions);
-	if (tracked.length === 0) {
-		const commit = await getStdout(spawn('git', ['rev-parse', 'HEAD'], worktreeOptions));
-		return {
-			publication: {
-				packageName,
-				branch,
-				commit,
-				installSpecifier: toInstallSpecifier(fetchUrl, commit),
-			},
-			files,
-			reusedExistingCommit: true,
-		};
+	if (tracked.length > 0) {
+		await spawn('git', [
+			'-c',
+			'user.name=git-publish',
+			'-c',
+			'user.email=bot@git-publish',
+			'commit',
+			'--no-verify',
+			'-m',
+			commitMessage,
+			'--author=git-publish <bot@git-publish>',
+		], worktreeOptions);
 	}
-	await spawn('git', [
-		'-c',
-		'user.name=git-publish',
-		'-c',
-		'user.email=bot@git-publish',
-		'commit',
-		'--no-verify',
-		'-m',
-		commitMessage,
-		'--author=git-publish <bot@git-publish>',
-	], worktreeOptions);
 	const commit = await getStdout(spawn('git', ['rev-parse', 'HEAD'], worktreeOptions));
 	return {
 		publication: {
@@ -122,6 +111,6 @@ export const preparePackagePublication = async ({
 			installSpecifier: toInstallSpecifier(fetchUrl, commit),
 		},
 		files,
-		reusedExistingCommit: false,
+		reusedExistingCommit: tracked.length === 0,
 	};
 };
