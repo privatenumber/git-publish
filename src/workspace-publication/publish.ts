@@ -42,8 +42,10 @@ export const publishWorkspaceClosure = async ({
 		const processPackage = async (index: number, {
 			streamPreview,
 			setStatus,
+			startTime,
 		}: TaskInnerAPI) => {
 			const node = plan.nodes[index]!;
+			startTime();
 			try {
 				const preparation = await processWorkspacePackage({
 					index,
@@ -82,12 +84,11 @@ export const publishWorkspaceClosure = async ({
 					plan.nodes[index]!.key,
 					async taskApi => processPackage(index, taskApi),
 				)),
-			), { showTime: true });
+			));
 		}
 		await task(
 			plan.nodes[selectedIndex]!.key,
 			async taskApi => processPackage(selectedIndex, taskApi),
-			{ showTime: true },
 		);
 		const packageCount = plan.nodes.length;
 		await task(
@@ -114,7 +115,11 @@ export const publishWorkspaceClosure = async ({
 			await repository.dispose();
 		} catch (cleanupError) {
 			await task('Cleaning up temporary files', async ({ setWarning }) => {
-				setWarning(cleanupError instanceof Error ? cleanupError : String(cleanupError));
+				if (cleanupError instanceof AggregateError) {
+					setWarning(cleanupError.errors.map(error => (error instanceof Error ? error.message : String(error))).join('\n'));
+					return;
+				}
+				setWarning(cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
 			});
 		}
 		return preparations;

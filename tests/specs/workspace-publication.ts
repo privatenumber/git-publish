@@ -127,6 +127,7 @@ describe('Workspace publication', async () => {
 		expect(gitPublishProcess.stdout).toContain(`Publishing "@test/adapter" from "${branchName}"`);
 		expect(gitPublishProcess.stdout).toContain('Required workspace dependencies');
 		expect(gitPublishProcess.stdout).toContain('@test/core');
+		expect(gitPublishProcess.stdout).toMatch(/@test\/core[^\n]*\(\d+(?:\.\d+)?(?:ms|s)\)/);
 		expect(gitPublishProcess.stdout).toContain('@test/broker');
 		expect(gitPublishProcess.stdout).toContain('@test/adapter');
 		expect(gitPublishProcess.stdout).toContain('Packing package and running lifecycle scripts');
