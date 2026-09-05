@@ -18,13 +18,14 @@ import {
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { packPackage } from './utils/pack-package.ts';
-import { getGitHubInstallSpecifier, getGitHubRepositoryName } from './utils/github.ts';
+import { getGitHubRepositoryName } from './utils/github.ts';
+import { formatInstallCommand } from './utils/install-command.ts';
 import { getErrorDetails } from './utils/error.ts';
 import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
 import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { renderPackageBranch } from './package-publication/branch.ts';
-import { preparePackagePublication } from './package-publication/prepare.ts';
+import { preparePackagePublication, type PackagePublication } from './package-publication/prepare.ts';
 import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
 import { planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
@@ -194,13 +195,10 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			// Set exitCode (instead of process.exit) so tasuku can flush its final render.
 			process.exitCode = 1;
 		});
-		if (workspacePublish?.result) {
-			const installSpecifier = getGitHubInstallSpecifier(
-				remoteUrl,
-				workspacePublish.result.publication.commit,
-			) ?? workspacePublish.result.publication.installSpecifier;
+		const selected = workspacePublish?.result;
+		if (selected) {
 			process.once('exit', () => {
-				fsSync.writeSync(process.stdout.fd, `\n→ Install command\n  ${packageManager} i '${installSpecifier}'\n`);
+				fsSync.writeSync(process.stdout.fd, `\n→ Install command\n  ${formatInstallCommand(packageManager, remoteUrl, selected.publication, selected.publication.commit)}\n`);
 			});
 		}
 		return;
@@ -261,7 +259,7 @@ Pre-bundle these dependencies before publishing.`);
 
 			let success = false;
 
-			let commitSha: string;
+			let publication: PackagePublication;
 			let primaryError: unknown;
 			let cleanupFailed = false;
 
@@ -367,7 +365,7 @@ Pre-bundle these dependencies before publishing.`);
 						console.warn('⚠️  No new changes found to commit.');
 					}
 
-					commitSha = preparation.publication.commit;
+					publication = preparation.publication;
 				});
 
 				if (!dry) {
@@ -431,14 +429,14 @@ Pre-bundle these dependencies before publishing.`);
 				const repositoryName = getGitHubRepositoryName(remoteUrl);
 				if (repositoryName) {
 					const successLink = terminalLink(
-						`${cyan(publishBranch)} ${dim(`(${commitSha!})`)}`,
+						`${cyan(publishBranch)} ${dim(`(${publication!.commit})`)}`,
 						`https://github.com/${repositoryName}/tree/${publishBranch!}`,
 					);
 					setTitle(`Successfully published branch: ${successLink}`);
 
 					const output = [
 						'Install command',
-						`${packageManager} i '${getGitHubInstallSpecifier(remoteUrl, publishBranch) ?? `${remoteUrl}#${publishBranch}`}'`,
+						formatInstallCommand(packageManager, remoteUrl, publication!, publishBranch),
 					].join('\n');
 
 					setOutput(output);
