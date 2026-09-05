@@ -31,7 +31,6 @@ export const publishWorkspaceClosure = async ({
 		sourceRepositoryPath: repositoryPath,
 		publishRemote,
 	});
-	let primaryError: unknown;
 	try {
 		const pushPlan = await planPackagePublicationPush(
 			repository,
@@ -111,22 +110,18 @@ export const publishWorkspaceClosure = async ({
 				}
 			},
 		);
-		try {
-			await repository.dispose();
-		} catch (cleanupError) {
-			await task('Cleaning up temporary files', async ({ setWarning }) => {
-				setWarning(getErrorDetails(cleanupError));
-			});
-		}
 		return preparations;
-	} catch (error) {
-		primaryError = error;
-		throw error;
 	} finally {
-		if (primaryError) {
-			await repository.dispose().catch((cleanupError: unknown) => {
-				throw new AggregateError([primaryError, cleanupError], 'Failed to publish workspace packages.');
-			});
+		const cleanup = task('Cleaning up temporary files', async ({ setWarning }) => {
+			try {
+				await repository.dispose();
+			} catch (error) {
+				setWarning(getErrorDetails(error));
+			}
+		});
+		await cleanup;
+		if (!cleanup.warning) {
+			cleanup.clear();
 		}
 	}
 };

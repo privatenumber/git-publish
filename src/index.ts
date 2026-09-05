@@ -1,11 +1,9 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
-import spawn, { SubprocessError } from 'nano-spawn';
+import spawn from 'nano-spawn';
 import { cli } from 'cleye';
 import type { PackageJson } from '@npmcli/package-json';
-import byteSize from 'byte-size';
-import { cyan, dim, lightBlue } from 'kolorist';
+import { cyan, dim } from 'kolorist';
 import terminalLink from 'terminal-link';
 import packageMeta from '../package.json' with { type: 'json' };
 import task from './utils/task.ts';
@@ -16,18 +14,13 @@ import {
 } from './utils/git.ts';
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
-import { packPackage } from './utils/pack-package.ts';
-import { getGitHubRepositoryName } from './utils/github.ts';
-import { formatInstallCommand } from './utils/install-command.ts';
-import { getErrorDetails } from './utils/error.ts';
-import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
-import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
+import { getGitHubInstallSpecifier, getGitHubRepositoryName } from './utils/github.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { renderPackageBranch } from './package-publication/branch.ts';
-import { preparePackagePublication, type PackagePublication } from './package-publication/prepare.ts';
 import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
 import { planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
+import { publishStandalonePackage } from './standalone-publication/publish.ts';
 
 const { stringify } = JSON;
 
@@ -139,6 +132,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		packageManager,
 		publishBranch: branch,
 	});
+	let installSpecifier: string | undefined;
 
 	if (closurePlan) {
 		const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
@@ -195,243 +189,90 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		});
 		const selected = workspacePublish;
 		if (selected) {
-			console.log(`\n→ Install command\n  ${formatInstallCommand(packageManager, remoteUrl, selected.publication, selected.publication.commit)}`);
+			installSpecifier = getGitHubInstallSpecifier(remoteUrl, selected.publication.commit)
+				?? selected.publication.installSpecifier;
 		}
-		return;
-	}
-
-	const workspaceDependencies: string[] = [];
-	for (const [field, dependencies] of Object.entries({
-		dependencies: packageJson.dependencies,
-		optionalDependencies: packageJson.optionalDependencies,
-	})) {
-		if (!dependencies) {
-			continue;
-		}
-
-		for (const [name, specification] of Object.entries(dependencies)) {
-			if (specification?.startsWith('workspace:')) {
-				workspaceDependencies.push(`- ${field}.${name}: ${specification}`);
-			}
-		}
-	}
-	if (workspaceDependencies.length > 0) {
-		throw new Error(`Cannot publish packages with workspace dependencies:
-${workspaceDependencies.join('\n')}
-Pre-bundle these dependencies before publishing.`);
-	}
-
-	const gitSubdirectory = path.relative(gitRootPath, cwd);
-	const defaultPublishBranch = gitSubdirectory
-		? `npm/${sourceName}-${packageJson.name}`
-		: `npm/${sourceName}`;
-	const publishBranch = branch
-		? renderPackageBranch({
-			template: branch,
-			gitRef: sourceName,
-			gitSha: sourceCommitId,
-			packageName: packageJson.name!,
-		})
-		: defaultPublishBranch;
-	try {
-		await getStdout(spawn('git', ['check-ref-format', '--branch', publishBranch]));
-	} catch {
-		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
-	}
-	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
-	const remoteUrl = publishRemote.fetchUrl;
-
-	await task(
-		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
-		async ({
-			setTitle, setStatus, setOutput,
-		}) => {
-			if (dry) {
-				setStatus('Dry run');
+	} else {
+		const workspaceDependencies: string[] = [];
+		for (const [field, dependencies] of Object.entries({
+			dependencies: packageJson.dependencies,
+			optionalDependencies: packageJson.optionalDependencies,
+		})) {
+			if (!dependencies) {
+				continue;
 			}
 
-			const localTemporaryBranch = `git-publish-${randomBytes(16).toString('hex')}`;
-			let publishRepository: PublishRepository;
-
-			let success = false;
-
-			let publication: PackagePublication;
-			let primaryError: unknown;
-			let cleanupFailed = false;
-
-			try {
-				const creatingWorktrees = task('Creating temporary repositories', async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					publishRepository = await createPublishRepository({
-						sourceRepositoryPath: gitRootPath,
-						publishRemote,
-					});
-				});
-
-				await (dry ? creatingWorktrees : creatingWorktrees.clear());
-
-				const checkoutBranch = task('Loading publish branch', async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					await preparePublishBranch({
-						repository: publishRepository,
-						publishBranch,
-						localBranch: localTemporaryBranch,
-						fresh,
-					});
-				});
-
-				await (dry ? checkoutBranch : checkoutBranch.clear());
-
-				const packTask = task('Packing package', async ({ streamPreview, setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					let tarballPath;
-					try {
-						tarballPath = await packPackage(
-							packageManager,
-							publishRepository.packWorktreePath,
-							publishRepository.packTemporaryDirectory,
-							cwd,
-							gitRootPath,
-							gitSubdirectory,
-						);
-					} catch (error) {
-						// The pack subprocess (e.g. a failing prepack/build script) captures
-						// the real reason in its output, but nano-spawn's error.message only
-						// says "Command failed with exit code N". Surface the output inline
-						// under this task so the failure is diagnosable.
-						if (error instanceof SubprocessError) {
-							const details = error.output || error.stderr;
-							if (details) {
-								streamPreview.write(details);
-							}
-						}
-						throw error;
-					}
-
-					return tarballPath;
-				});
-
-				const packedTarball = await (dry ? packTask : packTask.clear());
-
-				const commit = task('Committing publish assets', async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					const preparation = await preparePackagePublication({
-						packageName: packageJson.name!,
-						packedTarball: packedTarball!,
-						publishWorktree: publishRepository.publishWorktreePath,
-						branch: publishBranch,
-						fetchUrl: remoteUrl,
-						commitMessage: `Published from ${stringify(sourceName)}${sourceCommit ? ` (${sourceCommit})` : ''}`,
-						dependencyEdges: [],
-						dependencyPublications: new Map(),
-						gitOptions: publishRepository.gitOptions,
-					});
-					const publishFiles = preparation.files;
-
-					const totalSize = publishFiles.reduce((accumulator, { size }) => accumulator + size, 0);
-
-					console.log(lightBlue(`Publishing ${packageJson.name}`));
-					console.log(publishFiles.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
-					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
-
-					if (preparation.reusedExistingCommit) {
-						console.warn('⚠️  No new changes found to commit.');
-					}
-
-					publication = preparation.publication;
-				});
-
-				await (dry ? commit : commit.clear());
-
-				const push = task(
-					`Pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
-					async ({ setStatus, setWarning }) => {
-						if (dry) {
-							setWarning('');
-							return;
-						}
-
-						const { pushRemoteNames } = publishRepository;
-						for (const [index, pushRemoteName] of pushRemoteNames.entries()) {
-							setStatus(`${index + 1} of ${pushRemoteNames.length}`);
-							await spawn('git', [
-								'push',
-								...(fresh ? ['--force'] : []),
-								'--no-verify',
-								pushRemoteName,
-								`HEAD:${publishBranch}`,
-							], publishRepository.gitOptions);
-						}
-						success = true;
-					},
-				);
-
-				await (dry ? push : push.clear());
-			} catch (error) {
-				primaryError = error;
-				throw error;
-			} finally {
-				const cleanup = task('Cleaning up', async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					if (publishRepository) {
-						await publishRepository.dispose().catch((error: unknown) => {
-							cleanupFailed = true;
-							setWarning(getErrorDetails(error));
-							if (!primaryError) {
-								return;
-							}
-							throw new AggregateError([primaryError, error], 'Failed to publish package.');
-						});
-					}
-				});
-
-				await (cleanupFailed ? cleanup : cleanup.clear());
-			}
-
-			if (success) {
-				const repositoryName = getGitHubRepositoryName(remoteUrl);
-				if (repositoryName) {
-					const successLink = terminalLink(
-						`${cyan(publishBranch)} ${dim(`(${publication!.commit})`)}`,
-						`https://github.com/${repositoryName}/tree/${publishBranch!}`,
-					);
-					setTitle(`Successfully published branch: ${successLink}`);
-
-					const output = [
-						'Install command',
-						formatInstallCommand(packageManager, remoteUrl, publication!, publishBranch),
-					].join('\n');
-
-					setOutput(output);
+			for (const [name, specification] of Object.entries(dependencies)) {
+				if (specification?.startsWith('workspace:')) {
+					workspaceDependencies.push(`- ${field}.${name}: ${specification}`);
 				}
 			}
-		},
-	).catch(() => {
-		// Any failure here is already rendered within the task tree above
-		// (including the pack subprocess output), so exit without re-printing it.
-		// Set exitCode (instead of process.exit) so tasuku can flush its final render.
-		process.exitCode = 1;
-	});
+		}
+		if (workspaceDependencies.length > 0) {
+			throw new Error(`Cannot publish packages with workspace dependencies:
+${workspaceDependencies.join('\n')}
+Pre-bundle these dependencies before publishing.`);
+		}
+
+		const gitSubdirectory = path.relative(gitRootPath, cwd);
+		const defaultPublishBranch = gitSubdirectory
+			? `npm/${sourceName}-${packageJson.name}`
+			: `npm/${sourceName}`;
+		const publishBranch = branch
+			? renderPackageBranch({
+				template: branch,
+				gitRef: sourceName,
+				gitSha: sourceCommitId,
+				packageName: packageJson.name!,
+			})
+			: defaultPublishBranch;
+		try {
+			await getStdout(spawn('git', ['check-ref-format', '--branch', publishBranch]));
+		} catch {
+			throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
+		}
+		const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
+		const remoteUrl = publishRemote.fetchUrl;
+
+		const preparation = await task(
+			`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
+			async ({ setStatus, setTitle }) => {
+				if (dry) {
+					setStatus('Dry run');
+				}
+				const result = await publishStandalonePackage({
+					packageName: packageJson.name!,
+					packageManager,
+					packagePath: cwd,
+					repositoryPath: gitRootPath,
+					gitSubdirectory,
+					publishBranch,
+					publishRemote,
+					remoteName: remote,
+					sourceName,
+					sourceCommit: sourceCommit ?? undefined,
+					fresh,
+					dry,
+				});
+				const repositoryName = getGitHubRepositoryName(remoteUrl);
+				if (result && repositoryName) {
+					setTitle(`Successfully published branch: ${terminalLink(
+						`${publishBranch} ${dim(`(${result.publication.commit})`)}`,
+						`https://github.com/${repositoryName}/tree/${publishBranch}`,
+					)}`);
+				}
+				return result;
+			},
+		).catch(() => {
+			process.exitCode = 1;
+		});
+		if (preparation && getGitHubRepositoryName(remoteUrl)) {
+			installSpecifier = getGitHubInstallSpecifier(remoteUrl, publishBranch);
+		}
+	}
+	if (installSpecifier) {
+		console.log(`\n→ Install command\n  ${packageManager} i '${installSpecifier}'`);
+	}
 })().catch((error) => {
 	console.error('Error:', error.message);
 	process.exit(1);

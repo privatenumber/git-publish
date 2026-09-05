@@ -7,6 +7,7 @@ import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
 import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
+import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
 
 describe('Workspace publication', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
@@ -135,6 +136,22 @@ describe('Workspace publication', async () => {
 		expect(gitPublishProcess.stdout.indexOf('→ Install command')).toBeGreaterThan(
 			gitPublishProcess.stdout.lastIndexOf(`Published "@test/adapter" from "${branchName}"`),
 		);
+		expect(gitPublishProcess.stdout.split('→ Install command')).toHaveLength(2);
+	});
+
+	test('retains publication success when cleanup fails', async () => {
+		const branchName = 'test-workspace-cleanup-failure';
+		await using fixture = await createChainWorkspace(branchName, remoteFixture.path);
+		await using hookFixture = await createFixture();
+		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), [], {
+			NODE_OPTIONS: await createCleanupFailureHook(hookFixture),
+		});
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(await remoteGit('rev-parse', [`npm/${branchName}-@test/adapter`])).toBeTruthy();
+		expect(gitPublishProcess.stdout).toContain(`Published "@test/adapter" from "${branchName}"`);
+		expect(gitPublishProcess.stdout).toContain('Test cleanup failure at');
+		expect(gitPublishProcess.stdout).toContain('→ Install command');
 	});
 
 	test('ignores an outer workspace beyond the Git root', async () => {
