@@ -6,7 +6,6 @@ describe('git-publish', () => {
 	import('./specs/package-publication.ts');
 	import('./specs/branch-template.ts');
 	import('./specs/standalone-branch-template.ts');
-	import('./specs/run-graph.ts');
 	import('./specs/publish-graph.ts');
 	import('./specs/github-remotes.ts');
 	import('./specs/git-config.ts');

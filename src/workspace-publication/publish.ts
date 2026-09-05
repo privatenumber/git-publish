@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
-import { createPublishRepository, type PublishRepository } from '../publish-repository/create.ts';
+import spawn from 'nano-spawn';
+import { createPublishRepository } from '../publish-repository/create.ts';
 import { preparePublishBranch } from '../publish-repository/prepare-branch.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
 import {
@@ -9,67 +9,7 @@ import {
 import { planPackagePublicationPush, pushPackagePublications } from '../package-publication/push.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { packPackage } from '../utils/pack-package.ts';
-import type { PublishGraphNode } from './graph.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
-import { runDependencyGraph, type GraphNode } from './run-graph.ts';
-
-type WorkspacePublicationTask = {
-	node: PublishGraphNode;
-	tarball: string;
-	worktree: string;
-	branch: string;
-};
-
-const prepareWorkspaceBranches = async ({
-	plan,
-	repository,
-	fresh,
-}: {
-	plan: WorkspacePublicationPlan;
-	repository: PublishRepository;
-	fresh: boolean | undefined;
-}): Promise<Map<string, string>> => {
-	const worktrees = new Map<string, string>();
-	plan.graph.nodes.forEach((node, index) => {
-		worktrees.set(node.key, path.join(repository.temporaryDirectory, `publish-worktree-${index}`));
-	});
-	for (const node of plan.graph.nodes) {
-		await preparePublishBranch({
-			repository,
-			publishBranch: plan.branches.get(node.key)!,
-			localBranch: `git-publish-${randomBytes(16).toString('hex')}`,
-			fresh,
-			worktreePath: worktrees.get(node.key)!,
-		});
-	}
-	return worktrees;
-};
-
-const packWorkspacePackages = async ({
-	plan,
-	packageManager,
-	repository,
-	repositoryPath,
-}: {
-	plan: WorkspacePublicationPlan;
-	packageManager: PackageManager;
-	repository: PublishRepository;
-	repositoryPath: string;
-}): Promise<Map<string, string>> => {
-	const tarballs = new Map<string, string>();
-	for (const [index, node] of plan.graph.nodes.entries()) {
-		const tarball = await packPackage(
-			packageManager,
-			repository.packWorktreePath,
-			path.join(repository.packTemporaryDirectory, String(index)),
-			node.package.dir,
-			repositoryPath,
-			path.relative(repositoryPath, node.package.dir),
-		);
-		tarballs.set(node.key, tarball);
-	}
-	return tarballs;
-};
 
 export const publishWorkspaceClosure = async ({
 	plan,
@@ -94,49 +34,51 @@ export const publishWorkspaceClosure = async ({
 	});
 	let primaryError: unknown;
 	try {
-		const pushPlan = await planPackagePublicationPush(repository, fresh);
-		const worktrees = await prepareWorkspaceBranches({
-			plan,
+		const pushPlan = await planPackagePublicationPush(
 			repository,
 			fresh,
-		});
-		const tarballs = await packWorkspacePackages({
-			plan,
-			packageManager,
-			repository,
-			repositoryPath,
-		});
-		const nodes: GraphNode<string, WorkspacePublicationTask>[] = plan.graph.nodes.map(node => ({
-			key: node.key,
-			value: {
-				node,
-				tarball: tarballs.get(node.key)!,
-				worktree: worktrees.get(node.key)!,
-				branch: plan.branches.get(node.key)!,
-			},
-			dependencies: node.dependencies.map(edge => edge.target),
-		}));
-		const preparations = await runDependencyGraph(nodes, async (
-			{ key, value },
-			dependencyPreparations,
-		): Promise<PackagePreparation> => {
+			plan.nodes.map(node => node.branch),
+		);
+		const preparations = new Map<string, PackagePreparation>();
+		const packWorktreeOptions = {
+			cwd: repository.packWorktreePath,
+			env: repository.gitOptions.env,
+		};
+		for (const [index, node] of plan.nodes.entries()) {
+			await spawn('git', ['reset', '--hard', 'HEAD'], packWorktreeOptions);
+			await spawn('git', ['clean', '-fdx'], packWorktreeOptions);
+			const tarball = await packPackage(
+				packageManager,
+				repository.packWorktreePath,
+				path.join(repository.packTemporaryDirectory, String(index)),
+				node.package.dir,
+				repositoryPath,
+				path.relative(repositoryPath, node.package.dir),
+			);
+			await preparePublishBranch({
+				repository,
+				publishBranch: node.branch,
+				localBranch: `git-publish-${index}`,
+				fresh,
+			});
 			const dependencyPublications = new Map<string, PackagePublication>();
-			for (const [name, preparation] of dependencyPreparations) {
-				dependencyPublications.set(name, preparation.publication);
+			for (const edge of node.dependencies) {
+				dependencyPublications.set(edge.target, preparations.get(edge.target)!.publication);
 			}
-			return preparePackagePublication({
-				packageName: key,
-				packedTarball: value.tarball,
-				publishWorktree: value.worktree,
-				branch: value.branch,
+			const preparation = await preparePackagePublication({
+				packageName: node.key,
+				packedTarball: tarball,
+				publishWorktree: repository.publishWorktreePath,
+				branch: node.branch,
 				fetchUrl: publishRemote.fetchUrl,
 				sourceName,
 				sourceCommit,
-				dependencyEdges: value.node.dependencies,
+				dependencyEdges: node.dependencies,
 				dependencyPublications,
 				gitOptions: repository.gitOptions,
 			});
-		});
+			preparations.set(node.key, preparation);
+		}
 		await pushPackagePublications({
 			repository,
 			publications: [...preparations.values()].map(preparation => preparation.publication),

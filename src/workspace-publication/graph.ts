@@ -7,7 +7,6 @@ export type PublishGraphEdge = {
 	key: string;
 	field: DependencyField;
 	target: string;
-	specification: string;
 };
 
 export type PublishGraphNode = {
@@ -24,7 +23,6 @@ export type WorkspacePeer = {
 };
 
 export type PublishGraph = {
-	rootDir: string;
 	selected: string;
 	nodes: PublishGraphNode[];
 	peers: WorkspacePeer[];
@@ -206,7 +204,6 @@ export const createPublishGraph = (
 					key,
 					field,
 					target,
-					specification,
 				});
 				visit(byName.get(target)![0]);
 			}
@@ -245,7 +242,6 @@ export const createPublishGraph = (
 	visit(selectWorkspacePackage(workspace, selected));
 
 	return {
-		rootDir: workspace.rootDir,
 		selected,
 		nodes: [...nodes.values()],
 		peers,

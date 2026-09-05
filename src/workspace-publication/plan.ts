@@ -4,14 +4,18 @@ import { renderPackageBranch } from '../package-publication/branch.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getStdout } from '../utils/get-stdout.ts';
 import {
-	createPublishGraph, findWorkspacePackageDirectory, type PublishGraph,
+	createPublishGraph, findWorkspacePackageDirectory, type PublishGraphNode, type WorkspacePeer,
 } from './graph.ts';
-import { findWorkspacePackages, type Workspace } from './discover.ts';
+import { findWorkspacePackages } from './discover.ts';
+
+export type WorkspacePublicationNode = PublishGraphNode & {
+	branch: string;
+};
 
 export type WorkspacePublicationPlan = {
-	workspace: Workspace;
-	graph: PublishGraph;
-	branches: ReadonlyMap<string, string>;
+	selected: string;
+	nodes: WorkspacePublicationNode[];
+	peers: WorkspacePeer[];
 };
 
 export const planWorkspacePublication = async ({
@@ -39,7 +43,7 @@ export const planWorkspacePublication = async ({
 	}
 	const selected = selectedPackage.name;
 	const graph = createPublishGraph(workspace, selected);
-	const branches = new Map<string, string>();
+	const nodes: WorkspacePublicationNode[] = [];
 	const branchTemplate = publishBranch ?? 'npm/{gitRef}-{package}';
 	const packagesByBranch = new Map<string, string>();
 	for (const node of graph.nodes) {
@@ -63,11 +67,14 @@ export const planWorkspacePublication = async ({
 			throw new Error(`Workspace branch template ${JSON.stringify(branchTemplate)} renders ${JSON.stringify(branch)} for both ${JSON.stringify(otherPackage)} and ${JSON.stringify(node.key)}. Include {package} to publish each package to a unique branch.`);
 		}
 		packagesByBranch.set(branch, node.key);
-		branches.set(node.key, branch);
+		nodes.push({
+			...node,
+			branch,
+		});
 	}
 	return {
-		workspace,
-		graph,
-		branches,
+		selected,
+		nodes,
+		peers: graph.peers,
 	};
 };

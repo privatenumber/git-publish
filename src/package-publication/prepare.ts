@@ -14,7 +14,6 @@ export type PackagePublication = {
 	branch: string;
 	commit: string;
 	installSpecifier: string;
-	refspec: string;
 };
 
 export type PackagePreparation = {
@@ -100,7 +99,6 @@ export const preparePackagePublication = async ({
 				branch,
 				commit,
 				installSpecifier: toInstallSpecifier(fetchUrl, commit),
-				refspec: `${commit}:refs/heads/${branch}`,
 			},
 			files,
 			reusedExistingCommit: true,
@@ -128,7 +126,6 @@ export const preparePackagePublication = async ({
 			branch,
 			commit,
 			installSpecifier: toInstallSpecifier(fetchUrl, commit),
-			refspec: `${commit}:refs/heads/${branch}`,
 		},
 		files,
 		reusedExistingCommit: false,

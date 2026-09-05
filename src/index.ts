@@ -34,20 +34,20 @@ const formatWorkspacePublicationPlan = (
 	sourceName: string,
 ): string => {
 	const lines = [`Publishing workspace closure from ${JSON.stringify(sourceName)}:`];
-	for (const node of plan.graph.nodes) {
-		const branch = plan.branches.get(node.key)!;
-		const rewrites = node.dependencies.map(edge => `${edge.key} → ${plan.branches.get(edge.target)!}`).join(', ');
-		lines.push(`- ${node.key} → ${branch}${rewrites ? ` (dependencies: ${rewrites})` : ''}`);
+	const nodesByName = new Map(plan.nodes.map(node => [node.key, node]));
+	for (const node of plan.nodes) {
+		const rewrites = node.dependencies.map(edge => `${edge.key} → ${nodesByName.get(edge.target)!.branch}`).join(', ');
+		lines.push(`- ${node.key} → ${node.branch}${rewrites ? ` (dependencies: ${rewrites})` : ''}`);
 	}
 	return lines.join('\n');
 };
 
 const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string | undefined => {
-	if (plan.graph.peers.length === 0) {
+	if (plan.peers.length === 0) {
 		return undefined;
 	}
 	const lines = ['Internal workspace peer dependencies are not published. Consumers must provide them:'];
-	for (const peer of plan.graph.peers) {
+	for (const peer of plan.peers) {
 		const target = peer.target
 			? ` resolves to ${JSON.stringify(peer.target)}`
 			: ' does not resolve to a workspace package';
@@ -109,7 +109,6 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	const gitRootPath = await getStdout(spawn('git', ['rev-parse', '--show-toplevel']));
 	const sourceName = await getCurrentSourceName();
 	const sourceCommit = await getCurrentCommit();
-	const sourceCommitId = await getCurrentCommitId();
 	const packageJsonPath = 'package.json';
 
 	try {
@@ -126,6 +125,9 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	const {
 		branch, remote, fresh, dry,
 	} = argv.flags;
+	const sourceCommitId = branch?.includes('{gitSha}')
+		? await getCurrentCommitId()
+		: undefined;
 	const packageManager = await detectPackageManager(cwd, gitRootPath);
 	const closurePlan = await planWorkspacePublication({
 		cwd,
@@ -149,9 +151,9 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			console.warn(peerDiagnostics);
 		}
 
-		const packageCount = closurePlan.graph.nodes.length;
+		const packageCount = closurePlan.nodes.length;
 		await task(
-			`Publishing workspace closure ${stringify(closurePlan.graph.selected)} from ${stringify(sourceName)} (${packageCount} packages)`,
+			`Publishing workspace closure ${stringify(closurePlan.selected)} from ${stringify(sourceName)} (${packageCount} packages)`,
 			async ({ setTitle, setStatus, setOutput }) => {
 				if (dry) {
 					setStatus('Dry run');
@@ -175,7 +177,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 					}
 					throw error;
 				});
-				const preparations = closurePlan.graph.nodes.map(
+				const preparations = closurePlan.nodes.map(
 					node => preparationsByName.get(node.key)!,
 				);
 
@@ -188,7 +190,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 					console.log(`\n${lightBlue('Total size')}`, byteSize(preparation.files.reduce((total, { size }) => total + size, 0)).toString());
 				}
 
-				const selected = preparationsByName.get(closurePlan.graph.selected)!;
+				const selected = preparationsByName.get(closurePlan.selected)!;
 				const repositoryName = getGitHubRepositoryName(remoteUrl);
 				if (repositoryName) {
 					const successLink = terminalLink(

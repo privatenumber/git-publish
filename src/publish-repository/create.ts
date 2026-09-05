@@ -8,7 +8,6 @@ import {
 } from './remote.ts';
 
 export type PublishRepository = {
-	temporaryDirectory: string;
 	publishWorktreePath: string;
 	packWorktreePath: string;
 	packTemporaryDirectory: string;
@@ -92,7 +91,6 @@ export const createPublishRepository = async ({
 	}
 
 	return {
-		temporaryDirectory,
 		publishWorktreePath,
 		packWorktreePath,
 		packTemporaryDirectory,

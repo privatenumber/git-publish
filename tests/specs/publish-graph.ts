@@ -73,7 +73,6 @@ describe('Publication graph', () => {
 			key: '@hunk/session-broker-core',
 			field: 'dependencies',
 			target: '@hunk/session-broker-core',
-			specification: 'workspace:*',
 		}]);
 		expect(graph.peers).toStrictEqual([]);
 	});
@@ -154,7 +153,6 @@ describe('Publication graph', () => {
 			key: '@test/core',
 			field: 'optionalDependencies',
 			target: '@test/core',
-			specification: 'workspace:*',
 		}]);
 	});
 
@@ -294,7 +292,6 @@ describe('Publication graph', () => {
 			key: '@test/alias',
 			field: 'dependencies',
 			target: '@test/actual',
-			specification: 'workspace:@test/actual@^1.0.0',
 		}]);
 	});
 

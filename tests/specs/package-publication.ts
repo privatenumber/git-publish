@@ -70,14 +70,12 @@ describe('Package publication', () => {
 					branch: 'npm/core',
 					commit: 'core-commit',
 					installSpecifier: 'git+file:///remote.git#core-commit',
-					refspec: 'core-commit:refs/heads/npm/core',
 				}],
 				['@test/optional', {
 					packageName: '@test/optional',
 					branch: 'npm/optional',
 					commit: 'optional-commit',
 					installSpecifier: 'git+file:///remote.git#optional-commit',
-					refspec: 'optional-commit:refs/heads/npm/optional',
 				}],
 			]),
 			gitOptions: {},
@@ -96,7 +94,6 @@ describe('Package publication', () => {
 			branch: 'npm/adapter',
 			commit: await publishFixture.git('rev-parse', ['HEAD']),
 			installSpecifier: `git+file://${path.resolve('/remote.git')}#${preparation.publication.commit}`,
-			refspec: `${preparation.publication.commit}:refs/heads/npm/adapter`,
 		});
 	});
 });

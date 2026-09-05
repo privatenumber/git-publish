@@ -18,9 +18,11 @@ describe('Workspace publication', async () => {
 		remote: string,
 		{
 			adapterSpecification = 'workspace:*',
+			corePrepack,
 			peerSpecification,
 		}: {
 			adapterSpecification?: string;
+			corePrepack?: string;
 			peerSpecification?: string;
 		} = {},
 	) => {
@@ -36,6 +38,13 @@ describe('Workspace publication', async () => {
 					'package.json': JSON.stringify({
 						name: '@test/core',
 						version: '0.0.0',
+						...(corePrepack
+							? {
+								scripts: {
+									prepack: corePrepack,
+								},
+							}
+							: {}),
 					}, null, 2),
 					'index.js': 'module.exports = { core: 1 };',
 				},
@@ -260,6 +269,53 @@ describe('Workspace publication', async () => {
 		expect(gitPublishProcess.stderr).toContain('requires exactly one push URL');
 		expect(await remoteGit('for-each-ref')).toBe('');
 		expect(await secondRemoteGit('for-each-ref')).toBe('');
+	});
+
+	test('uses the push destination tip for --fresh leases', async () => {
+		await using fetchRemoteFixture = await createGitFixture(undefined, ['--bare']);
+		await using pushRemoteFixture = await createGitFixture(undefined, ['--bare']);
+		const { git: pushRemoteGit } = pushRemoteFixture;
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-monorepo',
+				private: true,
+				workspaces: ['packages/*'],
+			}, null, 2),
+			'package-lock.json': '{}',
+			packages: {
+				adapter: {
+					'package.json': JSON.stringify({
+						name: '@test/adapter',
+						version: '0.0.0',
+					}, null, 2),
+					'index.js': 'module.exports = 1;',
+				},
+			},
+		}, ['--initial-branch=test-workspace-fresh-push-url']);
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', fetchRemoteFixture.path]);
+		await git('config', ['remote.origin.pushurl', pushRemoteFixture.path]);
+		await git('push', [pushRemoteFixture.path, 'HEAD:preview']);
+
+		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), ['--branch', 'preview', '--fresh']);
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(await pushRemoteGit('show', ['preview:package.json'])).toContain('@test/adapter');
+	});
+
+	test('isolates packages from sibling lifecycle mutations', async () => {
+		await using isolatedRemoteFixture = await createGitFixture(undefined, ['--bare']);
+		const { git: isolatedRemoteGit } = isolatedRemoteFixture;
+		await using fixture = await createChainWorkspace('test-workspace-pack-isolation', isolatedRemoteFixture.path, {
+			corePrepack: 'node -e "require(\'node:fs\').writeFileSync(\'../broker/index.js\', \'module.exports = 2;\')"',
+		});
+
+		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'));
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(await isolatedRemoteGit('show', ['npm/test-workspace-pack-isolation-@test/broker:index.js'])).toBe('module.exports = { core: require("@test/core") };');
 	});
 
 	test('does not update any package branch when an atomic push is rejected', async () => {

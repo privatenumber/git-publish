@@ -14,8 +14,12 @@ export const assertAtomicPackagePublicationDestination = (pushUrls: string[]) =>
 	}
 };
 
-const readRemoteTips = async (repository: PublishRepository): Promise<Map<string, string>> => {
-	const output = await getStdout(spawn('git', ['ls-remote', repository.fetchRemoteName], repository.gitOptions));
+const readRemoteTips = async (
+	repository: PublishRepository,
+	branches: Iterable<string>,
+): Promise<Map<string, string>> => {
+	const references = [...branches].map(branch => `refs/heads/${branch}`);
+	const output = await getStdout(spawn('git', ['ls-remote', repository.pushRemoteNames[0]!, ...references], repository.gitOptions));
 	const tips = new Map<string, string>();
 	for (const line of output.split('\n')) {
 		const separator = line.indexOf('\t');
@@ -34,9 +38,10 @@ const readRemoteTips = async (repository: PublishRepository): Promise<Map<string
 export const planPackagePublicationPush = async (
 	repository: PublishRepository,
 	fresh: boolean | undefined,
+	branches: Iterable<string>,
 ): Promise<PackagePublicationPushPlan> => ({
 	fresh: Boolean(fresh),
-	remoteTips: fresh ? await readRemoteTips(repository) : new Map(),
+	remoteTips: fresh ? await readRemoteTips(repository, branches) : new Map(),
 });
 
 export const pushPackagePublications = async ({
@@ -56,6 +61,6 @@ export const pushPackagePublications = async ({
 			args.push(`--force-with-lease=refs/heads/${publication.branch}:${pushPlan.remoteTips.get(publication.branch) ?? ''}`);
 		}
 	}
-	args.push('--no-verify', pushRemoteName!, ...publications.map(publication => publication.refspec));
+	args.push('--no-verify', pushRemoteName!, ...publications.map(publication => `${publication.commit}:refs/heads/${publication.branch}`));
 	await spawn('git', args, repository.gitOptions);
 };

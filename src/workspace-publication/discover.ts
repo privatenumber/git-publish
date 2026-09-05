@@ -8,13 +8,10 @@ import type { PackageManager } from '../utils/detect-package-manager.ts';
 export type WorkspacePackage = {
 	name: string;
 	dir: string;
-	relativeDir: string;
 	packageJson: Package['packageJson'];
 };
 
 export type Workspace = {
-	rootDir: string;
-	packageManager: PackageManager;
 	packages: WorkspacePackage[];
 };
 
@@ -59,17 +56,14 @@ export const discoverWorkspacePackages = async (
 ): Promise<Workspace> => {
 	const tool = workspaceTools[packageManager];
 	const options = { tools: [tool] };
-	const { packages, rootDir } = await getPackages(directory, options).catch((error: unknown) => {
+	const { packages } = await getPackages(directory, options).catch((error: unknown) => {
 		const reason = error instanceof Error ? error.message : String(error);
 		throw new Error(`No ${packageManager} workspace found in ${directory}: ${reason}`);
 	});
 	return {
-		rootDir,
-		packageManager,
-		packages: packages.map(({ packageJson, dir, relativeDir }) => ({
+		packages: packages.map(({ packageJson, dir }) => ({
 			name: packageJson.name,
 			dir,
-			relativeDir,
 			packageJson,
 		})),
 	};
