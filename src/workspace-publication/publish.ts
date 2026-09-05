@@ -18,10 +18,6 @@ type WorkspacePublicationTask = {
 	branch: string;
 };
 
-export type WorkspacePublicationResult = {
-	preparations: ReadonlyMap<string, PackagePreparation>;
-};
-
 const prepareWorkspaceBranches = async ({
 	plan,
 	repository,
@@ -91,7 +87,7 @@ export const publishWorkspaceClosure = async ({
 	sourceName: string;
 	sourceCommit: string | undefined;
 	fresh: boolean | undefined;
-}): Promise<WorkspacePublicationResult> => {
+}): Promise<ReadonlyMap<string, PackagePreparation>> => {
 	const repository = await createPublishRepository({
 		sourceRepositoryPath,
 		publishRemote,
@@ -143,10 +139,10 @@ export const publishWorkspaceClosure = async ({
 		});
 		await pushPackagePublications({
 			repository,
-			preparations: preparations.values(),
+			publications: [...preparations.values()].map(preparation => preparation.publication),
 			pushPlan,
 		});
-		return { preparations };
+		return preparations;
 	} catch (error) {
 		primaryError = error;
 		throw error;

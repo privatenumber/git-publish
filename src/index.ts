@@ -23,7 +23,6 @@ import { createPublishRepository, type PublishRepository } from './publish-repos
 import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { renderPackageBranch } from './package-publication/branch.ts';
-import type { PackagePreparation } from './package-publication/prepare.ts';
 import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
 import { planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
@@ -195,27 +194,19 @@ Pre-bundle these dependencies before publishing.`);
 			async ({ setTitle, setStatus, setOutput }) => {
 				if (dry) {
 					setStatus('Dry run');
+					return;
 				}
 
-				let success = false;
-				let preparations: PackagePreparation[] = [];
-
-				try {
-					if (!dry) {
-						const result = await publishWorkspaceClosure({
-							plan: closurePlan,
-							packageManager: closurePackageManager,
-							sourceRepositoryPath: gitRootPath,
-							gitRootPath,
-							publishRemote,
-							sourceName,
-							sourceCommit: sourceCommit ?? undefined,
-							fresh,
-						});
-						preparations = closurePlan.graph.nodes.map(node => result.preparations.get(node.key)!);
-						success = true;
-					}
-				} catch (error) {
+				const preparationsByName = await publishWorkspaceClosure({
+					plan: closurePlan,
+					packageManager: closurePackageManager,
+					sourceRepositoryPath: gitRootPath,
+					gitRootPath,
+					publishRemote,
+					sourceName,
+					sourceCommit: sourceCommit ?? undefined,
+					fresh,
+				}).catch((error: unknown) => {
 					if (error instanceof SubprocessError) {
 						const details = error.output || error.stderr;
 						if (details) {
@@ -223,7 +214,10 @@ Pre-bundle these dependencies before publishing.`);
 						}
 					}
 					throw error;
-				}
+				});
+				const preparations = closurePlan.graph.nodes.map(
+					node => preparationsByName.get(node.key)!,
+				);
 
 				for (const preparation of preparations) {
 					if (preparation.reusedExistingCommit) {
@@ -234,32 +228,22 @@ Pre-bundle these dependencies before publishing.`);
 					console.log(`\n${lightBlue('Total size')}`, byteSize(preparation.files.reduce((total, { size }) => total + size, 0)).toString());
 				}
 
-				if (success) {
-					const selectedName = closurePlan.graph.selected;
-					const selected = preparations.find(
-						preparation => preparation.publication.packageName === selectedName,
+				const selected = preparationsByName.get(closurePlan.graph.selected)!;
+				const repositoryName = getGitHubRepositoryName(remoteUrl);
+				if (repositoryName) {
+					const successLink = terminalLink(
+						`${cyan(selected.publication.branch)} ${dim(`(${selected.publication.commit})`)}`,
+						`https://github.com/${repositoryName}/tree/${selected.publication.branch!}`,
 					);
-					if (!selected) {
-						throw new Error(`Missing publication for ${JSON.stringify(selectedName)}.`);
-					}
-					const repositoryName = getGitHubRepositoryName(remoteUrl);
-					if (repositoryName) {
-						const successLink = terminalLink(
-							`${cyan(selected.publication.branch)} ${dim(`(${selected.publication.commit})`)}`,
-							`https://github.com/${repositoryName}/tree/${selected.publication.branch!}`,
-						);
-						setTitle(`Successfully published ${packageCount} packages: ${successLink}`);
-					} else {
-						setTitle(`Successfully published ${packageCount} packages`);
-					}
-
-					const output = [
-						'Install command',
-						`${closurePackageManager} i '${selected.publication.installSpecifier}'`,
-					].join('\n');
-
-					setOutput(output);
+					setTitle(`Successfully published ${packageCount} packages: ${successLink}`);
+				} else {
+					setTitle(`Successfully published ${packageCount} packages`);
 				}
+
+				setOutput([
+					'Install command',
+					`${closurePackageManager} i '${selected.publication.installSpecifier}'`,
+				].join('\n'));
 			},
 		).catch(() => {
 			// Any failure here is already rendered within the task tree above

@@ -3,7 +3,7 @@ import { createFixture } from 'fs-fixture';
 import { discoverWorkspacePackages } from '../../src/workspace-publication/discover.ts';
 import {
 	createPublishGraph,
-	resolvePackageDirectory,
+	findWorkspacePackageDirectory,
 	selectWorkspacePackage,
 } from '../../src/workspace-publication/graph.ts';
 
@@ -492,7 +492,7 @@ describe('Publication graph', () => {
 		expect(message).toContain('@test/a -> @test/b -> @test/a');
 	});
 
-	test('resolves the package containing the working directory', async () => {
+	test('finds the package containing the working directory', async () => {
 		await using fixture = await createFixture({
 			'package.json': JSON.stringify({
 				name: 'test-monorepo',
@@ -517,16 +517,8 @@ describe('Publication graph', () => {
 		});
 		const workspace = await discoverWorkspacePackages(fixture.path, 'npm');
 
-		expect(resolvePackageDirectory(workspace, fixture.getPath('packages/app')).name).toBe('@test/app');
-		expect(resolvePackageDirectory(workspace, fixture.getPath('packages/app/src')).name).toBe('@test/app');
-
-		let message = '';
-		try {
-			resolvePackageDirectory(workspace, fixture.path);
-		} catch (error) {
-			expect(error).toBeInstanceOf(Error);
-			message = (error as Error).message;
-		}
-		expect(message).toContain('not inside a workspace package');
+		expect(findWorkspacePackageDirectory(workspace, fixture.getPath('packages/app'))?.name).toBe('@test/app');
+		expect(findWorkspacePackageDirectory(workspace, fixture.getPath('packages/app/src'))?.name).toBe('@test/app');
+		expect(findWorkspacePackageDirectory(workspace, fixture.path)).toBeUndefined();
 	});
 });

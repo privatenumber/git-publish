@@ -1,7 +1,7 @@
 import spawn from 'nano-spawn';
 import type { PublishRepository } from '../publish-repository/create.ts';
 import { getStdout } from '../utils/get-stdout.ts';
-import type { PackagePreparation } from './prepare.ts';
+import type { PackagePublication } from './prepare.ts';
 
 export type PackagePublicationPushPlan = {
 	fresh: boolean;
@@ -34,31 +34,28 @@ const readRemoteTips = async (repository: PublishRepository): Promise<Map<string
 export const planPackagePublicationPush = async (
 	repository: PublishRepository,
 	fresh: boolean | undefined,
-): Promise<PackagePublicationPushPlan> => {
-	assertAtomicPackagePublicationDestination(repository.pushRemoteNames);
-	return {
-		fresh: Boolean(fresh),
-		remoteTips: fresh ? await readRemoteTips(repository) : new Map(),
-	};
-};
+): Promise<PackagePublicationPushPlan> => ({
+	fresh: Boolean(fresh),
+	remoteTips: fresh ? await readRemoteTips(repository) : new Map(),
+});
 
 export const pushPackagePublications = async ({
 	repository,
-	preparations,
+	publications: input,
 	pushPlan,
 }: {
 	repository: PublishRepository;
-	preparations: Iterable<PackagePreparation>;
+	publications: Iterable<PackagePublication>;
 	pushPlan: PackagePublicationPushPlan;
 }): Promise<void> => {
 	const [pushRemoteName] = repository.pushRemoteNames;
-	const publications = [...preparations];
+	const publications = [...input];
 	const args = ['push', '--atomic'];
 	if (pushPlan.fresh) {
-		for (const { publication } of publications) {
+		for (const publication of publications) {
 			args.push(`--force-with-lease=refs/heads/${publication.branch}:${pushPlan.remoteTips.get(publication.branch) ?? ''}`);
 		}
 	}
-	args.push('--no-verify', pushRemoteName!, ...publications.map(({ publication }) => publication.refspec));
+	args.push('--no-verify', pushRemoteName!, ...publications.map(publication => publication.refspec));
 	await spawn('git', args, repository.gitOptions);
 };

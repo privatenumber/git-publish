@@ -122,17 +122,6 @@ export const findWorkspacePackageDirectory = (
 	return selected;
 };
 
-export const resolvePackageDirectory = (
-	workspace: Workspace,
-	cwd: string,
-): WorkspacePackage => {
-	const selected = findWorkspacePackageDirectory(workspace, cwd);
-	if (!selected) {
-		throw new Error(`Current directory ${path.resolve(cwd)} is not inside a workspace package.`);
-	}
-	return selected;
-};
-
 export const createPublishGraph = (
 	workspace: Workspace,
 	selected: string,
