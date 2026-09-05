@@ -33,12 +33,17 @@ const workspaceTools: Record<PackageManager, Tool> = {
 const findWorkspaceRoot = async (
 	directory: string,
 	packageManager: PackageManager,
+	boundaryDirectory: string,
 ): Promise<string | undefined> => {
 	const tool = workspaceTools[packageManager];
+	const boundary = path.resolve(boundaryDirectory);
 	let candidate = path.resolve(directory);
 	while (true) {
 		if (await tool.isMonorepoRoot(candidate)) {
 			return candidate;
+		}
+		if (candidate === boundary) {
+			return undefined;
 		}
 		const parent = path.dirname(candidate);
 		if (parent === candidate) {
@@ -73,8 +78,9 @@ export const discoverWorkspacePackages = async (
 export const findWorkspacePackages = async (
 	directory: string,
 	packageManager: PackageManager,
+	boundaryDirectory = directory,
 ): Promise<Workspace | undefined> => {
-	const rootDirectory = await findWorkspaceRoot(directory, packageManager);
+	const rootDirectory = await findWorkspaceRoot(directory, packageManager, boundaryDirectory);
 	if (!rootDirectory) {
 		return undefined;
 	}

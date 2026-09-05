@@ -5,7 +5,7 @@ import {
 } from 'manten';
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
-import { createGitFixture } from '../utils/create-git.ts';
+import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Workspace publication', async () => {
@@ -104,6 +104,46 @@ describe('Workspace publication', async () => {
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(await branchRemoteGit('show', ['custom:package.json'])).toContain('@test/adapter');
+	});
+
+	test('ignores an outer workspace beyond the Git root', async () => {
+		await using nestedRemoteFixture = await createGitFixture(undefined, ['--bare']);
+		const { git: nestedRemoteGit } = nestedRemoteFixture;
+		await using outerFixture = await createFixture({
+			'package.json': JSON.stringify({
+				name: 'outer-workspace',
+				private: true,
+				workspaces: ['packages/*'],
+			}, null, 2),
+			'package-lock.json': '{}',
+			packages: {
+				outer: {
+					'package.json': JSON.stringify({
+						name: '@test/outer',
+						version: '0.0.0',
+					}, null, 2),
+				},
+				inner: {
+					'package.json': JSON.stringify({
+						name: '@test/inner',
+						version: '0.0.0',
+					}, null, 2),
+					'index.js': 'module.exports = 1;',
+				},
+			},
+		});
+		const repositoryPath = outerFixture.getPath('packages/inner');
+		const git = createGit(repositoryPath);
+		await git.init(['--initial-branch=inner']);
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', nestedRemoteFixture.path]);
+
+		const gitPublishProcess = await gitPublish(repositoryPath);
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(gitPublishProcess.stdout).toContain('Publishing source "inner" → "npm/inner"');
+		expect(await nestedRemoteGit('show', ['npm/inner:package.json'])).toContain('@test/inner');
 	});
 
 	test('derives dependency branches from --branch', async () => {

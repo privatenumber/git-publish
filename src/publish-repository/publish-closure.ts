@@ -58,7 +58,7 @@ export const planWorkspacePublication = async ({
 	packageManager: PackageManager;
 	publishBranch?: string;
 }): Promise<ClosurePlan | undefined> => {
-	const workspace = await findWorkspacePackages(cwd, packageManager);
+	const workspace = await findWorkspacePackages(cwd, packageManager, gitRootPath);
 	if (!workspace) {
 		return undefined;
 	}
