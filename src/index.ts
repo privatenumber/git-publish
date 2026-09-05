@@ -68,7 +68,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				type: String,
 				alias: 'b',
 				placeholder: '<branch template>',
-				description: 'Branch template. Supports [gitRef], [gitSha], and [package].',
+				description: 'Branch template. Supports {gitRef}, {gitSha}, and {package}.',
 			},
 			remote: {
 				type: String,

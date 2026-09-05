@@ -40,7 +40,7 @@ export const planWorkspacePublication = async ({
 	const selected = selectedPackage.name;
 	const graph = createPublishGraph(workspace, selected);
 	const branches = new Map<string, string>();
-	const branchTemplate = publishBranch ?? 'npm/[gitRef]-[package]';
+	const branchTemplate = publishBranch ?? 'npm/{gitRef}-{package}';
 	const packagesByBranch = new Map<string, string>();
 	for (const node of graph.nodes) {
 		const relative = path.relative(gitRootPath, node.package.dir);
@@ -60,7 +60,7 @@ export const planWorkspacePublication = async ({
 		}
 		const otherPackage = packagesByBranch.get(branch);
 		if (otherPackage) {
-			throw new Error(`Workspace branch template ${JSON.stringify(branchTemplate)} renders ${JSON.stringify(branch)} for both ${JSON.stringify(otherPackage)} and ${JSON.stringify(node.key)}. Include [package] to publish each package to a unique branch.`);
+			throw new Error(`Workspace branch template ${JSON.stringify(branchTemplate)} renders ${JSON.stringify(branch)} for both ${JSON.stringify(otherPackage)} and ${JSON.stringify(node.key)}. Include {package} to publish each package to a unique branch.`);
 		}
 		packagesByBranch.set(branch, node.key);
 		branches.set(node.key, branch);

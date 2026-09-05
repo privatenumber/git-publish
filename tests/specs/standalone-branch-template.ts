@@ -9,13 +9,13 @@ describe('Standalone branch templates', () => {
 		branch,
 	} of [
 			{
-				title: 'renders [gitRef]',
-				template: 'preview/[gitRef]',
+				title: 'renders {gitRef}',
+				template: 'preview/{gitRef}',
 				branch: (_sourceCommit: string) => 'preview/feature/auth',
 			},
 			{
-				title: 'renders the full [gitSha]',
-				template: 'preview/[gitSha]',
+				title: 'renders the full {gitSha}',
+				template: 'preview/{gitSha}',
 				branch: (sourceCommit: string) => `preview/${sourceCommit}`,
 			},
 			{

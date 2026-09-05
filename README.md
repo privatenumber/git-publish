@@ -63,7 +63,7 @@ git-publish
 
 | Flag                    | Description                                                   |
 | ----------------------- | ------------------------------------------------------------- |
-| `-b, --branch <template>` | Target branch template. Supports `[gitRef]`, `[gitSha]`, and `[package]` |
+| `-b, --branch <template>` | Target branch template. Supports `{gitRef}`, `{gitSha}`, and `{package}` |
 | `-r, --remote <remote>` | Git remote name or URL to push to (default: `origin`)         |
 | `-o, --fresh`           | Create a fresh single-commit branch. Force-pushes to remote   |
 | `-d, --dry`             | Simulate the process. Does not commit or push                 |
@@ -130,11 +130,13 @@ Yes. Run `git-publish` from inside the specific package directory (e.g., `packag
 
 `--branch` accepts a small branch template with these placeholders:
 
-- `[gitRef]`: The current branch, exact tag, or short commit fallback.
-- `[gitSha]`: The full source commit object ID.
-- `[package]`: The package name from `package.json`.
+- `{gitRef}`: The current branch, exact tag, or short commit fallback.
+- `{gitSha}`: The full source commit object ID.
+- `{package}`: The package name from `package.json`.
 
-When `--branch` is omitted, workspace packages use the default template `npm/[gitRef]-[package]`. For a `core <- broker <- adapter` closure published from `feature/auth`, it creates:
+Quote branch templates in the shell, for example `'preview/{package}'`.
+
+When `--branch` is omitted, workspace packages use the default template `npm/{gitRef}-{package}`. For a `core <- broker <- adapter` closure published from `feature/auth`, it creates:
 
 ```text
 npm/feature/auth-@acme/core
@@ -145,10 +147,10 @@ npm/feature/auth-@acme/adapter
 Pass a template to choose each workspace branch independently:
 
 ```sh
-git-publish --branch 'preview/[package]'
+git-publish --branch 'preview/{package}'
 ```
 
-For one package, a literal branch remains exact. For example, `git-publish --branch preview` publishes to `preview`. A multi-package workspace closure must render a unique branch for every package. Include `[package]` when a literal template would collide.
+For one package, a literal branch remains exact. For example, `git-publish --branch preview` publishes to `preview`. A multi-package workspace closure must render a unique branch for every package. Include `{package}` when a literal template would collide.
 
 Standalone packages keep the default `npm/<gitRef>` branch. An explicit `--branch` can use the same placeholders or remain a literal branch name.
 
