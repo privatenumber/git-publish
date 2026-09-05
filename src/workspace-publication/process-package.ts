@@ -1,5 +1,6 @@
 import path from 'node:path';
 import spawn from 'nano-spawn';
+import type { TaskInnerAPI } from 'tasuku';
 import {
 	preparePackagePublication, type PackagePreparation, type PackagePublication,
 } from '../package-publication/prepare.ts';
@@ -21,6 +22,7 @@ export const processWorkspacePackage = async ({
 	sourceCommit,
 	fresh,
 	preparations,
+	setStatus,
 }: {
 	index: number;
 	node: WorkspacePublicationNode;
@@ -32,13 +34,16 @@ export const processWorkspacePackage = async ({
 	sourceCommit: string | undefined;
 	fresh: boolean | undefined;
 	preparations: ReadonlyMap<string, PackagePreparation>;
+	setStatus: TaskInnerAPI['setStatus'];
 }): Promise<PackagePreparation> => {
+	setStatus('Preparing isolated checkout');
 	const packWorktreeOptions = {
 		cwd: repository.packWorktreePath,
 		env: repository.gitOptions.env,
 	};
 	await spawn('git', ['reset', '--hard', 'HEAD'], packWorktreeOptions);
 	await spawn('git', ['clean', '-fdx'], packWorktreeOptions);
+	setStatus('Packing package and running lifecycle scripts');
 	const tarball = await packPackage(
 		packageManager,
 		repository.packWorktreePath,
@@ -47,6 +52,7 @@ export const processWorkspacePackage = async ({
 		repositoryPath,
 		path.relative(repositoryPath, node.package.dir),
 	);
+	setStatus('Preparing publication commit');
 	await preparePublishBranch({
 		repository,
 		publishBranch: node.branch,

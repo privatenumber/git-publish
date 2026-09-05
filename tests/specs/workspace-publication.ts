@@ -129,6 +129,7 @@ describe('Workspace publication', async () => {
 		expect(gitPublishProcess.stdout).toContain('@test/core');
 		expect(gitPublishProcess.stdout).toContain('@test/broker');
 		expect(gitPublishProcess.stdout).toContain('@test/adapter');
+		expect(gitPublishProcess.stdout).toContain('Packing package and running lifecycle scripts');
 		expect(gitPublishProcess.stdout).toContain('Pushing 3 packages together');
 		expect(gitPublishProcess.stdout).not.toContain('workspace closure');
 		expect(gitPublishProcess.stdout.indexOf('→ Install command')).toBeGreaterThan(

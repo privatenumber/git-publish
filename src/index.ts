@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import spawn, { SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
@@ -198,7 +199,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				workspacePublish.result.publication.commit,
 			) ?? workspacePublish.result.publication.installSpecifier;
 			process.once('exit', () => {
-				process.stdout.write(`\n→ Install command\n  ${packageManager} i '${installSpecifier}'\n`);
+				fsSync.writeSync(process.stdout.fd, `\n→ Install command\n  ${packageManager} i '${installSpecifier}'\n`);
 			});
 		}
 		return;

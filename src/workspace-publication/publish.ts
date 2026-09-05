@@ -56,10 +56,13 @@ export const publishWorkspaceClosure = async ({
 					sourceCommit,
 					fresh,
 					preparations,
+					setStatus,
 				});
 				preparations.set(node.key, preparation);
 				if (preparation.reusedExistingCommit) {
 					setStatus('Unchanged; reusing existing commit');
+				} else {
+					setStatus();
 				}
 				return preparation;
 			} catch (error) {
@@ -79,11 +82,12 @@ export const publishWorkspaceClosure = async ({
 					plan.nodes[index]!.key,
 					async taskApi => processPackage(index, taskApi),
 				)),
-			));
+			), { showTime: true });
 		}
 		await task(
 			plan.nodes[selectedIndex]!.key,
 			async taskApi => processPackage(selectedIndex, taskApi),
+			{ showTime: true },
 		);
 		const packageCount = plan.nodes.length;
 		await task(
@@ -106,16 +110,22 @@ export const publishWorkspaceClosure = async ({
 				}
 			},
 		);
+		try {
+			await repository.dispose();
+		} catch (cleanupError) {
+			await task('Cleaning up temporary files', async ({ setWarning }) => {
+				setWarning(cleanupError instanceof Error ? cleanupError : String(cleanupError));
+			});
+		}
 		return preparations;
 	} catch (error) {
 		primaryError = error;
 		throw error;
 	} finally {
-		await repository.dispose().catch((cleanupError: unknown) => {
-			if (primaryError) {
+		if (primaryError) {
+			await repository.dispose().catch((cleanupError: unknown) => {
 				throw new AggregateError([primaryError, cleanupError], 'Failed to publish workspace packages.');
-			}
-			throw cleanupError;
-		});
+			});
+		}
 	}
 };
