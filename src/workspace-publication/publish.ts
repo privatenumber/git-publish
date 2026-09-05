@@ -88,12 +88,22 @@ export const publishWorkspaceClosure = async ({
 		const packageCount = plan.nodes.length;
 		await task(
 			`Pushing ${packageCount} ${packageCount === 1 ? 'package' : 'packages'}${packageCount === 1 ? '' : ' together'}`,
-			async () => {
-				await pushPackagePublications({
-					repository,
-					publications: [...preparations.values()].map(preparation => preparation.publication),
-					pushPlan,
-				});
+			async ({ streamPreview }) => {
+				try {
+					await pushPackagePublications({
+						repository,
+						publications: [...preparations.values()].map(preparation => preparation.publication),
+						pushPlan,
+					});
+				} catch (error) {
+					if (error instanceof SubprocessError) {
+						const details = error.output || error.stderr;
+						if (details) {
+							streamPreview.write(details);
+						}
+					}
+					throw error;
+				}
 			},
 		);
 		return preparations;

@@ -131,6 +131,9 @@ describe('Workspace publication', async () => {
 		expect(gitPublishProcess.stdout).toContain('@test/adapter');
 		expect(gitPublishProcess.stdout).toContain('Pushing 3 packages together');
 		expect(gitPublishProcess.stdout).not.toContain('workspace closure');
+		expect(gitPublishProcess.stdout.indexOf('→ Install command')).toBeGreaterThan(
+			gitPublishProcess.stdout.lastIndexOf(`Published "@test/adapter" from "${branchName}"`),
+		);
 	});
 
 	test('ignores an outer workspace beyond the Git root', async () => {
@@ -344,6 +347,7 @@ describe('Workspace publication', async () => {
 		await fs.writeFile(hookPath, `#!/bin/sh
 		while read _ _ ref; do
 			if [ "$ref" = "refs/heads/npm/${branchName}-@test/adapter" ]; then
+				echo 'Adapter publication is rejected by this test hook' >&2
 				exit 1
 			fi
 		done
@@ -354,6 +358,7 @@ describe('Workspace publication', async () => {
 		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'));
 
 		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+		expect(gitPublishProcess.stdout).toContain('Adapter publication is rejected by this test hook');
 		expect(await rejectedRemoteGit('for-each-ref')).toBe('');
 	});
 

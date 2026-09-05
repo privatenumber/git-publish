@@ -1,7 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { setTimeout } from 'node:timers/promises';
 import spawn, { SubprocessError } from 'nano-spawn';
 import task from 'tasuku';
 import { cli } from 'cleye';
@@ -194,13 +193,13 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			process.exitCode = 1;
 		});
 		if (workspacePublish?.result) {
-			// Tasuku batches terminal renders for 33 ms. Wait for the completed task tree
-			// before writing the top-level install command outside that tree.
-			await setTimeout(34);
-			console.log([
-				'Install command',
-				`${packageManager} i '${getGitHubInstallSpecifier(remoteUrl, workspacePublish.result.publication.commit) ?? workspacePublish.result.publication.installSpecifier}'`,
-			].join('\n'));
+			const installSpecifier = getGitHubInstallSpecifier(
+				remoteUrl,
+				workspacePublish.result.publication.commit,
+			) ?? workspacePublish.result.publication.installSpecifier;
+			process.once('exit', () => {
+				process.stdout.write(`\n→ Install command\n  ${packageManager} i '${installSpecifier}'\n`);
+			});
 		}
 		return;
 	}
