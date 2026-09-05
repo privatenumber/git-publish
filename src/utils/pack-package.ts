@@ -147,8 +147,18 @@ export const packPackage = async (
 	const packCwd = gitSubdirectory
 		? path.join(packWorktreePath, gitSubdirectory)
 		: packWorktreePath;
+	const binaryPaths = new Set([
+		path.join(cwd, 'node_modules', '.bin'),
+		path.join(gitRootPath, 'node_modules', '.bin'),
+		process.env.PATH,
+	]);
 
-	await spawn(packageManager, packArgs, { cwd: packCwd });
+	await spawn(packageManager, packArgs, {
+		cwd: packCwd,
+		env: {
+			PATH: [...binaryPaths].filter(pathEntry => pathEntry !== undefined).join(path.delimiter),
+		},
+	});
 
 	// Find the generated tarball (package managers create it with their own naming)
 	const files = await fs.readdir(packDestinationDirectory);
