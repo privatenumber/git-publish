@@ -12,6 +12,7 @@ import packageMeta from '../package.json' with { type: 'json' };
 import { getStdout } from './utils/get-stdout.ts';
 import {
 	assertCleanTree, getCurrentSourceName, gitStatusTracked, getCurrentCommit,
+	getCurrentCommitId,
 } from './utils/git.ts';
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
@@ -21,6 +22,7 @@ import { getGitHubRepositoryName } from './utils/github.ts';
 import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
 import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
+import { renderPackageBranch } from './package-publication/branch.ts';
 import type { PackagePreparation } from './package-publication/prepare.ts';
 import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
 import { planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
@@ -65,8 +67,8 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			branch: {
 				type: String,
 				alias: 'b',
-				placeholder: '<branch name>',
-				description: 'The branch to publish the package to. Defaults to prefixing "npm/" to the current branch or tag name.',
+				placeholder: '<branch template>',
+				description: 'Branch template. Supports {gitRef}, {gitSha}, and {package}.',
 			},
 			remote: {
 				type: String,
@@ -109,6 +111,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	const gitSubdirectory = path.relative(gitRootPath, cwd);
 	const sourceName = await getCurrentSourceName();
 	const sourceCommit = await getCurrentCommit();
+	const sourceCommitId = await getCurrentCommitId();
 	const packageJsonPath = 'package.json';
 
 	try {
@@ -131,6 +134,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		cwd,
 		gitRootPath,
 		sourceName,
+		sourceCommitId,
 		packageManager: closurePackageManager,
 		publishBranch: branch,
 	});
@@ -155,11 +159,17 @@ ${workspaceDependencies.join('\n')}
 Pre-bundle these dependencies before publishing.`);
 	}
 
-	const publishBranch = branch || (
-		gitSubdirectory
-			? `npm/${sourceName}-${packageJson.name}`
-			: `npm/${sourceName}`
-	);
+	const defaultPublishBranch = gitSubdirectory
+		? `npm/${sourceName}-${packageJson.name}`
+		: `npm/${sourceName}`;
+	const publishBranch = branch
+		? renderPackageBranch({
+			template: branch,
+			gitRef: sourceName,
+			gitSha: sourceCommitId,
+			packageName: packageJson.name!,
+		})
+		: defaultPublishBranch;
 	try {
 		await getStdout(spawn('git', ['check-ref-format', '--branch', publishBranch]));
 	} catch {

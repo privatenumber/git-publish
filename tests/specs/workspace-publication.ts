@@ -75,7 +75,7 @@ describe('Workspace publication', async () => {
 		return fixture;
 	};
 
-	test('uses --branch for an independent workspace package', async () => {
+	test('keeps a literal --branch for an independent workspace package', async () => {
 		await using branchRemoteFixture = await createGitFixture(undefined, ['--bare']);
 		const { git: branchRemoteGit } = branchRemoteFixture;
 		await using fixture = await createGitFixture({
@@ -146,17 +146,77 @@ describe('Workspace publication', async () => {
 		expect(await nestedRemoteGit('show', ['npm/inner:package.json'])).toContain('@test/inner');
 	});
 
-	test('derives dependency branches from --branch', async () => {
+	test('renders --branch for every package in a workspace closure', async () => {
 		await using branchRemoteFixture = await createGitFixture(undefined, ['--bare']);
 		const { git: branchRemoteGit } = branchRemoteFixture;
 		await using fixture = await createChainWorkspace('test-workspace-derived-branches', branchRemoteFixture.path);
 
-		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), ['--branch', 'custom']);
+		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), ['--branch', 'preview/{package}']);
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
-		for (const branch of ['custom', 'custom-@test/broker', 'custom-@test/core']) {
+		for (const branch of ['preview/@test/adapter', 'preview/@test/broker', 'preview/@test/core']) {
 			expect(await branchRemoteGit('rev-parse', [branch])).toMatch(/^[0-9a-f]{40}$/);
 		}
+	});
+
+	test('rejects a literal --branch for a multi-package workspace closure before creating refs', async () => {
+		await using collisionRemoteFixture = await createGitFixture(undefined, ['--bare']);
+		const { git: collisionRemoteGit } = collisionRemoteFixture;
+		await using fixture = await createChainWorkspace('test-workspace-branch-collision', collisionRemoteFixture.path);
+
+		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), ['--branch', 'preview']);
+
+		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+		expect(gitPublishProcess.stderr).toContain('renders "preview" for both "@test/core" and "@test/broker"');
+		expect(gitPublishProcess.stderr).toContain('Include {package}');
+		expect(await collisionRemoteGit('for-each-ref')).toBe('');
+	});
+
+	for (const {
+		title,
+		template,
+		error,
+	} of [
+			{
+				title: 'rejects unknown workspace branch template placeholders before creating refs',
+				template: 'preview/{version}',
+				error: 'Unknown branch template placeholder "{version}". Supported placeholders: {gitRef}, {gitSha}, {package}.',
+			},
+			{
+				title: 'rejects invalid rendered workspace branches before creating refs',
+				template: 'preview/invalid..{package}',
+				error: 'Invalid publish branch "preview/invalid..@test/core".',
+			},
+		]) {
+		test(title, async () => {
+			await using validationRemoteFixture = await createGitFixture(undefined, ['--bare']);
+			const { git: validationRemoteGit } = validationRemoteFixture;
+			await using fixture = await createChainWorkspace('test-workspace-template-validation', validationRemoteFixture.path);
+
+			const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), ['--branch', template]);
+
+			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+			expect(gitPublishProcess.stderr).toContain(error);
+			expect(await validationRemoteGit('for-each-ref')).toBe('');
+		});
+	}
+
+	test('rejects {gitSha} without a source commit before creating refs', async () => {
+		await using sourceRemoteFixture = await createGitFixture(undefined, ['--bare']);
+		const { git: sourceRemoteGit } = sourceRemoteFixture;
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-package',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=main']);
+		await fixture.git('remote', ['add', 'origin', sourceRemoteFixture.path]);
+
+		const gitPublishProcess = await gitPublish(fixture.path, ['--branch', 'preview/{gitSha}']);
+
+		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+		expect(gitPublishProcess.stderr).toContain('Branch template "preview/{gitSha}" uses {gitSha}, but the source repository has no commit.');
+		expect(await sourceRemoteGit('for-each-ref')).toBe('');
 	});
 
 	test('reports workspace dependency planning errors', async () => {
@@ -223,7 +283,7 @@ describe('Workspace publication', async () => {
 		expect(await rejectedRemoteGit('for-each-ref')).toBe('');
 	});
 
-	test('publishes the closure and installs the selected package when pnpm allows Git subdependencies', async () => {
+	test('uses the default workspace template and installs the selected package when pnpm allows Git subdependencies', async () => {
 		const branchName = 'test-workspace-acceptance';
 		const remoteUrl = `git@example.test:${remoteFixture.path}`;
 		const packageManagerRemoteUrl = `git+ssh://git@example.test/${remoteFixture.path}`;
@@ -251,8 +311,8 @@ exec sh -c "$*"
 		expect('exitCode' in gitPublishProcess).toBe(false);
 
 		const branches = {
-			core: `npm/${branchName}-@test/adapter-@test/core`,
-			broker: `npm/${branchName}-@test/adapter-@test/broker`,
+			core: `npm/${branchName}-@test/core`,
+			broker: `npm/${branchName}-@test/broker`,
 			adapter: `npm/${branchName}-@test/adapter`,
 		};
 		const shas = {
