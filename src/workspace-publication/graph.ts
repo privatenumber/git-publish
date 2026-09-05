@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { Workspace, WorkspacePackage } from './workspace.ts';
+import type { Workspace, WorkspacePackage } from './discover.ts';
 
 export type DependencyField = 'dependencies' | 'optionalDependencies';
 
@@ -7,7 +7,6 @@ export type PublishGraphEdge = {
 	key: string;
 	field: DependencyField;
 	target: string;
-	specification: string;
 };
 
 export type PublishGraphNode = {
@@ -24,7 +23,6 @@ export type WorkspacePeer = {
 };
 
 export type PublishGraph = {
-	rootDir: string;
 	selected: string;
 	nodes: PublishGraphNode[];
 	peers: WorkspacePeer[];
@@ -102,10 +100,10 @@ export const selectWorkspacePackage = (
 	return selected;
 };
 
-export const resolvePackageDirectory = (
+export const findWorkspacePackageDirectory = (
 	workspace: Workspace,
 	cwd: string,
-): WorkspacePackage => {
+): WorkspacePackage | undefined => {
 	const directory = path.resolve(cwd);
 	let selected: WorkspacePackage | undefined;
 	let selectedLength = -1;
@@ -118,9 +116,6 @@ export const resolvePackageDirectory = (
 			selected = candidate;
 			selectedLength = candidateDirectory.length;
 		}
-	}
-	if (!selected) {
-		throw new Error(`Current directory ${directory} is not inside a workspace package.`);
 	}
 	return selected;
 };
@@ -209,7 +204,6 @@ export const createPublishGraph = (
 					key,
 					field,
 					target,
-					specification,
 				});
 				visit(byName.get(target)![0]);
 			}
@@ -248,7 +242,6 @@ export const createPublishGraph = (
 	visit(selectWorkspacePackage(workspace, selected));
 
 	return {
-		rootDir: workspace.rootDir,
 		selected,
 		nodes: [...nodes.values()],
 		peers,

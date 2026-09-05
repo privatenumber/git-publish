@@ -1,11 +1,11 @@
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
-import { discoverWorkspacePackages } from '../../src/publish-repository/workspace.ts';
+import { discoverWorkspacePackages } from '../../src/workspace-publication/discover.ts';
 import {
 	createPublishGraph,
-	resolvePackageDirectory,
+	findWorkspacePackageDirectory,
 	selectWorkspacePackage,
-} from '../../src/publish-repository/graph.ts';
+} from '../../src/workspace-publication/graph.ts';
 
 const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 	await using fixture = await createFixture({
@@ -73,7 +73,6 @@ describe('Publication graph', () => {
 			key: '@hunk/session-broker-core',
 			field: 'dependencies',
 			target: '@hunk/session-broker-core',
-			specification: 'workspace:*',
 		}]);
 		expect(graph.peers).toStrictEqual([]);
 	});
@@ -154,7 +153,6 @@ describe('Publication graph', () => {
 			key: '@test/core',
 			field: 'optionalDependencies',
 			target: '@test/core',
-			specification: 'workspace:*',
 		}]);
 	});
 
@@ -294,7 +292,6 @@ describe('Publication graph', () => {
 			key: '@test/alias',
 			field: 'dependencies',
 			target: '@test/actual',
-			specification: 'workspace:@test/actual@^1.0.0',
 		}]);
 	});
 
@@ -492,7 +489,7 @@ describe('Publication graph', () => {
 		expect(message).toContain('@test/a -> @test/b -> @test/a');
 	});
 
-	test('resolves the package containing the working directory', async () => {
+	test('finds the package containing the working directory', async () => {
 		await using fixture = await createFixture({
 			'package.json': JSON.stringify({
 				name: 'test-monorepo',
@@ -517,16 +514,8 @@ describe('Publication graph', () => {
 		});
 		const workspace = await discoverWorkspacePackages(fixture.path, 'npm');
 
-		expect(resolvePackageDirectory(workspace, fixture.getPath('packages/app')).name).toBe('@test/app');
-		expect(resolvePackageDirectory(workspace, fixture.getPath('packages/app/src')).name).toBe('@test/app');
-
-		let message = '';
-		try {
-			resolvePackageDirectory(workspace, fixture.path);
-		} catch (error) {
-			expect(error).toBeInstanceOf(Error);
-			message = (error as Error).message;
-		}
-		expect(message).toContain('not inside a workspace package');
+		expect(findWorkspacePackageDirectory(workspace, fixture.getPath('packages/app'))?.name).toBe('@test/app');
+		expect(findWorkspacePackageDirectory(workspace, fixture.getPath('packages/app/src'))?.name).toBe('@test/app');
+		expect(findWorkspacePackageDirectory(workspace, fixture.path)).toBeUndefined();
 	});
 });

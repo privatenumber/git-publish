@@ -56,6 +56,54 @@ describe('Publish history', async () => {
 		expect(await remoteGit('rev-parse', [`npm/${sourceCommit}`])).toBeTruthy();
 	});
 
+	test('preserves standalone publication commit messages', async () => {
+		const branchName = 'test-standalone-commit-message';
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}, null, 2),
+		}, [`--initial-branch=${branchName}`]);
+
+		const { git } = fixture;
+		await git('add', ['package.json']);
+		await git('commit', ['-m', 'Initial commit']);
+		const sourceCommit = await git('rev-parse', ['--short', 'HEAD']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
+
+		expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
+		expect(await remoteGit('show', ['--format=%s', '--no-patch', `npm/${branchName}`])).toBe(`Published from "${branchName}" (${sourceCommit})`);
+	});
+
+	test('prints one branch-based GitHub install command after standalone publication', async () => {
+		const branchName = 'test-standalone-install-command';
+		const githubUrl = 'https://github.com/test/repository.git';
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}, null, 2),
+		}, [`--initial-branch=${branchName}`]);
+		await using configFixture = await createFixture();
+		const { git } = fixture;
+		await git('add', ['package.json']);
+		await git('commit', ['-m', 'Initial commit']);
+		const globalConfig = configFixture.getPath('gitconfig');
+		await spawn('git', ['config', '--file', globalConfig, `url.file://${remoteFixture.path}.insteadOf`, githubUrl]);
+
+		const gitPublishProcess = await gitPublish(fixture.path, ['--remote', githubUrl], {
+			GIT_CONFIG_GLOBAL: globalConfig,
+			GIT_CONFIG_SYSTEM: configFixture.getPath('system-config'),
+		});
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(gitPublishProcess.stdout).toContain(`npm i 'test/repository#npm/${branchName}'`);
+		expect(gitPublishProcess.stdout.split('→ Install command')).toHaveLength(2);
+		expect(gitPublishProcess.stdout.indexOf('→ Install command')).toBeGreaterThan(
+			gitPublishProcess.stdout.indexOf('Successfully published branch:'),
+		);
+	});
+
 	test('preserves history', async () => {
 		const branchName = 'test-preserve-history';
 

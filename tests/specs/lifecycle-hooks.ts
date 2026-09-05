@@ -6,6 +6,7 @@ import { createFixture } from 'fs-fixture';
 import { detectPackageManager } from '../../src/utils/detect-package-manager.ts';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
+import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
 
 describe('Lifecycle hooks', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
@@ -284,5 +285,30 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 		// also be re-logged by the top-level error handler, which would print
 		// "Error: Command failed with exit code N: …".
 		expect(gitPublishProcess.output).not.toMatch('Error: Command failed');
+	});
+
+	test('retains publication and cleanup diagnostics when both fail', async () => {
+		const missingBinary = 'this-binary-does-not-exist-with-cleanup';
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pack-and-cleanup-error-output',
+				version: '1.0.0',
+				scripts: { prepack: missingBinary },
+			}, null, 2),
+		}, ['--initial-branch=test-pack-and-cleanup-error-output']);
+		await using hookFixture = await createFixture();
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
+
+		const gitPublishProcess = await gitPublish(fixture.path, [], {
+			NODE_OPTIONS: await createCleanupFailureHook(hookFixture),
+		});
+
+		expect('exitCode' in gitPublishProcess).toBe(true);
+		expect(gitPublishProcess.output).toContain(missingBinary);
+		expect(gitPublishProcess.output).toContain('Test cleanup failure at');
+		expect(gitPublishProcess.output).not.toContain('→ Install command');
 	});
 });

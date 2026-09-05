@@ -1,0 +1,116 @@
+import type { TaskInnerAPI } from 'tasuku';
+import task from '../utils/task.ts';
+import { createPublishRepository } from '../publish-repository/create.ts';
+import type { PublishRemote } from '../publish-repository/remote.ts';
+import type { PackagePreparation } from '../package-publication/prepare.ts';
+import { planPackagePublicationPush, pushPackagePublications } from '../package-publication/push.ts';
+import type { PackageManager } from '../utils/detect-package-manager.ts';
+import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
+import type { WorkspacePublicationPlan } from './plan.ts';
+import { processWorkspacePackage } from './process-package.ts';
+
+export const publishWorkspaceClosure = async ({
+	plan,
+	packageManager,
+	repositoryPath,
+	publishRemote,
+	sourceName,
+	sourceCommit,
+	fresh,
+}: {
+	plan: WorkspacePublicationPlan;
+	packageManager: PackageManager;
+	repositoryPath: string;
+	publishRemote: PublishRemote;
+	sourceName: string;
+	sourceCommit: string | undefined;
+	fresh: boolean | undefined;
+}): Promise<ReadonlyMap<string, PackagePreparation>> => {
+	const repository = await createPublishRepository({
+		sourceRepositoryPath: repositoryPath,
+		publishRemote,
+	});
+	try {
+		const pushPlan = await planPackagePublicationPush(
+			repository,
+			fresh,
+			plan.nodes.map(node => node.branch),
+		);
+		const preparations = new Map<string, PackagePreparation>();
+		const processPackage = async (index: number, {
+			streamPreview,
+			setStatus,
+			startTime,
+		}: TaskInnerAPI) => {
+			const node = plan.nodes[index]!;
+			startTime();
+			try {
+				const preparation = await processWorkspacePackage({
+					index,
+					node,
+					packageManager,
+					repository,
+					repositoryPath,
+					publishRemote,
+					sourceName,
+					sourceCommit,
+					fresh,
+					preparations,
+					setStatus,
+				});
+				preparations.set(node.key, preparation);
+				if (preparation.reusedExistingCommit) {
+					setStatus('Unchanged; reusing existing commit');
+				} else {
+					setStatus();
+				}
+				return preparation;
+			} catch (error) {
+				writeSubprocessErrorOutput(streamPreview, error);
+				throw error;
+			}
+		};
+		const selectedIndex = plan.nodes.findIndex(node => node.key === plan.selected);
+		if (selectedIndex > 0) {
+			await task('Required workspace dependencies', async () => task.group(
+				createTask => plan.nodes.slice(0, selectedIndex).map((_, index) => createTask(
+					plan.nodes[index]!.key,
+					async taskApi => processPackage(index, taskApi),
+				)),
+			));
+		}
+		await task(
+			plan.nodes[selectedIndex]!.key,
+			async taskApi => processPackage(selectedIndex, taskApi),
+		);
+		const packageCount = plan.nodes.length;
+		await task(
+			`Pushing ${packageCount} ${packageCount === 1 ? 'package' : 'packages'}${packageCount === 1 ? '' : ' together'}`,
+			async ({ streamPreview }) => {
+				try {
+					await pushPackagePublications({
+						repository,
+						publications: [...preparations.values()].map(preparation => preparation.publication),
+						pushPlan,
+					});
+				} catch (error) {
+					writeSubprocessErrorOutput(streamPreview, error);
+					throw error;
+				}
+			},
+		);
+		return preparations;
+	} finally {
+		const cleanup = task('Cleaning up temporary files', async ({ setWarning }) => {
+			try {
+				await repository.dispose();
+			} catch (error) {
+				setWarning(getErrorDetails(error));
+			}
+		});
+		await cleanup;
+		if (!cleanup.warning) {
+			cleanup.clear();
+		}
+	}
+};

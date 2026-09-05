@@ -63,7 +63,7 @@ git-publish
 
 | Flag                    | Description                                                   |
 | ----------------------- | ------------------------------------------------------------- |
-| `-b, --branch <name>`   | Target branch name. Defaults to `npm/<current branch or tag>` |
+| `-b, --branch <template>` | Target branch template. Supports `{gitRef}`, `{gitSha}`, and `{package}` |
 | `-r, --remote <remote>` | Git remote name or URL to push to (default: `origin`)         |
 | `-o, --fresh`           | Create a fresh single-commit branch. Force-pushes to remote   |
 | `-d, --dry`             | Simulate the process. Does not commit or push                 |
@@ -126,10 +126,46 @@ Manual commits often:
 
 Yes. Run `git-publish` from inside the specific package directory (e.g., `packages/my-lib`).
 
-It will detect and publish only that package's contents to the root of the Git branch.
+`git-publish` publishes the selected package and its internal `workspace:` dependencies from `dependencies` and `optionalDependencies`. It creates each package commit before one atomic push, so a failed branch update does not expose a partial dependency closure.
+
+`--branch` accepts a small branch template with these placeholders:
+
+- `{gitRef}`: The current branch, exact tag, or short commit fallback.
+- `{gitSha}`: The full source commit object ID.
+- `{package}`: The package name from `package.json`.
+
+Quote branch templates in the shell, for example `'preview/{package}'`.
+
+When `--branch` is omitted, workspace packages use the default template `npm/{gitRef}-{package}`. For a `core <- broker <- adapter` closure published from `feature/auth`, it creates:
+
+```text
+npm/feature/auth-@acme/core
+npm/feature/auth-@acme/broker
+npm/feature/auth-@acme/adapter
+```
+
+Pass a template to choose each workspace branch independently:
+
+```sh
+git-publish --branch 'preview/{package}'
+```
+
+For one package, a literal branch remains exact. For example, `git-publish --branch preview` publishes to `preview`. A multi-package workspace closure must render a unique branch for every package. Include `{package}` when a literal template would collide.
+
+Standalone packages keep the default `npm/<gitRef>` branch. An explicit `--branch` can use the same placeholders or remain a literal branch name.
+
+Internal workspace peer dependencies are not published. `git-publish` prints a warning for each peer so consumers can provide it.
 
 > [!IMPORTANT]
-> Currently does not support resolving `workspace:` protocol dependencies. Avoid using those or pre-bundle them before publishing.
+> A recursive publication requires one push URL. Git cannot atomically push one dependency closure to multiple destinations.
+
+#### Installing with pnpm
+
+pnpm can block a Git dependency declared by another Git dependency with `blockExoticSubdeps`. A consumer that installs a published workspace closure must opt in:
+
+```sh
+pnpm install --config.block-exotic-subdeps=false '<install-specifier>'
+```
 
 ### Can I publish to and install from a private repository?
 
