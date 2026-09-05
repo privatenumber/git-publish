@@ -18,7 +18,7 @@ import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { packPackage } from './utils/pack-package.ts';
 import { extractTarball } from './utils/extract-tarball.ts';
-import { getGitHubRepositoryName } from './utils/github.ts';
+import { getGitHubInstallSpecifier, getGitHubRepositoryName } from './utils/github.ts';
 import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
 import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
@@ -204,7 +204,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 
 				setOutput([
 					'Install command',
-					`${packageManager} i '${selected.publication.installSpecifier}'`,
+					`${packageManager} i '${getGitHubInstallSpecifier(remoteUrl, selected.publication.commit) ?? selected.publication.installSpecifier}'`,
 				].join('\n'));
 			},
 		).catch(() => {
@@ -482,7 +482,7 @@ Pre-bundle these dependencies before publishing.`);
 
 					const output = [
 						'Install command',
-						`${packageManager} i '${remoteUrl}#${publishBranch}'`,
+						`${packageManager} i '${getGitHubInstallSpecifier(remoteUrl, publishBranch) ?? `${remoteUrl}#${publishBranch}`}'`,
 					].join('\n');
 
 					setOutput(output);
