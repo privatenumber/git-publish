@@ -78,6 +78,9 @@ importers:
       skills-npm:
         specifier: ^1.2.0
         version: 1.2.0
+      terminal-columns:
+        specifier: ^2.0.0
+        version: 2.0.0
       terminal-link:
         specifier: ^5.0.0
         version: 5.0.0

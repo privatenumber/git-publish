@@ -94,10 +94,15 @@ describe('Publish history', async () => {
 		const gitPublishProcess = await gitPublish(fixture.path, ['--remote', githubUrl], {
 			GIT_CONFIG_GLOBAL: globalConfig,
 			GIT_CONFIG_SYSTEM: configFixture.getPath('system-config'),
+			FORCE_HYPERLINK: '1',
 		});
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(gitPublishProcess.stdout).toContain(`npm i 'test/repository#npm/${branchName}'`);
+		const publishedCommit = await remoteGit('rev-parse', [`npm/${branchName}`]);
+		expect(gitPublishProcess.stdout).toContain(`https://github.com/test/repository/tree/npm/${branchName}`);
+		expect(gitPublishProcess.stdout).toContain(`https://github.com/test/repository/commit/${publishedCommit}`);
+		expect(gitPublishProcess.stdout).toContain(`\u0007${publishedCommit.slice(0, 7)}\u001B]8;;`);
 		expect(gitPublishProcess.stdout.split('→ Install command')).toHaveLength(2);
 		expect(gitPublishProcess.stdout.indexOf('→ Install command')).toBeGreaterThan(
 			gitPublishProcess.stdout.indexOf('Successfully published branch:'),

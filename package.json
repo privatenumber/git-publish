@@ -57,6 +57,7 @@
 		"nano-spawn": "^2.1.0",
 		"pkgroll": "^2.27.1",
 		"skills-npm": "^1.2.0",
+		"terminal-columns": "^2.0.0",
 		"terminal-link": "^5.0.0",
 		"typescript": "^6.0.3"
 	}

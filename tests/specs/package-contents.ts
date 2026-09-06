@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
@@ -50,6 +51,15 @@ describe('Package contents', async () => {
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(gitPublishProcess.stdout).toMatch('✔');
+		const outputLines = stripVTControlCharacters(gitPublishProcess.stdout).split('\n');
+		const totalIndex = outputLines.findIndex(line => line.startsWith('Total size'));
+		const fileRows = outputLines.slice(totalIndex - 2, totalIndex + 1);
+		expect(fileRows.map(line => line.trim().split(/\s{2,}/)[0])).toStrictEqual([
+			'dist/index.js',
+			'package.json',
+			'Total size',
+		]);
+		expect(new Set(fileRows.map(line => line.trimEnd().length)).size).toBe(1);
 
 		// Published branch should have exactly 1 commit
 		const publishedBranch = `npm/${branchName}-${packageName}`;

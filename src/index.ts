@@ -257,10 +257,17 @@ Pre-bundle these dependencies before publishing.`);
 				});
 				const repositoryName = getGitHubRepositoryName(remoteUrl);
 				if (result && repositoryName) {
-					setTitle(`Successfully published branch: ${terminalLink(
-						`${publishBranch} ${dim(`(${result.publication.commit})`)}`,
+					const branchLink = terminalLink(
+						publishBranch,
 						`https://github.com/${repositoryName}/tree/${publishBranch}`,
-					)}`);
+						{ fallback: false },
+					);
+					const commitLink = terminalLink(
+						result.publication.commit.slice(0, 7),
+						`https://github.com/${repositoryName}/commit/${result.publication.commit}`,
+						{ fallback: false },
+					);
+					setTitle(`Successfully published branch: ${branchLink} ${dim(`(${commitLink})`)}`);
 				}
 				return result;
 			},
