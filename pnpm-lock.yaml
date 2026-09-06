@@ -24,8 +24,8 @@ importers:
         specifier: ^3.1.2
         version: 3.1.2
       tasuku:
-        specifier: github:pvtnbr/tasuku#npm/beta
-        version: git+https://git@github.com:pvtnbr/tasuku.git#99e651b08931a58fe940961292ea890e23b10ef9
+        specifier: github:pvtnbr/tasuku#npm/fix/inline-wrapped-titles
+        version: git+https://git@github.com:pvtnbr/tasuku.git#35422d83d1197dc7bbe90406cd4b01878a00fe40
     devDependencies:
       '@types/gunzip-maybe':
         specifier: ^1.4.3
@@ -2873,8 +2873,8 @@ packages:
   tar-stream@3.1.8:
     resolution: {integrity: sha512-U6QpVRyCGHva435KoNWy9PRoi2IFYCgtEhq9nmrPPpbRacPs9IH4aJ3gbrFC8dPcXvdSZ4XXfXT5Fshbp2MtlQ==}
 
-  tasuku@git+https://git@github.com:pvtnbr/tasuku.git#99e651b08931a58fe940961292ea890e23b10ef9:
-    resolution: {commit: 99e651b08931a58fe940961292ea890e23b10ef9, repo: git@github.com:pvtnbr/tasuku.git, type: git}
+  tasuku@git+https://git@github.com:pvtnbr/tasuku.git#35422d83d1197dc7bbe90406cd4b01878a00fe40:
+    resolution: {commit: 35422d83d1197dc7bbe90406cd4b01878a00fe40, repo: git@github.com:pvtnbr/tasuku.git, type: git}
     version: 0.0.0-semantic-release
     engines: {node: '>=20.20'}
 
@@ -6226,7 +6226,7 @@ snapshots:
       - bare-buffer
       - react-native-b4a
 
-  tasuku@git+https://git@github.com:pvtnbr/tasuku.git#99e651b08931a58fe940961292ea890e23b10ef9: {}
+  tasuku@git+https://git@github.com:pvtnbr/tasuku.git#35422d83d1197dc7bbe90406cd4b01878a00fe40: {}
 
   teex@1.0.1:
     dependencies:
