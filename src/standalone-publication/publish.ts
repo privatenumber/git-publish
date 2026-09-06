@@ -14,6 +14,8 @@ import { packPackage } from '../utils/pack-package.ts';
 
 const { stringify } = JSON;
 
+const styleSizeColumn = (line: string) => blueBright(line);
+
 export const publishStandalonePackage = async ({
 	packageName,
 	packageManager,
@@ -119,7 +121,7 @@ export const publishStandalonePackage = async ({
 			const totalSize = preparation.files.reduce((sum, file) => sum + file.size, 0);
 			console.log(terminalColumns([
 				...preparation.files.map(({ file, size }) => [
-					dim(file), blueBright.dim(byteSize(size).toString()),
+					dim(file), dim(byteSize(size).toString()),
 				]),
 				['Total size', byteSize(totalSize).toString()],
 			], {
@@ -132,6 +134,7 @@ export const publishStandalonePackage = async ({
 					{
 						width: 'content-width',
 						align: 'right',
+						postprocess: styleSizeColumn,
 					},
 				],
 			}));
