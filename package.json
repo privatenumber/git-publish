@@ -28,6 +28,6 @@
     "fast-glob": "^3.3.3",
     "gunzip-maybe": "^1.4.2",
     "tar-fs": "^3.1.2",
-    "tasuku": "github:pvtnbr/tasuku#npm/beta"
+    "tasuku": "github:pvtnbr/tasuku#npm/fix/inline-wrapped-titles"
   }
 }
