@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import spawn from 'nano-spawn';
 import byteSize from 'byte-size';
-import { dim, lightBlue } from 'kolorist';
+import { blueBright, dim } from 'ansis';
 import task from '../utils/task.ts';
 import { createPublishRepository, type PublishRepository } from '../publish-repository/create.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
@@ -116,9 +116,9 @@ export const publishStandalonePackage = async ({
 				gitOptions: repository!.gitOptions,
 			});
 			const totalSize = preparation.files.reduce((sum, file) => sum + file.size, 0);
-			console.log(lightBlue(`Publishing ${packageName}`));
+			console.log(blueBright(`Publishing ${packageName}`));
 			console.log(preparation.files.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
-			console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
+			console.log(`\n${blueBright('Total size')}`, byteSize(totalSize).toString());
 			if (preparation.reusedExistingCommit) {
 				console.warn('⚠️  No new changes found to commit.');
 			}

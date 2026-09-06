@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import spawn from 'nano-spawn';
 import { cli } from 'cleye';
 import type { PackageJson } from '@npmcli/package-json';
-import { cyan, dim } from 'kolorist';
+import { cyan, dim } from 'ansis';
 import terminalLink from 'terminal-link';
 import packageMeta from '../package.json' with { type: 'json' };
 import task from './utils/task.ts';
