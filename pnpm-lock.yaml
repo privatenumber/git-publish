@@ -24,8 +24,8 @@ importers:
         specifier: ^3.1.2
         version: 3.1.2
       tasuku:
-        specifier: 3.0.0-beta.6
-        version: 3.0.0-beta.6
+        specifier: github:pvtnbr/tasuku#npm/pr-76
+        version: git+https://git@github.com:pvtnbr/tasuku.git#02c81b4ebcb41d800d7dc27b75398e27109e100b
     devDependencies:
       '@types/gunzip-maybe':
         specifier: ^1.4.3
@@ -2873,8 +2873,9 @@ packages:
   tar-stream@3.1.8:
     resolution: {integrity: sha512-U6QpVRyCGHva435KoNWy9PRoi2IFYCgtEhq9nmrPPpbRacPs9IH4aJ3gbrFC8dPcXvdSZ4XXfXT5Fshbp2MtlQ==}
 
-  tasuku@3.0.0-beta.6:
-    resolution: {integrity: sha512-LdP4hFH3vQGGzgZuJHZZIo8E/frvrkqsGfoppjOcP3cYPfE7J+535XPLoe6U/lKsbR5NGOpJLDUMv1MUIC4P6w==}
+  tasuku@git+https://git@github.com:pvtnbr/tasuku.git#02c81b4ebcb41d800d7dc27b75398e27109e100b:
+    resolution: {commit: 02c81b4ebcb41d800d7dc27b75398e27109e100b, repo: git@github.com:pvtnbr/tasuku.git, type: git}
+    version: 0.0.0-semantic-release
     engines: {node: '>=20.20'}
 
   teex@1.0.1:
@@ -6225,7 +6226,7 @@ snapshots:
       - bare-buffer
       - react-native-b4a
 
-  tasuku@3.0.0-beta.6: {}
+  tasuku@git+https://git@github.com:pvtnbr/tasuku.git#02c81b4ebcb41d800d7dc27b75398e27109e100b: {}
 
   teex@1.0.1:
     dependencies:
