@@ -24,8 +24,8 @@ importers:
         specifier: ^3.1.2
         version: 3.1.2
       tasuku:
-        specifier: github:pvtnbr/tasuku#npm/fix/inline-wrapped-titles
-        version: git+https://git@github.com:pvtnbr/tasuku.git#35422d83d1197dc7bbe90406cd4b01878a00fe40
+        specifier: 3.0.0-beta.7
+        version: 3.0.0-beta.7
     devDependencies:
       '@types/gunzip-maybe':
         specifier: ^1.4.3
@@ -2873,9 +2873,8 @@ packages:
   tar-stream@3.1.8:
     resolution: {integrity: sha512-U6QpVRyCGHva435KoNWy9PRoi2IFYCgtEhq9nmrPPpbRacPs9IH4aJ3gbrFC8dPcXvdSZ4XXfXT5Fshbp2MtlQ==}
 
-  tasuku@git+https://git@github.com:pvtnbr/tasuku.git#35422d83d1197dc7bbe90406cd4b01878a00fe40:
-    resolution: {commit: 35422d83d1197dc7bbe90406cd4b01878a00fe40, repo: git@github.com:pvtnbr/tasuku.git, type: git}
-    version: 0.0.0-semantic-release
+  tasuku@3.0.0-beta.7:
+    resolution: {integrity: sha512-pIxZdMnWjoE6k6xeGVRuqOW29cqhskJOJJroVTMusIAm10c1mMHvSAjSDZf0UTqnt/ABKnx9Sl0XUSLf5Es/3Q==}
     engines: {node: '>=20.20'}
 
   teex@1.0.1:
@@ -6226,7 +6225,7 @@ snapshots:
       - bare-buffer
       - react-native-b4a
 
-  tasuku@git+https://git@github.com:pvtnbr/tasuku.git#35422d83d1197dc7bbe90406cd4b01878a00fe40: {}
+  tasuku@3.0.0-beta.7: {}
 
   teex@1.0.1:
     dependencies:
