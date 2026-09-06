@@ -11,6 +11,7 @@ import { preparePackagePublication, type PackagePreparation } from '../package-p
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { packPackage } from '../utils/pack-package.ts';
+import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 
 const { stringify } = JSON;
 
@@ -118,6 +119,12 @@ export const publishStandalonePackage = async ({
 				dependencyPublications: new Map(),
 				gitOptions: repository!.gitOptions,
 			});
+			const unpublishedFilesWarning = formatUnpublishedFilesFieldWarning(
+				preparation.unpublishedFilesFieldEntries,
+			);
+			if (unpublishedFilesWarning) {
+				setWarning(unpublishedFilesWarning);
+			}
 			const totalSize = preparation.files.reduce((sum, file) => sum + file.size, 0);
 			console.log(terminalColumns([
 				...preparation.files.slice().sort((a, b) => (
@@ -142,7 +149,7 @@ export const publishStandalonePackage = async ({
 			}));
 		});
 		await prepare;
-		if (!dry) {
+		if (!dry && !prepare.warning) {
 			prepare.clear();
 		}
 

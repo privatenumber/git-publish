@@ -6,6 +6,7 @@ import { extractTarball, type File } from '../utils/extract-tarball.ts';
 import { getStdout } from '../utils/get-stdout.ts';
 import { gitStatusTracked } from '../utils/git.ts';
 import { readJson } from '../utils/read-json.ts';
+import { findUnpublishedFilesFieldEntries } from '../utils/unpublished-files-field.ts';
 
 const { stringify } = JSON;
 
@@ -19,6 +20,7 @@ export type PackagePublication = {
 export type PackagePreparation = {
 	publication: PackagePublication;
 	files: File[];
+	unpublishedFilesFieldEntries: string[];
 	reusedExistingCommit: boolean;
 };
 
@@ -111,6 +113,10 @@ export const preparePackagePublication = async ({
 			installSpecifier: toInstallSpecifier(fetchUrl, commit),
 		},
 		files,
+		unpublishedFilesFieldEntries: findUnpublishedFilesFieldEntries(
+			manifest.files,
+			files.map(file => file.file),
+		),
 		reusedExistingCommit: tracked.length === 0,
 	};
 };
