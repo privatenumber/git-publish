@@ -131,6 +131,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		sourceCommitId,
 		packageManager,
 		publishBranch: branch,
+		force: argv.flags.force,
 	});
 	let installSpecifier: string | undefined;
 

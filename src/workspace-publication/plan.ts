@@ -25,6 +25,7 @@ export const planWorkspacePublication = async ({
 	sourceCommitId,
 	packageManager,
 	publishBranch,
+	force,
 }: {
 	cwd: string;
 	gitRootPath: string;
@@ -32,6 +33,7 @@ export const planWorkspacePublication = async ({
 	sourceCommitId: string | undefined;
 	packageManager: PackageManager;
 	publishBranch?: string;
+	force: boolean | undefined;
 }): Promise<WorkspacePublicationPlan | undefined> => {
 	const workspace = await findWorkspacePackages(cwd, packageManager, gitRootPath);
 	if (!workspace) {
@@ -43,6 +45,12 @@ export const planWorkspacePublication = async ({
 	}
 	const selected = selectedPackage.name;
 	const graph = createPublishGraph(workspace, selected);
+	if (!force) {
+		const privatePackage = graph.nodes.find(node => node.package.packageJson.private);
+		if (privatePackage) {
+			throw new Error(`Workspace package ${JSON.stringify(privatePackage.key)} is marked as private. Use --force to publish it anyway.`);
+		}
+	}
 	const nodes: WorkspacePublicationNode[] = [];
 	const branchTemplate = publishBranch ?? 'npm/{gitRef}-{package}';
 	const packagesByBranch = new Map<string, string>();
