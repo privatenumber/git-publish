@@ -5,7 +5,9 @@ import { getErrorDetails } from '../../src/utils/error.ts';
 test('formats nested cleanup and subprocess diagnostics', async () => {
 	let subprocessError: unknown;
 	try {
-		await spawn(process.execPath, ['-e', 'console.error("worktree removal failed"); process.exit(1)']);
+		await spawn(process.execPath, ['-'], {
+			stdin: { string: 'console.error("worktree removal failed"); process.exit(1)' },
+		});
 	} catch (error) {
 		subprocessError = error;
 	}

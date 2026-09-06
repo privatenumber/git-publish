@@ -143,7 +143,9 @@ describe('Workspace publication', async () => {
 
 	test('groups required dependencies under the selected package publication', async () => {
 		const branchName = 'test-workspace-progress';
-		await using fixture = await createChainWorkspace(branchName, remoteFixture.path);
+		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
+			corePrepack: 'node -e "setTimeout(() => {}, 1100)"',
+		});
 
 		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'));
 
