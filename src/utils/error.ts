@@ -3,7 +3,10 @@ import { SubprocessError } from 'nano-spawn';
 
 export const getErrorDetails = (error: unknown): string => {
 	if (error instanceof AggregateError) {
-		return error.errors.map(nested => (nested instanceof Error ? nested.message : String(nested))).join('\n');
+		return error.errors.map(getErrorDetails).join('\n');
+	}
+	if (error instanceof SubprocessError) {
+		return error.output || error.stderr || error.message;
 	}
 
 	return error instanceof Error ? error.message : String(error);

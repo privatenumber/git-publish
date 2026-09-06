@@ -8,6 +8,7 @@ describe('git-publish', () => {
 	import('./specs/standalone-branch-template.ts');
 	import('./specs/publish-graph.ts');
 	import('./specs/github-remotes.ts');
+	import('./specs/error.ts');
 	import('./specs/git-config.ts');
 	import('./specs/validation-errors.ts');
 	import('./specs/remote-transport.ts');
