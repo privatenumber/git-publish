@@ -120,7 +120,9 @@ export const publishStandalonePackage = async ({
 			});
 			const totalSize = preparation.files.reduce((sum, file) => sum + file.size, 0);
 			console.log(terminalColumns([
-				...preparation.files.map(({ file, size }) => [
+				...preparation.files.slice().sort((a, b) => (
+					a.file < b.file ? -1 : (a.file > b.file ? 1 : 0)
+				)).map(({ file, size }) => [
 					dim(file), dim(byteSize(size).toString()),
 				]),
 				['Total size', byteSize(totalSize).toString()],
