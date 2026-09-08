@@ -97,6 +97,8 @@ This mirrors the same behavior as `npm publish`.
 
 `git-publish` checks each positive `package.json` `"files"` entry from the packed package after lifecycle hooks run. If an entry matches no packed file or directory, it warns and still publishes. That usually means the build did not run, or the entry is wrong.
 
+You can also run the build before `git-publish`. Existing build output, including gitignored files such as `dist/`, is included when it matches the package's `files` field. See [Preparing monorepo packages](#preparing-monorepo-packages) for workspace builds and custom hooks in a fork.
+
 ### What does `git-publish` do?
 
 1. Checks out or creates the publish branch
@@ -160,6 +162,26 @@ Internal workspace peer dependencies are not published. `git-publish` prints a w
 
 > [!IMPORTANT]
 > A recursive publication requires one push URL. Git cannot atomically push one dependency closure to multiple destinations.
+
+#### Preparing monorepo packages
+
+Install the repository's dependencies before publishing so the package manager can resolve `workspace:` references and run package hooks. `git-publish` does not automatically run a script named `build`.
+
+If the repository has a workspace build command, run it before publishing. For example, in a pnpm monorepo with a root `build` script and a remote named `fork` pointing to your fork:
+
+```sh
+# From the repository root
+pnpm install
+pnpm build
+cd packages/my-lib
+git-publish --remote fork
+```
+
+Use the repository's documented build command to generate output for the selected package and all its required workspace dependencies. Each package's `files` field must include its build output.
+
+If packages need custom preparation, add or adjust their `prepack` scripts in your fork's `package.json` files. Each package can use its own command. Commit the manifest and source changes before running `git-publish`: it requires a clean tracked working tree and packs from the committed source. Gitignored build output does not need to be committed.
+
+Package hooks run in an isolated checkout that is cleaned between packages. If one package's build needs another package's generated files, build those dependencies in your source checkout first; do not rely on output from an earlier package's pack hook being retained for the next package.
 
 #### Installing with pnpm
 
