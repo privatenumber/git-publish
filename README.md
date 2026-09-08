@@ -165,7 +165,7 @@ Internal workspace peer dependencies are not published. `git-publish` prints a w
 
 #### Preparing monorepo packages
 
-Install the repository's dependencies before publishing so the package manager can resolve `workspace:` references and run package hooks. `git-publish` does not automatically run a script named `build`.
+Install the repository's dependencies before publishing so the package manager can resolve [`workspace:` references](https://pnpm.io/workspaces#workspace-protocol-workspace) and run package hooks. `git-publish` does not automatically run a script named `build`.
 
 If the repository has a workspace build command, run it before publishing. For example, in a pnpm monorepo with a root `build` script and a remote named `fork` pointing to your fork:
 
@@ -185,7 +185,7 @@ Package hooks run in an isolated checkout that is cleaned between packages. If o
 
 #### Installing with pnpm
 
-pnpm can block a Git dependency declared by another Git dependency with `blockExoticSubdeps`. A consumer that installs a published workspace closure must opt in:
+pnpm can block a Git dependency declared by another Git dependency with [`blockExoticSubdeps`](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps). A consumer that installs a published workspace closure must opt in:
 
 ```sh
 pnpm install --config.block-exotic-subdeps=false '<install-specifier>'
