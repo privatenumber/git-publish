@@ -42,7 +42,7 @@ export const findUnpublishedFilesFieldEntries = (
 			continue;
 		}
 
-		const matchesEntry = micromatch.matcher(normalized);
+		const matchesEntry = micromatch.matcher(normalized, { dot: true });
 		let hasMatch = false;
 		for (const packedPath of packedPaths) {
 			if (matchesEntry(packedPath)) {

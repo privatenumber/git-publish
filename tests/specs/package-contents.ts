@@ -325,6 +325,34 @@ describe('Package contents', async () => {
 		expect(stripVTControlCharacters(gitPublishProcess.stdout)).not.toContain('were not published');
 	});
 
+	test('does not warn when files patterns match packed dotfiles', async () => {
+		const branchName = 'test-files-field-dotfile-pattern';
+
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-files-field-dotfile-pattern',
+				version: '1.0.0',
+				files: ['assets/*'],
+			}, null, 2),
+			assets: {
+				'.hidden.json': '{}',
+			},
+		}, [`--initial-branch=${branchName}`]);
+
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
+
+		const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+		onTestFail(() => {
+			console.log(gitPublishProcess);
+		});
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(stripVTControlCharacters(gitPublishProcess.stdout)).not.toContain('were not published');
+	});
+
 	test('does not warn when files patterns match packed paths', async () => {
 		const branchName = 'test-files-field-patterns';
 
