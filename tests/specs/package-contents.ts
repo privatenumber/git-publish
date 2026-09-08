@@ -351,6 +351,13 @@ describe('Package contents', async () => {
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(stripVTControlCharacters(gitPublishProcess.stdout)).not.toContain('were not published');
+
+		const publishedBranch = `npm/${branchName}`;
+		const filesInTreeString = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
+		expect(filesInTreeString.split('\n').filter(Boolean).sort()).toEqual([
+			'assets/.hidden.json',
+			'package.json',
+		]);
 	});
 
 	test('does not warn when files patterns match packed paths', async () => {
