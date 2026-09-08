@@ -1,24 +1,25 @@
-const globSpecial = /[*?[\]{}]/;
+import micromatch from 'micromatch';
 
 const normalizeFilesFieldEntry = (entry: string) => (
-	entry.replaceAll(/^\//g, '').replaceAll(/\/+$/g, '')
+	entry.replace(/^(?:\.\/|\/)+/, '').replace(/\/+$/, '')
 );
 
-const escapeRegExp = (value: string) => value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
-
-const matchesFilesFieldEntry = (
-	packedFile: string,
-	entry: string,
-) => {
-	if (!globSpecial.test(entry)) {
-		return packedFile === entry || packedFile.startsWith(`${entry}/`);
+const getPackedPaths = (packedFiles: readonly string[]) => {
+	const packedPaths = [...packedFiles];
+	const packedPathSet = new Set(packedPaths);
+	for (const packedFile of packedFiles) {
+		let slashIndex = packedFile.lastIndexOf('/');
+		while (slashIndex !== -1) {
+			const directory = packedFile.slice(0, slashIndex);
+			if (!packedPathSet.has(directory)) {
+				packedPathSet.add(directory);
+				packedPaths.push(directory);
+			}
+			slashIndex = packedFile.lastIndexOf('/', slashIndex - 1);
+		}
 	}
 
-	const source = escapeRegExp(entry)
-		.replaceAll(String.raw`\*\*`, '.*')
-		.replaceAll(String.raw`\*`, '[^/]*')
-		.replaceAll(String.raw`\?`, '[^/]');
-	return new RegExp(`^${source}(?:/.*)?$`).test(packedFile);
+	return packedPaths;
 };
 
 export const findUnpublishedFilesFieldEntries = (
@@ -29,9 +30,10 @@ export const findUnpublishedFilesFieldEntries = (
 		return [];
 	}
 
+	const packedPaths = getPackedPaths(packedFiles);
 	const unpublished: string[] = [];
 	for (const entry of filesField) {
-		if (typeof entry !== 'string' || entry.length === 0 || entry.startsWith('!')) {
+		if (typeof entry !== 'string' || entry.length === 0 || micromatch.scan(entry).negated) {
 			continue;
 		}
 
@@ -40,7 +42,15 @@ export const findUnpublishedFilesFieldEntries = (
 			continue;
 		}
 
-		if (!packedFiles.some(packedFile => matchesFilesFieldEntry(packedFile, normalized))) {
+		const matchesEntry = micromatch.matcher(normalized);
+		let hasMatch = false;
+		for (const packedPath of packedPaths) {
+			if (matchesEntry(packedPath)) {
+				hasMatch = true;
+				break;
+			}
+		}
+		if (!hasMatch) {
 			unpublished.push(entry);
 		}
 	}

@@ -95,7 +95,7 @@ Add your build command to the [`prepack`](https://docs.npmjs.com/cli/v8/using-np
 
 This mirrors the same behavior as `npm publish`.
 
-If a path in `package.json` `"files"` is missing from the packed package, `git-publish` warns and still publishes. That usually means the build did not run, or the path is wrong.
+`git-publish` checks each positive `package.json` `"files"` entry from the packed package after lifecycle hooks run. If an entry matches no packed file or directory, it warns and still publishes. That usually means the build did not run, or the entry is wrong.
 
 ### What does `git-publish` do?
 
