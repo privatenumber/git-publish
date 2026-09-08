@@ -12,6 +12,48 @@ describe('Package managers', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	describe('bun', () => {
+		test('pack hooks can access dependency binaries', async () => {
+			const branchName = 'test-bun-pack-hook-dependency';
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'test-bun-pack-hook-dependency',
+					version: '1.0.0',
+					files: ['build-output.txt'],
+					scripts: {
+						prepack: 'fixture-build',
+					},
+					devDependencies: {
+						'fixture-build': 'file:./fixture-build',
+					},
+				}, null, 2),
+				'.gitignore': 'node_modules',
+				'fixture-build': {
+					'package.json': JSON.stringify({
+						name: 'fixture-build',
+						version: '1.0.0',
+						bin: 'index.js',
+					}, null, 2),
+					'index.js': `#!/usr/bin/env node
+require('node:fs').writeFileSync('build-output.txt', 'built');
+`,
+				},
+			}, [`--initial-branch=${branchName}`]);
+
+			await spawn('bun', ['install'], { cwd: fixture.path });
+			const { git } = fixture;
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+			onTestFail(() => console.log(gitPublishProcess));
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(await remoteGit('show', [`npm/${branchName}:build-output.txt`])).toBe('built');
+		});
+	});
+
 	describe('pnpm', () => {
 		test('catalog protocol is resolved', async () => {
 			const branchName = 'test-pnpm-catalog';

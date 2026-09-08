@@ -30,3 +30,8 @@ export const getGitHubRepositoryName = (remoteUrl: string) => {
 	const [, owner, repository] = repositoryPathMatch;
 	return `${owner}/${repository}`;
 };
+
+export const getGitHubInstallSpecifier = (remoteUrl: string, revision: string) => {
+	const repositoryName = getGitHubRepositoryName(remoteUrl);
+	return repositoryName ? `${repositoryName}#${revision}` : undefined;
+};

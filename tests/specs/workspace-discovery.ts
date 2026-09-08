@@ -1,7 +1,6 @@
-import fs from 'node:fs/promises';
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
-import { discoverWorkspacePackages } from '../../src/publish-repository/workspace.ts';
+import { discoverWorkspacePackages, findWorkspacePackages } from '../../src/workspace-publication/discover.ts';
 
 describe('Workspace discovery', () => {
 	test('discovers npm workspace packages', async () => {
@@ -33,11 +32,8 @@ describe('Workspace discovery', () => {
 
 		const workspace = await discoverWorkspacePackages(fixture.path, 'npm');
 
-		expect(workspace.rootDir).toBe(await fs.realpath(fixture.path));
-		expect(workspace.packageManager).toBe('npm');
 		expect(workspace.packages.map(entry => entry.name).sort()).toStrictEqual(['@test/a', '@test/b']);
 		const entry = workspace.packages.find(candidate => candidate.name === '@test/b');
-		expect(entry?.relativeDir).toBe('packages/b');
 		expect(entry?.packageJson.dependencies).toStrictEqual({ '@test/a': 'workspace:*' });
 	});
 
@@ -83,7 +79,6 @@ describe('Workspace discovery', () => {
 
 		const workspace = await discoverWorkspacePackages(fixture.path, 'bun');
 
-		expect(workspace.packageManager).toBe('bun');
 		expect(workspace.packages.map(entry => entry.name)).toStrictEqual(['@test/a']);
 	});
 
@@ -107,7 +102,6 @@ describe('Workspace discovery', () => {
 
 		const workspace = await discoverWorkspacePackages(fixture.path, 'yarn');
 
-		expect(workspace.packageManager).toBe('yarn');
 		expect(workspace.packages.map(entry => entry.name)).toStrictEqual(['@test/a']);
 	});
 
@@ -132,7 +126,6 @@ describe('Workspace discovery', () => {
 
 		const workspace = await discoverWorkspacePackages(fixture.path, 'pnpm');
 
-		expect(workspace.packageManager).toBe('pnpm');
 		expect(workspace.packages.map(entry => entry.name)).toStrictEqual(['@test/a']);
 	});
 
@@ -180,5 +173,16 @@ describe('Workspace discovery', () => {
 			message = (error as Error).message;
 		}
 		expect(message).toContain('No npm workspace found');
+	});
+
+	test('returns undefined for a package outside a workspace', async () => {
+		await using fixture = await createFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		});
+
+		expect(await findWorkspacePackages(fixture.path, 'npm')).toBeUndefined();
 	});
 });

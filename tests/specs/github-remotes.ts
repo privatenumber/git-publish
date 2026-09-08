@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'manten';
-import { getGitHubRepositoryName } from '../../src/utils/github.ts';
+import { getGitHubInstallSpecifier, getGitHubRepositoryName } from '../../src/utils/github.ts';
 
 describe('GitHub remotes', () => {
 	test('normalizes supported remote URLs', () => {
@@ -29,5 +29,20 @@ describe('GitHub remotes', () => {
 		]) {
 			expect(getGitHubRepositoryName(remoteUrl)).toBeUndefined();
 		}
+	});
+
+	test('formats GitHub install specifiers with shorthand', () => {
+		expect(getGitHubInstallSpecifier(
+			'git@github.com:owner/repository.git',
+			'0123456789abcdef',
+		)).toBe('owner/repository#0123456789abcdef');
+		expect(getGitHubInstallSpecifier(
+			'https://github.com/owner/repository.git',
+			'main',
+		)).toBe('owner/repository#main');
+		expect(getGitHubInstallSpecifier(
+			'git@example.com:owner/repository.git',
+			'main',
+		)).toBeUndefined();
 	});
 });

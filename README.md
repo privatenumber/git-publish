@@ -63,7 +63,7 @@ git-publish
 
 | Flag                    | Description                                                   |
 | ----------------------- | ------------------------------------------------------------- |
-| `-b, --branch <name>`   | Target branch name. Defaults to `npm/<current branch or tag>` |
+| `-b, --branch <template>` | Target branch template. Supports `{gitRef}`, `{gitSha}`, and `{package}` |
 | `-r, --remote <remote>` | Git remote name or URL to push to (default: `origin`)         |
 | `-o, --fresh`           | Create a fresh single-commit branch. Force-pushes to remote   |
 | `-d, --dry`             | Simulate the process. Does not commit or push                 |
@@ -94,6 +94,10 @@ Add your build command to the [`prepack`](https://docs.npmjs.com/cli/v8/using-np
 ```
 
 This mirrors the same behavior as `npm publish`.
+
+`git-publish` checks each positive `package.json` `"files"` entry from the packed package after lifecycle hooks run. If an entry matches no packed file or directory, it warns and still publishes. That usually means the build did not run, or the entry is wrong.
+
+You can also run the build before `git-publish`. Existing build output, including gitignored files such as `dist/`, is included when it matches the package's `files` field. See [Preparing monorepo packages](#preparing-monorepo-packages) for workspace builds and custom hooks in a fork.
 
 ### What does `git-publish` do?
 
@@ -126,10 +130,66 @@ Manual commits often:
 
 Yes. Run `git-publish` from inside the specific package directory (e.g., `packages/my-lib`).
 
-It will detect and publish only that package's contents to the root of the Git branch.
+`git-publish` publishes the selected package and its internal `workspace:` dependencies from `dependencies` and `optionalDependencies`. It creates each package commit before one atomic push, so a failed branch update does not expose a partial dependency closure.
+
+`--branch` accepts a small branch template with these placeholders:
+
+- `{gitRef}`: The current branch, exact tag, or short commit fallback.
+- `{gitSha}`: The full source commit object ID.
+- `{package}`: The package name from `package.json`.
+
+Quote branch templates in the shell, for example `'preview/{package}'`.
+
+When `--branch` is omitted, workspace packages use the default template `npm/{gitRef}-{package}`. For a `core <- broker <- adapter` closure published from `feature/auth`, it creates:
+
+```text
+npm/feature/auth-@acme/core
+npm/feature/auth-@acme/broker
+npm/feature/auth-@acme/adapter
+```
+
+Pass a template to choose each workspace branch independently:
+
+```sh
+git-publish --branch 'preview/{package}'
+```
+
+For one package, a literal branch remains exact. For example, `git-publish --branch preview` publishes to `preview`. A multi-package workspace closure must render a unique branch for every package. Include `{package}` when a literal template would collide.
+
+Standalone packages keep the default `npm/<gitRef>` branch. An explicit `--branch` can use the same placeholders or remain a literal branch name.
+
+Internal workspace peer dependencies are not published. `git-publish` prints a warning for each peer so consumers can provide it.
 
 > [!IMPORTANT]
-> Currently does not support resolving `workspace:` protocol dependencies. Avoid using those or pre-bundle them before publishing.
+> A recursive publication requires one push URL. Git cannot atomically push one dependency closure to multiple destinations.
+
+#### Preparing monorepo packages
+
+Install the repository's dependencies before publishing so the package manager can resolve [`workspace:` references](https://pnpm.io/workspaces#workspace-protocol-workspace) and run package hooks. `git-publish` does not automatically run a script named `build`.
+
+If the repository has a workspace build command, run it before publishing. For example, in a pnpm monorepo with a root `build` script and a remote named `fork` pointing to your fork:
+
+```sh
+# From the repository root
+pnpm install
+pnpm build
+cd packages/my-lib
+git-publish --remote fork
+```
+
+Use the repository's documented build command to generate output for the selected package and all its required workspace dependencies. Each package's `files` field must include its build output.
+
+If packages need custom preparation, add or adjust their `prepack` scripts in your fork's `package.json` files. Each package can use its own command. Commit the manifest and source changes before running `git-publish`: it requires a clean tracked working tree and packs from the committed source. Gitignored build output does not need to be committed.
+
+Package hooks run in an isolated checkout that is cleaned between packages. If one package's build needs another package's generated files, build those dependencies in your source checkout first; do not rely on output from an earlier package's pack hook being retained for the next package.
+
+#### Installing with pnpm
+
+pnpm can block a Git dependency declared by another Git dependency with [`blockExoticSubdeps`](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps). A consumer that installs a published workspace closure must opt in:
+
+```sh
+pnpm install --config.block-exotic-subdeps=false '<install-specifier>'
+```
 
 ### Can I publish to and install from a private repository?
 

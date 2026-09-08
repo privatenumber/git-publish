@@ -20,12 +20,15 @@ importers:
       gunzip-maybe:
         specifier: ^1.4.2
         version: 1.4.2
+      micromatch:
+        specifier: ^4.0.8
+        version: 4.0.8
       tar-fs:
         specifier: ^3.1.2
         version: 3.1.2
       tasuku:
-        specifier: ^2.3.0
-        version: 2.3.0
+        specifier: 3.0.0-beta.7
+        version: 3.0.0-beta.7
     devDependencies:
       '@types/gunzip-maybe':
         specifier: ^1.4.3
@@ -33,6 +36,9 @@ importers:
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
+      '@types/micromatch':
+        specifier: ^4.0.10
+        version: 4.0.10
       '@types/node':
         specifier: ^25.9.2
         version: 25.9.2
@@ -42,6 +48,9 @@ importers:
       '@types/tar-fs':
         specifier: ^2.0.4
         version: 2.0.4
+      ansis:
+        specifier: ^4.3.1
+        version: 4.3.1
       byte-size:
         specifier: ^9.0.1
         version: 9.0.1
@@ -60,9 +69,6 @@ importers:
       js-yaml:
         specifier: ^4.2.0
         version: 4.2.0
-      kolorist:
-        specifier: ^1.8.0
-        version: 1.8.0
       lintroll:
         specifier: ^1.30.2
         version: 1.30.2(@types/estree@1.0.9)(@typescript-eslint/utils@8.60.1(eslint@9.39.4(jiti@2.6.1))(typescript@6.0.3))(jiti@2.6.1)(jsonc-eslint-parser@2.4.2)(typescript@6.0.3)
@@ -78,6 +84,9 @@ importers:
       skills-npm:
         specifier: ^1.2.0
         version: 1.2.0
+      terminal-columns:
+        specifier: ^2.0.0
+        version: 2.0.0
       terminal-link:
         specifier: ^5.0.0
         version: 5.0.0
@@ -860,6 +869,9 @@ packages:
   '@tybys/wasm-util@0.10.2':
     resolution: {integrity: sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg==}
 
+  '@types/braces@3.0.5':
+    resolution: {integrity: sha512-SQFof9H+LXeWNz8wDe7oN5zu7ket0qwMu5vZubW4GCJ8Kkeh6nBWUz87+KTz/G3Kqsrp0j/W253XJb3KMEeg3w==}
+
   '@types/debug@4.1.13':
     resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
 
@@ -889,6 +901,9 @@ packages:
 
   '@types/mdast@4.0.4':
     resolution: {integrity: sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==}
+
+  '@types/micromatch@4.0.10':
+    resolution: {integrity: sha512-5jOhFDElqr4DKTrTEbnW8DZ4Hz5LRUEmyrGpCMrD/NphYv3nUnaF08xmSLx1rGGnyEs/kFnhiw6dCgcDqMr5PQ==}
 
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
@@ -1131,6 +1146,10 @@ packages:
   ansi-styles@6.2.3:
     resolution: {integrity: sha512-4Dj6M28JB+oAH8kFkTLUo+a2jwOFkuqb3yucU0CANcRRUbxS0cP0nZYCGjcc3BNXwRIsUVmDGgzawme7zvJHvg==}
     engines: {node: '>=12'}
+
+  ansis@4.3.1:
+    resolution: {integrity: sha512-BJ8/l4R5LRE7hW9WdSuGYrLSHi2ynxeFpDFbH0K/CgNeY/tyhk+vO6TYxXC5r5CpUhNVX310xzPsN/H9lCdfOA==}
+    engines: {node: '>=14'}
 
   argparse@1.0.10:
     resolution: {integrity: sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg==}
@@ -2243,9 +2262,6 @@ packages:
     resolution: {integrity: sha512-dcS1ul+9tmeD95T+x28/ehLgd9mENa3LsvDTtzm3vyBEO7RPptvAD+t44WVXaUjTBRcrpFeFlC8WCruUR456hw==}
     engines: {node: '>=0.10.0'}
 
-  kolorist@1.8.0:
-    resolution: {integrity: sha512-Y+60/zizpJ3HRH8DCss+q95yr6145JXZo46OTpFvDZWLfRCE4qChOyk1b26nMaNpfHHgxagk9dXT5OP0Tfe+dQ==}
-
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
@@ -2869,8 +2885,9 @@ packages:
   tar-stream@3.1.8:
     resolution: {integrity: sha512-U6QpVRyCGHva435KoNWy9PRoi2IFYCgtEhq9nmrPPpbRacPs9IH4aJ3gbrFC8dPcXvdSZ4XXfXT5Fshbp2MtlQ==}
 
-  tasuku@2.3.0:
-    resolution: {integrity: sha512-9Jtk+XAnttslCw4i9RceSZGr2PT5TLn0vUyWnoP2SdlSYzkiYRY6kB5qnPi5IQ/Em8e4oBow1rpaA39iijTIrA==}
+  tasuku@3.0.0-beta.7:
+    resolution: {integrity: sha512-pIxZdMnWjoE6k6xeGVRuqOW29cqhskJOJJroVTMusIAm10c1mMHvSAjSDZf0UTqnt/ABKnx9Sl0XUSLf5Es/3Q==}
+    engines: {node: '>=20.20'}
 
   teex@1.0.1:
     resolution: {integrity: sha512-eYE6iEI62Ni1H8oIa7KlDU6uQBtqr4Eajni3wX7rpfXD8ysFx8z0+dri+KWEPWpBsxXfxu58x/0jvTVT1ekOSg==}
@@ -3703,6 +3720,8 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
+  '@types/braces@3.0.5': {}
+
   '@types/debug@4.1.13':
     dependencies:
       '@types/ms': 2.1.0
@@ -3732,6 +3751,10 @@ snapshots:
   '@types/mdast@4.0.4':
     dependencies:
       '@types/unist': 3.0.3
+
+  '@types/micromatch@4.0.10':
+    dependencies:
+      '@types/braces': 3.0.5
 
   '@types/ms@2.1.0': {}
 
@@ -3949,6 +3972,8 @@ snapshots:
   ansi-styles@5.2.0: {}
 
   ansi-styles@6.2.3: {}
+
+  ansis@4.3.1: {}
 
   argparse@1.0.10:
     dependencies:
@@ -5251,8 +5276,6 @@ snapshots:
 
   kind-of@6.0.3: {}
 
-  kolorist@1.8.0: {}
-
   levn@0.4.1:
     dependencies:
       prelude-ls: 1.2.1
@@ -6220,7 +6243,7 @@ snapshots:
       - bare-buffer
       - react-native-b4a
 
-  tasuku@2.3.0: {}
+  tasuku@3.0.0-beta.7: {}
 
   teex@1.0.1:
     dependencies:

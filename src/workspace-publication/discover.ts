@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { getPackages, type Package } from '@manypkg/get-packages';
 import {
 	BunTool, NpmTool, PnpmTool, YarnTool, type Tool,
@@ -7,13 +8,10 @@ import type { PackageManager } from '../utils/detect-package-manager.ts';
 export type WorkspacePackage = {
 	name: string;
 	dir: string;
-	relativeDir: string;
 	packageJson: Package['packageJson'];
 };
 
 export type Workspace = {
-	rootDir: string;
-	packageManager: PackageManager;
 	packages: WorkspacePackage[];
 };
 
@@ -29,24 +27,56 @@ const workspaceTools: Record<PackageManager, Tool> = {
 	bun: BunTool,
 };
 
+const findWorkspaceRoot = async (
+	directory: string,
+	packageManager: PackageManager,
+	boundaryDirectory: string,
+): Promise<string | undefined> => {
+	const tool = workspaceTools[packageManager];
+	const boundary = path.resolve(boundaryDirectory);
+	let candidate = path.resolve(directory);
+	while (true) {
+		if (await tool.isMonorepoRoot(candidate)) {
+			return candidate;
+		}
+		if (candidate === boundary) {
+			return undefined;
+		}
+		const parent = path.dirname(candidate);
+		if (parent === candidate) {
+			return undefined;
+		}
+		candidate = parent;
+	}
+};
+
 export const discoverWorkspacePackages = async (
 	directory: string,
 	packageManager: PackageManager,
 ): Promise<Workspace> => {
 	const tool = workspaceTools[packageManager];
 	const options = { tools: [tool] };
-	const { packages, rootDir } = await getPackages(directory, options).catch((error: unknown) => {
+	const { packages } = await getPackages(directory, options).catch((error: unknown) => {
 		const reason = error instanceof Error ? error.message : String(error);
 		throw new Error(`No ${packageManager} workspace found in ${directory}: ${reason}`);
 	});
 	return {
-		rootDir,
-		packageManager,
-		packages: packages.map(({ packageJson, dir, relativeDir }) => ({
+		packages: packages.map(({ packageJson, dir }) => ({
 			name: packageJson.name,
 			dir,
-			relativeDir,
 			packageJson,
 		})),
 	};
+};
+
+export const findWorkspacePackages = async (
+	directory: string,
+	packageManager: PackageManager,
+	boundaryDirectory = directory,
+): Promise<Workspace | undefined> => {
+	const rootDirectory = await findWorkspaceRoot(directory, packageManager, boundaryDirectory);
+	if (!rootDirectory) {
+		return undefined;
+	}
+	return discoverWorkspacePackages(rootDirectory, packageManager);
 };

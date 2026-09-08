@@ -37,7 +37,14 @@ export const getCurrentSourceName = async () => {
 
 export const getCurrentCommit = async (
 	options?: SpawnOptions,
-) => (
+): Promise<string | undefined> => (
 	// Can be empty if new git repository with no commits
-	getStdout(spawn('git', ['rev-parse', '--short', 'HEAD'], options)).catch(() => {})
+	getStdout(spawn('git', ['rev-parse', '--short', 'HEAD'], options)).catch(() => undefined)
+);
+
+export const getCurrentCommitId = async (
+	options?: SpawnOptions,
+): Promise<string | undefined> => (
+	// Can be empty if new git repository with no commits
+	getStdout(spawn('git', ['rev-parse', 'HEAD'], options)).catch(() => undefined)
 );

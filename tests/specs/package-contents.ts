@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
@@ -50,6 +51,15 @@ describe('Package contents', async () => {
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(gitPublishProcess.stdout).toMatch('✔');
+		const outputLines = stripVTControlCharacters(gitPublishProcess.stdout).split('\n');
+		const totalIndex = outputLines.findIndex(line => line.startsWith('Total size'));
+		const fileRows = outputLines.slice(totalIndex - 2, totalIndex + 1);
+		expect(fileRows.map(line => line.trim().split(/\s{2,}/)[0])).toStrictEqual([
+			'dist/index.js',
+			'package.json',
+			'Total size',
+		]);
+		expect(new Set(fileRows.map(line => line.trimEnd().length)).size).toBe(1);
 
 		// Published branch should have exactly 1 commit
 		const publishedBranch = `npm/${branchName}-${packageName}`;
@@ -251,5 +261,172 @@ describe('Package contents', async () => {
 		// Verify dotfile content
 		const dotfileContent = await remoteGit('show', [`${publishedBranch}:.env.production`]);
 		expect(dotfileContent).toBe('PRODUCTION=true');
+	});
+
+	test('warns when files field paths are missing from the packed package', async () => {
+		const branchName = 'test-missing-files-field';
+
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-missing-files-field',
+				version: '1.0.0',
+				files: ['dist', 'bin', 'index.js'],
+			}, null, 2),
+			'index.js': 'export default true;',
+		}, [`--initial-branch=${branchName}`]);
+
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
+
+		const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+		onTestFail(() => {
+			console.log(gitPublishProcess);
+		});
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(stripVTControlCharacters(gitPublishProcess.stdout)).toContain('package.json "files" lists paths that were not published: "dist", "bin"');
+
+		const publishedBranch = `npm/${branchName}`;
+		const filesInTreeString = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
+		const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
+		expect(filesInTree).toEqual([
+			'index.js',
+			'package.json',
+		]);
+	});
+
+	test('does not warn when listed files are packed', async () => {
+		const branchName = 'test-files-field-present';
+
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-files-field-present',
+				version: '1.0.0',
+				files: ['dist', '!ignored.js'],
+			}, null, 2),
+			dist: {
+				'index.js': 'export default true;',
+			},
+		}, [`--initial-branch=${branchName}`]);
+
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
+
+		const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+		onTestFail(() => {
+			console.log(gitPublishProcess);
+		});
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(stripVTControlCharacters(gitPublishProcess.stdout)).not.toContain('were not published');
+	});
+
+	test('does not warn when files patterns match packed dotfiles', async () => {
+		const branchName = 'test-files-field-dotfile-pattern';
+
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-files-field-dotfile-pattern',
+				version: '1.0.0',
+				files: ['assets/*'],
+			}, null, 2),
+			assets: {
+				'.hidden.json': '{}',
+			},
+		}, [`--initial-branch=${branchName}`]);
+
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
+
+		const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+		onTestFail(() => {
+			console.log(gitPublishProcess);
+		});
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(stripVTControlCharacters(gitPublishProcess.stdout)).not.toContain('were not published');
+
+		const publishedBranch = `npm/${branchName}`;
+		const filesInTreeString = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
+		expect(filesInTreeString.split('\n').filter(Boolean).sort()).toEqual([
+			'assets/.hidden.json',
+			'package.json',
+		]);
+	});
+
+	test('does not warn when files patterns match packed paths', async () => {
+		const branchName = 'test-files-field-patterns';
+
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-files-field-patterns',
+				version: '1.0.0',
+				files: [
+					'dist/**/*.js',
+					'dist/*.{js,mjs}',
+					'dist/[ab].js',
+					'dist/@(a|b).js',
+					'./dist',
+				],
+			}, null, 2),
+			dist: {
+				'a.js': 'export default true;',
+			},
+		}, [`--initial-branch=${branchName}`]);
+
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
+
+		const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+		onTestFail(() => {
+			console.log(gitPublishProcess);
+		});
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(stripVTControlCharacters(gitPublishProcess.stdout)).not.toContain('were not published');
+	});
+
+	test('does not warn when prepack creates listed files', async () => {
+		const branchName = 'test-files-field-prepack';
+
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-files-field-prepack',
+				version: '1.0.0',
+				files: ['dist'],
+				scripts: {
+					prepack: 'mkdir dist && echo "built" > dist/index.js',
+				},
+			}, null, 2),
+		}, [`--initial-branch=${branchName}`]);
+
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
+
+		const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+		onTestFail(() => {
+			console.log(gitPublishProcess);
+		});
+
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(stripVTControlCharacters(gitPublishProcess.stdout)).not.toContain('were not published');
+
+		const publishedBranch = `npm/${branchName}`;
+		const filesInTreeString = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
+		const filesInTree = filesInTreeString.split('\n').filter(Boolean).sort();
+		expect(filesInTree).toEqual([
+			'dist/index.js',
+			'package.json',
+		]);
 	});
 });
