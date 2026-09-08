@@ -6,6 +6,7 @@ import type { PackagePreparation } from '../package-publication/prepare.ts';
 import { planPackagePublicationPush, pushPackagePublications } from '../package-publication/push.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
+import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 import { processWorkspacePackage } from './process-package.ts';
 
@@ -40,6 +41,7 @@ export const publishWorkspaceClosure = async ({
 		const processPackage = async (index: number, {
 			streamPreview,
 			setStatus,
+			setWarning,
 			startTime,
 		}: TaskInnerAPI) => {
 			const node = plan.nodes[index]!;
@@ -63,6 +65,12 @@ export const publishWorkspaceClosure = async ({
 					setStatus('Unchanged; reusing existing commit');
 				} else {
 					setStatus();
+				}
+				const unpublishedFilesWarning = formatUnpublishedFilesFieldWarning(
+					preparation.unpublishedFilesFieldEntries,
+				);
+				if (unpublishedFilesWarning) {
+					setWarning(unpublishedFilesWarning);
 				}
 				return preparation;
 			} catch (error) {
