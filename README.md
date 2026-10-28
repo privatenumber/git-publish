@@ -135,6 +135,15 @@ It will detect and publish only that package's contents to the root of the Git b
 
 Yes—if your Git client (e.g., local dev, CI, etc.) is authorized to access the repo.
 
+> [!NOTE]
+> Since v12, pnpm always fetches GitHub dependencies over HTTPS, even when written as `git+ssh://` ([details](https://pnpm.io/package-sources#how-git-dependencies-are-resolved)). If your machine can only access the repo over SSH, rewrite its URLs in your Git config:
+>
+> ```sh
+> git config --global url."git@github.com:owner/".insteadOf "https://github.com/owner/"
+> ```
+>
+> Scoping the rewrite to `owner/` leaves other GitHub URLs on HTTPS. Alternatively, run `gh auth setup-git` to let Git authenticate HTTPS with the [GitHub CLI](https://cli.github.com).
+
 If that's not possible, you can push the branch to a public repo using the `--remote` flag.
 
 > [!WARNING]
