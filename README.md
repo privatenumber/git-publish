@@ -12,7 +12,12 @@ Useful for testing packages in production-like environments before publishing to
 
 ## Why?
 
-To test a package without publishing to the npm registry.
+To test a package without publishing to the npm registry. For example:
+
+- Testing a package before it's ready for npm
+- Contributing to a repo where you don't have publish access
+- Testing in a CI/CD or remote environment where `npm link` doesn't work
+- Avoiding symlink issues from `npm link`
 
 ### Why not use `npm publish`?
 
@@ -25,7 +30,7 @@ Publishing to npm just for testing has major downsides:
 
 ### Why not use `npm link`?
 
-- Skips [npm lifecycle scripts](https://docs.npmjs.com/cli/v8/using-npm/scripts#life-cycle-scripts)
+- Skips [npm lifecycle scripts](https://docs.npmjs.com/cli/v11/using-npm/scripts#life-cycle-scripts)
 - Links the entire project (including source, tests, configs)
 - Doesn't install dependencies automatically
 
@@ -39,6 +44,8 @@ Publishing to npm just for testing has major downsides:
 
 ## Usage
 
+### Publishing
+
 Publish your npm package to a Git branch:
 
 ```sh
@@ -47,17 +54,49 @@ npx git-publish
 
 This publishes the current package to the branch `npm/<current branch>` on the remote `origin`.
 
-### Global install
+Or install `git-publish` globally and run `git-publish`:
 
 ```sh
 npm install -g git-publish
 ```
 
-Then run with:
+### Installing the published package
+
+After publishing, `git-publish` prints an install command for the published branch:
 
 ```sh
-git-publish
+npm i 'owner/repo#npm/main'
 ```
+
+#### From a private repository
+
+Package managers fetch Git dependencies with Git, so the installing machine needs access to the repo. On GitHub, pnpm 12+ always fetches over HTTPS, even for `git+ssh://` specifiers, so the same lockfile works on every machine with access ([details](https://pnpm.io/package-sources#how-git-dependencies-are-resolved)).
+
+Configure Git once per machine:
+
+| | `gh auth setup-git` (recommended) | SSH URL rewrite |
+| --- | --- | --- |
+| Authenticates with | Your [GitHub CLI](https://cli.github.com) login, over HTTPS | Your SSH key |
+| Covers | Every repo your account can read | Only the owners you list |
+| Use when | You use the GitHub CLI. CI authenticates the same way, with an HTTPS token. | You prefer SSH keys, or use several GitHub accounts |
+
+```sh
+gh auth setup-git
+
+# or
+git config --global url."git@github.com:owner/".insteadOf "https://github.com/owner/"
+```
+
+Scope the rewrite to an owner. Rewriting all of `https://github.com/` also moves unrelated tools to SSH, which can break them.
+
+If the installing environment can't get access (e.g. a CI workflow in another repo), publish to a public repo with `--remote` instead:
+
+```sh
+npx git-publish --remote git@github.com:owner/public-repo.git --branch test-pkg
+```
+
+> [!WARNING]
+> Minify or obfuscate private code before publishing to a public repo.
 
 ### CLI Flags
 
@@ -67,21 +106,15 @@ git-publish
 | `-r, --remote <remote>` | Git remote name or URL to push to (default: `origin`)         |
 | `-o, --fresh`           | Create a fresh single-commit branch. Force-pushes to remote   |
 | `-d, --dry`             | Simulate the process. Does not commit or push                 |
+| `-f, --force`           | Publish even if `package.json` has `"private": true`          |
 | `-h, --help`            | Show CLI help                                                 |
 | `--version`             | Show CLI version                                              |
 
 ## FAQ
 
-### What are some use cases?
-
-- Testing a package before it's ready for npm
-- Contributing to a repo where you don't have publish access
-- Testing in a CI/CD or remote environment where `npm link` doesn't work
-- Avoiding symlink issues from `npm link`
-
 ### How do I include a build step?
 
-Add your build command to the [`prepack`](https://docs.npmjs.com/cli/v8/using-npm/scripts#prepack) script in `package.json`:
+Add your build command to the [`prepack`](https://docs.npmjs.com/cli/v11/using-npm/scripts#life-cycle-scripts) script in `package.json`:
 
 ```json5
 {
@@ -98,15 +131,14 @@ This mirrors the same behavior as `npm publish`.
 ### What does `git-publish` do?
 
 1. Checks out or creates the publish branch
-2. Runs the `prepare` and `prepack` npm scripts
-3. Uses [npm-packlist](https://github.com/npm/npm-packlist) to determine publishable files
-4. Commits only those files
-5. Pushes the branch to the Git remote
-6. Prints the command to install the package via Git
+2. Packs the package with your package manager (`npm pack`, `pnpm pack`, `yarn pack`, or `bun pm pack`), which runs `prepare` and `prepack` and includes only publishable files
+3. Commits the packed files
+4. Pushes the branch to the Git remote
+5. Prints the command to install the package via Git
 
 ### Why preserve commit history on the publish branch?
 
-When installing from Git, npm uses commit hashes—not branch names. If the commit is "detached" (i.e., unreachable from history), it may be garbage-collected, breaking installs.
+Lockfiles record the commit hash of a Git dependency, not the branch name. If that commit becomes unreachable from the branch history, it may be garbage-collected, breaking installs.
 
 To avoid this, `git-publish` preserves history by default.
 
@@ -120,7 +152,7 @@ Manual commits often:
 - Include irrelevant files (e.g., tests, source, configs)
 - Skip npm lifecycle scripts
 
-`git-publish` avoids these pitfalls by using `npm-packlist` (same as `npm publish`) and running `prepare` and `prepack`.
+`git-publish` avoids these pitfalls by packing with your package manager, like `npm publish` does.
 
 ### Can I use this in a monorepo?
 
@@ -130,39 +162,6 @@ It will detect and publish only that package's contents to the root of the Git b
 
 > [!IMPORTANT]
 > Currently does not support resolving `workspace:` protocol dependencies. Avoid using those or pre-bundle them before publishing.
-
-### Can I publish to and install from a private repository?
-
-Yes—if your Git client (e.g., local dev, CI, etc.) is authorized to access the repo.
-
-> [!NOTE]
-> Since v12, pnpm always fetches GitHub dependencies over HTTPS, even when written as `git+ssh://` ([details](https://pnpm.io/package-sources#how-git-dependencies-are-resolved)). If your machine can only access the repo over SSH, rewrite its URLs in your Git config:
->
-> ```sh
-> git config --global url."git@github.com:owner/".insteadOf "https://github.com/owner/"
-> ```
->
-> Scoping the rewrite to `owner/` leaves other GitHub URLs on HTTPS. Alternatively, run `gh auth setup-git` to let Git authenticate HTTPS with the [GitHub CLI](https://cli.github.com).
-
-If that's not possible, you can push the branch to a public repo using the `--remote` flag.
-
-> [!WARNING]
-> Minify or obfuscate private code before publishing to a public repo.
-
-#### Example: publishing from private repo A to public repo B
-
-Say you're testing changes in **Repo A**, but your GitHub Actions workflow in **Repo B** can't access private repos. You can push the publish branch to **Repo B** instead:
-
-```sh
-npx git-publish --remote git@github.com:owner/repo-b.git --branch test-pkg
-```
-
-Result:
-
-```sh
-✔ Successfully published branch! Install with command:
-  → npm i 'owner/repo-b#test-pkg'
-```
 
 ## Sponsors
 
