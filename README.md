@@ -62,10 +62,16 @@ npm install -g git-publish
 
 ### Installing the published package
 
-After publishing, `git-publish` prints an install command for the published branch:
+After publishing, `git-publish` prints an install command for the published branch using the detected package manager:
 
 ```sh
 npm i 'owner/repo#npm/main'
+```
+
+For Yarn, the command uses `add` and includes the package name, which modern Yarn requires for Git dependencies:
+
+```sh
+yarn add 'my-package@https://github.com/owner/repo.git#npm/main'
 ```
 
 #### From a private repository

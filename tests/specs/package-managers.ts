@@ -1,6 +1,8 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import spawn from 'nano-spawn';
 import yaml from 'js-yaml';
+import { createFixture } from 'fs-fixture';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
@@ -11,6 +13,50 @@ describe('Package managers', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
+
+	describe('Install command', () => {
+		for (const [packageManager, lockfile, command, packagePrefix] of [
+			['npm', 'package-lock.json', 'npm i', ''],
+			['pnpm', 'pnpm-lock.yaml', 'pnpm i', ''],
+			['bun', 'bun.lock', 'bun i', ''],
+			['yarn', 'yarn.lock', 'yarn add', '@org/test-pkg@'],
+		] as const) {
+			test(`prints the ${packageManager} install command`, async () => {
+				const branchName = `test-${packageManager}-install-command`;
+				const remoteUrl = 'https://github.com/owner/repository.git';
+				await using fixture = await createGitFixture({
+					'package.json': JSON.stringify({
+						name: '@org/test-pkg',
+						version: '1.0.0',
+					}),
+					[lockfile]: '',
+				}, [`--initial-branch=${branchName}`]);
+
+				// Pack with npm so these output tests do not require every package manager.
+				await using commandsFixture = await createFixture();
+				if (packageManager !== 'npm') {
+					await commandsFixture.writeFile(packageManager, `#!/bin/sh
+if [ "$1" = pm ]; then exec npm pack --pack-destination "$4"; fi
+exec npm "$@"
+`);
+					await fs.chmod(commandsFixture.getPath(packageManager), 0o755);
+				}
+
+				const { git } = fixture;
+				await git('add', ['package.json', lockfile]);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteUrl]);
+				await git('config', ['remote.origin.pushurl', remoteFixture.path]);
+
+				const result = await gitPublish(fixture.path, ['--fresh'], {
+					PATH: `${commandsFixture.path}${path.delimiter}${process.env.PATH}`,
+				});
+				onTestFail(() => console.log(result));
+				expect('exitCode' in result).toBe(false);
+				expect(result.stdout).toContain(`${command} '${packagePrefix}${remoteUrl}#npm/${branchName}'`);
+			});
+		}
+	});
 
 	describe('pnpm', () => {
 		test('catalog protocol is resolved', async () => {

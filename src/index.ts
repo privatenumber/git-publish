@@ -356,7 +356,9 @@ Pre-bundle these dependencies before publishing.`);
 
 					const output = [
 						'Install command',
-						`${packageManager} i '${remoteUrl}#${publishBranch}'`,
+						packageManager === 'yarn'
+							? `yarn add '${packageJson.name}@${remoteUrl}#${publishBranch}'`
+							: `${packageManager} i '${remoteUrl}#${publishBranch}'`,
 					].join('\n');
 
 					setOutput(output);
