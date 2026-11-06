@@ -64,6 +64,7 @@ export const processWorkspacePackage = async ({
 	}
 	return preparePackagePublication({
 		packageName: node.key,
+		sourceManifestPath: path.join(node.package.dir, 'package.json'),
 		packedTarball: tarball,
 		publishWorktree: repository.publishWorktreePath,
 		branch: node.branch,

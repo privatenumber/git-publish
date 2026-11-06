@@ -46,6 +46,7 @@ describe('Package publication', () => {
 		await publishFixture.git('commit', ['--allow-empty', '-m', 'Initial commit']);
 		const preparation = await preparePackagePublication({
 			packageName: '@test/adapter',
+			sourceManifestPath: packageFixture.getPath('package/package.json'),
 			packedTarball: tarballPath,
 			publishWorktree: publishFixture.path,
 			branch: 'npm/adapter',

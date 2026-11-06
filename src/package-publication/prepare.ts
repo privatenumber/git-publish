@@ -48,6 +48,7 @@ export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPac
 
 export const preparePackagePublication = async ({
 	packageName,
+	sourceManifestPath,
 	packedTarball,
 	publishWorktree,
 	branch,
@@ -58,6 +59,7 @@ export const preparePackagePublication = async ({
 	gitOptions,
 }: {
 	packageName: string;
+	sourceManifestPath: string;
 	packedTarball: string;
 	publishWorktree: string;
 	branch: string;
@@ -80,6 +82,19 @@ export const preparePackagePublication = async ({
 		const field = manifest[edge.field] ?? {};
 		field[edge.key] = dependency.installSpecifier;
 		manifest[edge.field] = field;
+	}
+	const sourceManifest = await readJson(sourceManifestPath) as PackageJson;
+	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies', 'devDependencies'] as const) {
+		const packed = manifest[field];
+		if (packed) {
+			const ordered: Record<string, string> = {};
+			for (const key of [...Object.keys(sourceManifest[field] ?? {}), ...Object.keys(packed)]) {
+				if (Object.hasOwn(packed, key)) {
+					ordered[key] = packed[key]!;
+				}
+			}
+			manifest[field] = ordered;
+		}
 	}
 	const { scripts } = manifest;
 	if (scripts && ('prepare' in scripts || 'prepack' in scripts)) {

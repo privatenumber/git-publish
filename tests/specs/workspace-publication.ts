@@ -14,6 +14,72 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('preserves source dependency order and reuses unchanged publication commits', async () => {
+		await using orderedRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/a/package.json': JSON.stringify({
+				name: 'a',
+				version: '1.0.0',
+				dependencies: {
+					z: '1.0.0',
+					b: 'workspace:*',
+				},
+				optionalDependencies: {
+					z: '1.0.0',
+					x: '1.0.0',
+				},
+				peerDependencies: {
+					z: '1.0.0',
+					x: '1.0.0',
+				},
+				devDependencies: {
+					z: '1.0.0',
+					x: '1.0.0',
+				},
+			}),
+			'packages/b/package.json': JSON.stringify({
+				name: 'b',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=order']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', orderedRemote.path]);
+		await using commands = await createFixture({
+			npm: `#!/bin/sh
+if [ "$1" = pack ] && [ -f package.json ]; then
+  "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); for (const f of ["dependencies", "optionalDependencies", "peerDependencies", "devDependencies"]) if (p[f]) p[f] = Object.fromEntries(Object.entries(p[f]).reverse()); fs.writeFileSync("package.json", JSON.stringify(p));'
+fi
+exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+`,
+		});
+		await fs.chmod(commands.getPath('npm'), 0o755);
+		const environment = { PATH: `${commands.path}${path.delimiter}${process.env.PATH}` };
+		const packagePath = fixture.getPath('packages/a');
+		const first = await gitPublish(packagePath, [], environment);
+		expect('exitCode' in first).toBe(false);
+		const branches = ['npm/order-a', 'npm/order-b'];
+		const commits = await Promise.all(branches.map(branch => orderedRemote.git('rev-parse', [branch])));
+		const manifest = JSON.parse(await orderedRemote.git('show', ['npm/order-a:package.json']));
+		for (const [field, keys] of Object.entries({
+			dependencies: ['z', 'b'],
+			optionalDependencies: ['z', 'x'],
+			peerDependencies: ['z', 'x'],
+			devDependencies: ['z', 'x'],
+		})) {
+			expect(Object.keys(manifest[field])).toStrictEqual(keys);
+		}
+		const second = await gitPublish(packagePath, [], environment);
+		expect('exitCode' in second).toBe(false);
+		expect(await Promise.all(branches.map(branch => orderedRemote.git('rev-parse', [branch])))).toStrictEqual(commits);
+	});
+
 	const createChainWorkspace = async (
 		branchName: string,
 		remote: string,

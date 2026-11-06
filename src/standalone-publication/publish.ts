@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import path from 'node:path';
 import spawn from 'nano-spawn';
 import byteSize from 'byte-size';
 import { blueBright, dim } from 'ansis';
@@ -110,6 +111,7 @@ export const publishStandalonePackage = async ({
 			}
 			preparation = await preparePackagePublication({
 				packageName,
+				sourceManifestPath: path.join(packagePath, 'package.json'),
 				packedTarball: packedTarball!,
 				publishWorktree: repository!.publishWorktreePath,
 				branch: publishBranch,
