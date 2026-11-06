@@ -2,6 +2,7 @@ import { terminalColumns } from 'terminal-columns';
 import { toInstallSpecifier, type PackagePreparation } from '../package-publication/prepare.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getGitHubInstallSpecifier } from '../utils/github.ts';
+import { shellQuote } from '../utils/shell-quote.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 
 export const createWorkspaceResult = (
@@ -54,8 +55,6 @@ export const createWorkspaceResult = (
 
 export type WorkspaceResult = ReturnType<typeof createWorkspaceResult>;
 
-const quote = (value: string) => `'${value.replaceAll("'", String.raw`'\''`)}'`;
-
 export const formatWorkspaceResult = (
 	result: WorkspaceResult,
 	plan: WorkspacePublicationPlan,
@@ -77,7 +76,7 @@ export const formatWorkspaceResult = (
 				? (getGitHubInstallSpecifier(fetchUrl, item.branch)
 					?? toInstallSpecifier(fetchUrl, item.branch))
 				: item.installSpecifier;
-			return quote(packageManager === 'yarn' ? `${name}@${specifier}` : specifier);
+			return shellQuote(packageManager === 'yarn' ? `${name}@${specifier}` : specifier);
 		});
 		const command = names.length === 1 && packageManager !== 'yarn'
 			? `${packageManager} i`

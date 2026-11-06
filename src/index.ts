@@ -16,6 +16,7 @@ import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { getGitHubInstallSpecifier, getGitHubRepositoryName } from './utils/github.ts';
 import { isHostedGitRemote } from './utils/hosted-git.ts';
+import { shellQuote } from './utils/shell-quote.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { renderPackageBranch } from './package-publication/branch.ts';
 import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
@@ -310,8 +311,8 @@ Pre-bundle these dependencies before publishing.`);
 	}
 	if (installSpecifier) {
 		const installCommand = packageManager === 'yarn'
-			? `yarn add '${packageJson.name}@${installSpecifier}'`
-			: `${packageManager} i '${installSpecifier}'`;
+			? `yarn add ${shellQuote(`${packageJson.name}@${installSpecifier}`)}`
+			: `${packageManager} i ${shellQuote(installSpecifier)}`;
 		console.log(`\n→ Install command\n  ${installCommand}`);
 		if (packageManager === 'yarn') {
 			console.log('  Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml');

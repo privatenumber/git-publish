@@ -3,6 +3,21 @@ import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Standalone branch templates', () => {
+	test('quotes apostrophes in standalone install commands', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-package',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=main']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.path, ['--branch', "preview/it's"]);
+		expect('exitCode' in result).toBe(false);
+		expect(result.stdout).toContain(String.raw`preview/it'\''s'`);
+	});
 	for (const {
 		title,
 		template,
