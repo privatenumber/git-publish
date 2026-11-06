@@ -85,7 +85,7 @@ export const formatWorkspaceResult = (
 		let notes = '';
 		if (packageManager === 'yarn') {
 			notes = 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml';
-		} else if (names.length > 1 && packageManager === 'npm') {
+		} else if (packageManager === 'npm') {
 			notes = 'npm 12+: add --allow-git=root';
 		} else if (names.length > 1 && packageManager === 'pnpm') {
 			notes = 'pnpm 11+: set blockExoticSubdeps: false in pnpm-workspace.yaml';

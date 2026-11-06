@@ -462,6 +462,7 @@ exec '${npm}' "$@"
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(await branchRemoteGit('show', ['custom:package.json'])).toContain('@test/adapter');
+		expect(gitPublishProcess.stdout).toContain('npm 12+: add --allow-git=root');
 		expect(gitPublishProcess.stdout).not.toContain('Required workspace dependencies');
 		expect(gitPublishProcess.stdout).toContain('Pushing 1 package');
 	});

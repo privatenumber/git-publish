@@ -315,6 +315,8 @@ Pre-bundle these dependencies before publishing.`);
 		console.log(`\n→ Install command\n  ${installCommand}`);
 		if (packageManager === 'yarn') {
 			console.log('  Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml');
+		} else if (packageManager === 'npm') {
+			console.log('  npm 12+: add --allow-git=root');
 		}
 	}
 })().catch((error) => {
