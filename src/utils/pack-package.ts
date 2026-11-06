@@ -4,6 +4,7 @@ import spawn from 'nano-spawn';
 import glob from 'fast-glob';
 import type { PackageManager } from './detect-package-manager.ts';
 import { readJson } from './read-json.ts';
+import { getStdout } from './get-stdout.ts';
 
 const copyFile = async (source: string, destination: string): Promise<void> => {
 	await fs.mkdir(path.dirname(destination), { recursive: true });
@@ -16,6 +17,29 @@ const isNotEnoent = (error: unknown): boolean => (
 	&& 'code' in error
 	&& error.code !== 'ENOENT'
 );
+
+const getPackArguments = async (
+	packageManager: PackageManager,
+	packDestinationDirectory: string,
+	packCwd: string,
+) => {
+	if (packageManager === 'bun') {
+		return ['pm', 'pack', '--destination', packDestinationDirectory];
+	}
+
+	if (packageManager === 'yarn') {
+		// Yarn has no destination-directory flag: Yarn 2+ takes `--out`, Yarn 1 takes
+		// `--filename`, and each rejects or ignores the other. Ask the Yarn that this
+		// package resolves to (packageManager, yarnPath) which major it is.
+		const tarballPath = path.join(packDestinationDirectory, 'package.tgz');
+		const version = await getStdout(spawn('yarn', ['--version'], { cwd: packCwd }));
+		return Number.parseInt(version, 10) >= 2
+			? ['pack', '--out', tarballPath]
+			: ['pack', '--filename', tarballPath];
+	}
+
+	return ['pack', '--pack-destination', packDestinationDirectory];
+};
 
 export const packPackage = async (
 	packageManager: PackageManager,
@@ -138,16 +162,12 @@ export const packPackage = async (
 		}
 	}
 
-	// Determine pack command based on package manager
-	const packArgs = packageManager === 'bun'
-		? ['pm', 'pack', '--destination', packDestinationDirectory]
-		: ['pack', '--pack-destination', packDestinationDirectory];
-
 	// Run pack from the appropriate directory in pack worktree
 	const packCwd = gitSubdirectory
 		? path.join(packWorktreePath, gitSubdirectory)
 		: packWorktreePath;
 
+	const packArgs = await getPackArguments(packageManager, packDestinationDirectory, packCwd);
 	await spawn(packageManager, packArgs, { cwd: packCwd });
 
 	// Find the generated tarball (package managers create it with their own naming)
