@@ -55,6 +55,7 @@ export const publishWorkspaceClosure = async ({
 			try {
 				const preparation = await processWorkspacePackage({
 					index,
+					localBranch: branches[index]!.localBranch,
 					node,
 					packageManager,
 					repository,

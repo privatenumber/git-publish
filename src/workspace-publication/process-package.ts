@@ -12,6 +12,7 @@ import type { WorkspacePublicationNode } from './plan.ts';
 
 export const processWorkspacePackage = async ({
 	index,
+	localBranch,
 	node,
 	packageManager,
 	repository,
@@ -24,6 +25,7 @@ export const processWorkspacePackage = async ({
 	setStatus,
 }: {
 	index: number;
+	localBranch: string;
 	node: WorkspacePublicationNode;
 	packageManager: PackageManager;
 	repository: PublishRepository;
@@ -54,7 +56,7 @@ export const processWorkspacePackage = async ({
 	setStatus('Preparing publication commit');
 	await preparePublishBranch({
 		repository,
-		localBranch: `git-publish-${index}`,
+		localBranch,
 		orphan: !existingBranches.has(node.branch),
 	});
 	const dependencyPublications = new Map<string, PackagePublication>();
