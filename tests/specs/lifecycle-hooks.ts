@@ -75,9 +75,11 @@ describe('Lifecycle hooks', async () => {
 				name: packageName,
 				version: '1.0.0',
 				files: ['dist'],
+				workspaces: ['packages/*'],
 				scripts: {
 					prepare: 'node scripts/build.js',
 					prepack: 'node scripts/build.js',
+					build: 'node scripts/build.js',
 				},
 			}, null, 2),
 			scripts: {
@@ -97,6 +99,8 @@ describe('Lifecycle hooks', async () => {
 		const publishedPackageJson = JSON.parse(await remoteGit('show', [`${publishedBranch}:package.json`]));
 		expect(publishedPackageJson.scripts?.prepare).toBeUndefined();
 		expect(publishedPackageJson.scripts?.prepack).toBeUndefined();
+		expect(publishedPackageJson.scripts?.build).toBeUndefined();
+		expect(publishedPackageJson.workspaces).toBeUndefined();
 
 		await using consumerFixture = await createFixture({
 			'package.json': JSON.stringify({

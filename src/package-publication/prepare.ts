@@ -105,10 +105,12 @@ export const preparePackagePublication = async ({
 		}
 	}
 	const { scripts } = manifest;
-	if (scripts && ('prepare' in scripts || 'prepack' in scripts)) {
+	if (scripts) {
 		delete scripts.prepare;
 		delete scripts.prepack;
+		delete scripts.build;
 	}
+	delete manifest.workspaces;
 	if (stringify(manifest) !== original) {
 		await fs.writeFile(manifestPath, stringify(manifest, null, 2));
 	}

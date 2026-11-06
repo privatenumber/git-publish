@@ -19,6 +19,10 @@ describe('Package publication', () => {
 					scripts: {
 						prepare: 'node prepare.js',
 						prepack: 'node prepack.js',
+						build: 'node build.js',
+						preinstall: 'node preinstall.js',
+						install: 'node install.js',
+						postinstall: 'node postinstall.js',
 						postpack: 'node postpack.js',
 					},
 					dependencies: {
@@ -87,7 +91,12 @@ describe('Package publication', () => {
 		expect(manifest.optionalDependencies).toStrictEqual({
 			'@test/optional': 'git+file:///remote.git#optional-commit',
 		});
-		expect(manifest.scripts).toStrictEqual({ postpack: 'node postpack.js' });
+		expect(manifest.scripts).toStrictEqual({
+			preinstall: 'node preinstall.js',
+			install: 'node install.js',
+			postinstall: 'node postinstall.js',
+			postpack: 'node postpack.js',
+		});
 		expect(preparation.reusedExistingCommit).toBe(false);
 		expect(preparation.publication).toStrictEqual({
 			packageName: '@test/adapter',
