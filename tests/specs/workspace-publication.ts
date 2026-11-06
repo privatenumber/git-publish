@@ -294,6 +294,34 @@ exec '${gitPath}' "$@"
 		expect(result.stdout).toContain('--json');
 	});
 
+	test('publishes npm workspace closures without a lockfile', async () => {
+		await using noLockRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=no-lock']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', noLockRemote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		expect('exitCode' in result).toBe(false);
+		const commit = await noLockRemote.git('rev-parse', ['npm/no-lock-core']);
+		const manifest = JSON.parse(await noLockRemote.git('show', ['npm/no-lock-app:package.json']));
+		expect(manifest.dependencies.core).toBe(`git+file://${noLockRemote.path}#${commit}`);
+	});
+
 	test('publishes a public workspace root as a standalone package', async () => {
 		await using rootRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({

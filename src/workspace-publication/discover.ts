@@ -4,6 +4,7 @@ import {
 	BunTool, NpmTool, PnpmTool, YarnTool, type Tool,
 } from '@manypkg/tools';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
+import { readJson } from '../utils/read-json.ts';
 
 export type WorkspacePackage = {
 	name: string;
@@ -23,7 +24,20 @@ export type Workspace = {
 // verifying after the fact, so mixed markers such as a stale yarn.lock in a
 // pnpm workspace cannot select the wrong tool.
 const workspaceTools: Record<PackageManager, Tool> = {
-	npm: NpmTool,
+	npm: {
+		...NpmTool,
+		async isMonorepoRoot(directory) {
+			try {
+				const manifest = await readJson(path.join(directory, 'package.json')) as { workspaces?: unknown };
+				return Array.isArray(manifest.workspaces);
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+					return false;
+				}
+				throw error;
+			}
+		},
+	},
 	pnpm: PnpmTool,
 	yarn: YarnTool,
 	bun: BunTool,
