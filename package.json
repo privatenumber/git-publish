@@ -61,6 +61,8 @@
 		"skills-npm": "^1.2.0",
 		"terminal-columns": "^2.0.0",
 		"terminal-link": "^5.0.0",
-		"typescript": "^6.0.3"
+		"typescript": "^6.0.3",
+		"yarn-berry": "npm:@yarnpkg/cli-dist@4.18.1",
+		"yarn-classic": "npm:yarn@1.22.22"
 	}
 }

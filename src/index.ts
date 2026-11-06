@@ -279,7 +279,10 @@ Pre-bundle these dependencies before publishing.`);
 		}
 	}
 	if (installSpecifier) {
-		console.log(`\n→ Install command\n  ${packageManager} i '${installSpecifier}'`);
+		const installCommand = packageManager === 'yarn'
+			? `yarn add '${packageJson.name}@${installSpecifier}'`
+			: `${packageManager} i '${installSpecifier}'`;
+		console.log(`\n→ Install command\n  ${installCommand}`);
 	}
 })().catch((error) => {
 	console.error('Error:', error.message);
