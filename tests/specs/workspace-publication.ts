@@ -177,24 +177,27 @@ exec '${gitPath}' "$@"
 		expect(calls.trim().split('\n')).toStrictEqual(['ls-remote', 'fetch']);
 	});
 
-	test('rejects private workspace dependencies unless --force is used', async () => {
+	test('publishes private workspace members as dependencies and selected packages', async () => {
 		const branchName = 'test-private-workspace-dependency';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
 			corePrivate: true,
 		});
 		const packagePath = path.join(fixture.path, 'packages/adapter');
 
-		const rejectedPublication = await gitPublish(packagePath);
-
-		expect(('exitCode' in rejectedPublication) && rejectedPublication.exitCode).toBe(1);
-		expect(rejectedPublication.stderr).toContain('Workspace package "@test/core" is marked as private');
-		expect(rejectedPublication.stderr).toContain('Use --force to publish it anyway');
-		expect(await remoteGit('for-each-ref')).toBe('');
-
-		const forcedPublication = await gitPublish(packagePath, ['--force']);
-
-		expect('exitCode' in forcedPublication).toBe(false);
+		const publication = await gitPublish(packagePath);
+		expect('exitCode' in publication).toBe(false);
 		expect(await remoteGit('show', [`npm/${branchName}-@test/core:package.json`])).toContain('"private": true');
+		const selectedPublication = await gitPublish(fixture.getPath('packages/core'));
+		expect('exitCode' in selectedPublication).toBe(false);
+	});
+
+	test('requires --force for a private workspace root', async () => {
+		await using fixture = await createChainWorkspace('private-root', remoteFixture.path);
+		const rejected = await gitPublish(fixture.path, ['--dry']);
+		expect(('exitCode' in rejected) && rejected.exitCode).toBe(1);
+		expect(rejected.stderr).toContain('This package is marked as private');
+		const forced = await gitPublish(fixture.path, ['--dry', '--force']);
+		expect('exitCode' in forced).toBe(false);
 	});
 
 	test('keeps a literal --branch for an independent workspace package', async () => {

@@ -113,9 +113,6 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	}
 
 	const packageJson = await readJson(packageJsonPath) as PackageJson;
-	if (packageJson.private && !argv.flags.force) {
-		throw new Error('This package is marked as private. Use --force to publish it anyway.');
-	}
 
 	const {
 		branch, remote, fresh, dry,
@@ -133,6 +130,9 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		publishBranch: branch,
 		force: argv.flags.force,
 	});
+	if (!closurePlan && packageJson.private && !argv.flags.force) {
+		throw new Error('This package is marked as private. Use --force to publish it anyway.');
+	}
 	let installSpecifier: string | undefined;
 
 	if (closurePlan) {

@@ -46,7 +46,10 @@ export const planWorkspacePublication = async ({
 	const selected = selectedPackage.name;
 	const graph = createPublishGraph(workspace, selected);
 	if (!force) {
-		const privatePackage = graph.nodes.find(node => node.package.packageJson.private);
+		const privatePackage = graph.nodes.find(node => (
+			path.resolve(node.package.dir) === path.resolve(workspace.rootDirectory)
+			&& node.package.packageJson.private
+		));
 		if (privatePackage) {
 			throw new Error(`Workspace package ${JSON.stringify(privatePackage.key)} is marked as private. Use --force to publish it anyway.`);
 		}

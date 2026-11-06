@@ -112,7 +112,7 @@ npx git-publish --remote git@github.com:owner/public-repo.git --branch test-pkg
 | `-r, --remote <remote>` | Git remote name or URL to push to (default: `origin`)         |
 | `-o, --fresh`           | Create a fresh single-commit branch. Force-pushes to remote   |
 | `-d, --dry`             | Simulate the process. Does not commit or push                 |
-| `-f, --force`           | Publish even if `package.json` has `"private": true`          |
+| `-f, --force`           | Publish a private workspace root or standalone package        |
 | `-h, --help`            | Show CLI help                                                 |
 | `--version`             | Show CLI version                                              |
 
