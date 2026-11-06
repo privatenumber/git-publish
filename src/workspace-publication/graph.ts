@@ -13,6 +13,7 @@ export type PublishGraphNode = {
 	key: string;
 	package: WorkspacePackage;
 	dependencies: PublishGraphEdge[];
+	role: 'root' | 'dependency' | 'peer';
 };
 
 export type WorkspacePeer = {
@@ -236,10 +237,21 @@ export const createPublishGraph = (
 			key: current.name,
 			package: current,
 			dependencies,
+			role: current.name === selected ? 'root' : 'dependency',
 		});
 	};
 
 	visit(selectWorkspacePackage(workspace, selected));
+	const runtimeNodes = new Set(nodes.keys());
+	for (let index = 0; index < peers.length; index += 1) {
+		const { target } = peers[index]!;
+		if (target) {
+			visit(byName.get(target)![0]!);
+			if (!runtimeNodes.has(target)) {
+				nodes.get(target)!.role = 'peer';
+			}
+		}
+	}
 
 	return {
 		selected,

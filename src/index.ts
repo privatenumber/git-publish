@@ -38,11 +38,12 @@ const formatWorkspacePublicationPlan = (
 };
 
 const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string | undefined => {
-	if (plan.peers.length === 0) {
+	const unresolvedPeers = plan.peers.filter(peer => !peer.target);
+	if (unresolvedPeers.length === 0) {
 		return undefined;
 	}
-	const lines = ['Internal workspace peer dependencies are not published. Consumers must provide them:'];
-	for (const peer of plan.peers) {
+	const lines = ['Workspace peer dependencies could not be resolved. Consumers must provide them:'];
+	for (const peer of unresolvedPeers) {
 		const target = peer.target
 			? ` resolves to ${JSON.stringify(peer.target)}`
 			: ' does not resolve to a workspace package';

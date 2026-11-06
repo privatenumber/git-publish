@@ -397,17 +397,67 @@ exec '${gitPath}' "$@"
 		expect(gitPublishProcess.stderr).not.toContain('Pre-bundle these dependencies');
 	});
 
-	test('warns when workspace peers are excluded from publication', async () => {
+	test('publishes internal peers without rewriting the peer range', async () => {
 		const branchName = 'test-workspace-peer-diagnostic';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
-			peerSpecification: 'workspace:*',
+			peerSpecification: '^0.0.0',
 		});
 
 		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'));
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
-		expect(gitPublishProcess.stderr).toContain('Internal workspace peer dependencies are not published');
-		expect(gitPublishProcess.stderr).toContain('"@test/adapter" declares "@test/core": "workspace:*" resolves to "@test/core"');
+		expect(gitPublishProcess.stderr).not.toContain('peer dependencies');
+		const manifest = JSON.parse(await remoteGit('show', [`npm/${branchName}-@test/adapter:package.json`]));
+		expect(manifest.peerDependencies['@test/core']).toBe('^0.0.0');
+	});
+
+	test('publishes peer-only targets and their runtime closure', async () => {
+		await using peerRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				peerDependencies: { core: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+				dependencies: { leaf: 'workspace:*' },
+				peerDependencies: { app: '^1.0.0' },
+			}),
+			'packages/leaf/package.json': JSON.stringify({
+				name: 'leaf',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=peers']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', peerRemote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		expect('exitCode' in result).toBe(false);
+		for (const name of ['app', 'core', 'leaf']) {
+			expect(await peerRemote.git('rev-parse', [`npm/peers-${name}`])).toMatch(/^[0-9a-f]{40}$/);
+		}
+	});
+
+	test('rejects a packed internal peer range mismatch before pushing', async () => {
+		await using peerRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('peer-mismatch', peerRemote.path, {
+			peerSpecification: '^2.0.0',
+		});
+		const result = await gitPublish(fixture.getPath('packages/adapter'));
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.stdout).toContain('@test/adapter');
+		expect(result.stdout).toContain('@test/core');
+		expect(result.stdout).toContain('^2.0.0');
+		expect(result.stdout).toContain('0.0.0');
+		expect(await peerRemote.git('for-each-ref')).toBe('');
 	});
 
 	test('rejects multiple push URLs', async () => {

@@ -1,4 +1,5 @@
 import type { TaskInnerAPI } from 'tasuku';
+import semver from 'semver';
 import task from '../utils/task.ts';
 import { createPublishRepository } from '../publish-repository/create.ts';
 import { loadPublishBranches } from '../publish-repository/prepare-branch.ts';
@@ -98,6 +99,24 @@ export const publishWorkspaceClosure = async ({
 			plan.nodes[selectedIndex]!.key,
 			async taskApi => processPackage(selectedIndex, taskApi),
 		);
+		if (selectedIndex < plan.nodes.length - 1) {
+			await task('Required workspace peers', async () => task.group(
+				createTask => plan.nodes.slice(selectedIndex + 1).map((node, offset) => createTask(
+					node.key,
+					async taskApi => processPackage(selectedIndex + 1 + offset, taskApi),
+				)),
+			));
+		}
+		for (const peer of plan.peers) {
+			if (!peer.target) {
+				continue;
+			}
+			const range = preparations.get(peer.from)!.peerDependencies[peer.key];
+			const { version } = preparations.get(peer.target)!;
+			if (!range || !version || !semver.satisfies(version, range, { includePrerelease: true })) {
+				throw new Error(`Package ${JSON.stringify(peer.from)} requires peer ${JSON.stringify(peer.target)} in range ${JSON.stringify(range)}, but its packed version is ${JSON.stringify(version)}.`);
+			}
+		}
 		const packageCount = plan.nodes.length;
 		await task(
 			`Pushing ${packageCount} ${packageCount === 1 ? 'package' : 'packages'}${packageCount === 1 ? '' : ' together'}`,

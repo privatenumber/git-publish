@@ -22,6 +22,8 @@ export type PackagePreparation = {
 	files: File[];
 	unpublishedFilesFieldEntries: string[];
 	reusedExistingCommit: boolean;
+	version: string | undefined;
+	peerDependencies: Partial<Record<string, string>>;
 };
 
 export type PackagePublicationDependency = {
@@ -133,5 +135,7 @@ export const preparePackagePublication = async ({
 			files.map(file => file.file),
 		),
 		reusedExistingCommit: tracked.length === 0,
+		version: manifest.version,
+		peerDependencies: manifest.peerDependencies ?? {},
 	};
 };

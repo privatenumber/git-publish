@@ -174,7 +174,7 @@ describe('Publication graph', () => {
 		expect(createPublishGraph(workspace, '@test/app').nodes.map(node => node.key)).toStrictEqual(['@test/app']);
 	});
 
-	test('diagnoses internal peers without traversing them', async () => {
+	test('traverses internal peers', async () => {
 		const workspace = await discoverTestWorkspace({
 			core: {
 				name: '@test/core',
@@ -190,7 +190,7 @@ describe('Publication graph', () => {
 		});
 
 		const graph = createPublishGraph(workspace, '@test/app');
-		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app']);
+		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app', '@test/core']);
 		expect(graph.peers).toStrictEqual([{
 			from: '@test/app',
 			key: '@test/core',
@@ -199,7 +199,7 @@ describe('Publication graph', () => {
 		}]);
 	});
 
-	test('diagnoses aliased internal peers without traversing them', async () => {
+	test('traverses aliased internal peers', async () => {
 		const workspace = await discoverTestWorkspace({
 			core: {
 				name: '@test/core',
@@ -215,7 +215,7 @@ describe('Publication graph', () => {
 		});
 
 		const graph = createPublishGraph(workspace, '@test/app');
-		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app']);
+		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app', '@test/core']);
 		expect(graph.peers).toStrictEqual([{
 			from: '@test/app',
 			key: '@test/alias',
@@ -224,7 +224,7 @@ describe('Publication graph', () => {
 		}]);
 	});
 
-	test('diagnoses relative internal peers without traversing them', async () => {
+	test('traverses relative internal peers', async () => {
 		const workspace = await discoverTestWorkspace({
 			core: {
 				name: '@test/core',
@@ -240,7 +240,7 @@ describe('Publication graph', () => {
 		});
 
 		const graph = createPublishGraph(workspace, '@test/app');
-		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app']);
+		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app', '@test/core']);
 		expect(graph.peers).toStrictEqual([{
 			from: '@test/app',
 			key: '@test/core',
