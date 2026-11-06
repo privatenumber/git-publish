@@ -92,10 +92,7 @@ export const planWorkspacePublication = async ({
 		...workspace,
 		packages: candidates,
 	}, [...roots], packageManager);
-	if (
-		publicRoot
-		&& graph.nodes.find(node => node.key === workspace.rootPackage!.name)!.dependencies.length === 0
-	) {
+	if (publicRoot && graph.nodes.length === 1) {
 		return undefined;
 	}
 	if (!force) {

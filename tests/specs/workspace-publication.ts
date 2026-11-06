@@ -344,6 +344,30 @@ exec '${gitPath}' "$@"
 		expect(manifest.dependencies.member).toBe(`git+file://${rootRemote.path}#${commit}`);
 	});
 
+	test('publishes a peer-only closure of a public workspace root', async () => {
+		await using rootRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				version: '1.0.0',
+				workspaces: ['packages/*'],
+				peerDependencies: { member: '^1.0.0' },
+			}),
+			'package-lock.json': '{}',
+			'packages/member/package.json': JSON.stringify({
+				name: 'member',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=root-peer']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', rootRemote.path]);
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result).toBe(false);
+		expect(await rootRemote.git('rev-parse', ['npm/root-peer-member'])).toMatch(/^[0-9a-f]{40}$/);
+		expect(await rootRemote.git('rev-parse', ['npm/root-peer'])).toMatch(/^[0-9a-f]{40}$/);
+	});
+
 	test('publishes members by default for an unnamed workspace root', async () => {
 		await using rootRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
