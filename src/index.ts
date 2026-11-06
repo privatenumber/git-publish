@@ -36,7 +36,7 @@ const formatWorkspacePublicationPlan = (
 	const nodesByName = new Map(plan.nodes.map(node => [node.key, node]));
 	for (const node of plan.nodes) {
 		const rewrites = node.dependencies.map(edge => `${edge.key} → ${nodesByName.get(edge.target)!.branch}`).join(', ');
-		lines.push(`- ${node.key} → ${node.branch}${rewrites ? ` (dependencies: ${rewrites})` : ''}`);
+		lines.push(`- ${node.key}${node.package.packageJson.private ? ' (private)' : ''} → ${node.branch}${rewrites ? ` (dependencies: ${rewrites})` : ''}`);
 	}
 	return lines.join('\n');
 };

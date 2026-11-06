@@ -242,6 +242,9 @@ exec '${gitPath}' "$@"
 			corePrivate: true,
 		});
 		const packagePath = path.join(fixture.path, 'packages/adapter');
+		const dryRun = await gitPublish(packagePath, ['--dry']);
+		expect('exitCode' in dryRun).toBe(false);
+		expect(dryRun.stdout).toContain('@test/core (private)');
 
 		const publication = await gitPublish(packagePath);
 		expect('exitCode' in publication).toBe(false);
