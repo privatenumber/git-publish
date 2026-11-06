@@ -14,6 +14,22 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('never publishes or prints remote URL credentials', async () => {
+		await using credentialRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('credentials', 'https://user:secret@example.test/repo.git');
+		await fixture.git('config', ['remote.origin.pushurl', credentialRemote.path]);
+		await using output = await createFixture();
+		const result = await gitPublish(fixture.getPath('packages/adapter'), ['--fresh', '--json', output.getPath('result.json')]);
+		expect('exitCode' in result).toBe(false);
+		expect(result.stdout).not.toContain('secret');
+		expect(result.stderr).not.toContain('secret');
+		expect(await output.readFile('result.json', 'utf8')).not.toContain('secret');
+		for (const name of ['core', 'broker', 'adapter']) {
+			const manifest = await credentialRemote.git('show', [`npm/credentials-@test/${name}:package.json`]);
+			expect(manifest).not.toContain('secret');
+		}
+	});
+
 	test('preserves source dependency order and reuses unchanged publication commits', async () => {
 		await using orderedRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
