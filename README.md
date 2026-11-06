@@ -268,7 +268,7 @@ Package hooks run in an isolated checkout that is cleaned between packages. If o
 pnpm can block a Git dependency declared by another Git dependency with [`blockExoticSubdeps`](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps). A consumer that installs a published workspace closure must opt in:
 
 ```sh
-pnpm install --config.block-exotic-subdeps=false '<install-specifier>'
+pnpm add --config.block-exotic-subdeps=false '<install-specifier>'
 ```
 
 ## Sponsors
