@@ -78,6 +78,8 @@ exec npm "$@"
 					YARN_GLOBAL_FOLDER: commandsFixture.getPath('yarn-global'),
 					YARN_CACHE_FOLDER: commandsFixture.getPath('yarn-cache'),
 					YARN_ENABLE_TELEMETRY: '0',
+					// Yarn 4 enables immutable installs under CI; the fixture install creates the lockfile
+					YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
 				};
 
 				await using fixture = await createGitFixture({
