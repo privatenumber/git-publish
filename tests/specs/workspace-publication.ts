@@ -775,18 +775,20 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 
 	test('rejects multiple push URLs', async () => {
 		const branchName = 'test-workspace-push-urls';
+		await using firstPushFixture = await createGitFixture(undefined, ['--bare']);
+		const { git: firstRemoteGit } = firstPushFixture;
 		await using secondPushFixture = await createGitFixture(undefined, ['--bare']);
 		const { git: secondRemoteGit } = secondPushFixture;
-		await using fixture = await createChainWorkspace(branchName, remoteFixture.path);
+		await using fixture = await createChainWorkspace(branchName, firstPushFixture.path);
 		const { git } = fixture;
-		await git('config', ['--add', 'remote.origin.pushurl', remoteFixture.path]);
+		await git('config', ['--add', 'remote.origin.pushurl', firstPushFixture.path]);
 		await git('config', ['--add', 'remote.origin.pushurl', secondPushFixture.path]);
 
 		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'));
 
 		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
 		expect(gitPublishProcess.stderr).toContain('requires exactly one push URL');
-		expect(await remoteGit('for-each-ref')).toBe('');
+		expect(await firstRemoteGit('for-each-ref')).toBe('');
 		expect(await secondRemoteGit('for-each-ref')).toBe('');
 	});
 
