@@ -182,7 +182,11 @@ export const createPublishGraph = (
 			return undefined;
 		}
 	};
-	const resolvePlainTarget = (key: string, specification: string, peer = false): string | undefined => {
+	const resolvePlainTarget = (
+		key: string,
+		specification: string,
+		peer = false,
+	): string | undefined => {
 		const candidate = byName.get(key)?.[0];
 		const version = candidate?.packageJson.version;
 		if ((peer || packageManager !== 'pnpm') && version && satisfiesWorkspaceRange(version, specification)) {
