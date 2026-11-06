@@ -32,14 +32,14 @@
 		"prepare": "skills-npm"
 	},
 	"dependencies": {
-		"@manypkg/get-packages": "^3.1.0",
-		"@manypkg/tools": "^2.1.2",
 		"fast-glob": "^3.3.3",
 		"gunzip-maybe": "^1.4.2",
 		"tar-fs": "^3.1.2",
 		"tasuku": "^2.3.0"
 	},
 	"devDependencies": {
+		"@manypkg/get-packages": "^3.1.0",
+		"@manypkg/tools": "^2.1.2",
 		"@types/gunzip-maybe": "^1.4.3",
 		"@types/js-yaml": "^4.0.9",
 		"@types/node": "^25.9.2",
