@@ -154,6 +154,29 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 		return fixture;
 	};
 
+	test('batches remote branch lookups and fetches for a workspace closure', async () => {
+		await using batchRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('batch', batchRemote.path);
+		const packagePath = fixture.getPath('packages/adapter');
+		const first = await gitPublish(packagePath);
+		expect('exitCode' in first).toBe(false);
+		const gitCommand = await spawn('which', ['git']);
+		const gitPath = gitCommand.stdout;
+		await using commands = await createFixture({
+			git: `#!/bin/sh
+case "$1" in ls-remote|fetch) printf '%s\n' "$1" >> '${fixture.getPath('git-calls')}';; esac
+exec '${gitPath}' "$@"
+`,
+		});
+		await fs.chmod(commands.getPath('git'), 0o755);
+		const result = await gitPublish(packagePath, [], {
+			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+		});
+		expect('exitCode' in result).toBe(false);
+		const calls = await fixture.readFile('git-calls', 'utf8');
+		expect(calls.trim().split('\n')).toStrictEqual(['ls-remote', 'fetch']);
+	});
+
 	test('rejects private workspace dependencies unless --force is used', async () => {
 		const branchName = 'test-private-workspace-dependency';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {

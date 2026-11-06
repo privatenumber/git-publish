@@ -7,7 +7,7 @@ import { terminalColumns } from 'terminal-columns';
 import task from '../utils/task.ts';
 import { createPublishRepository, type PublishRepository } from '../publish-repository/create.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
-import { preparePublishBranch } from '../publish-repository/prepare-branch.ts';
+import { loadPublishBranches, preparePublishBranch } from '../publish-repository/prepare-branch.ts';
 import { preparePackagePublication, type PackagePreparation } from '../package-publication/prepare.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
@@ -68,11 +68,15 @@ export const publishStandalonePackage = async ({
 				setWarning('');
 				return;
 			}
+			const localBranch = `git-publish-${randomBytes(16).toString('hex')}`;
+			const existing = await loadPublishBranches(repository!, [{
+				publishBranch,
+				localBranch,
+			}], fresh);
 			await preparePublishBranch({
 				repository: repository!,
-				publishBranch,
-				localBranch: `git-publish-${randomBytes(16).toString('hex')}`,
-				fresh,
+				localBranch,
+				orphan: !existing.has(publishBranch),
 			});
 		});
 		await loadBranch;

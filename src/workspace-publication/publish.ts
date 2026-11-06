@@ -1,6 +1,7 @@
 import type { TaskInnerAPI } from 'tasuku';
 import task from '../utils/task.ts';
 import { createPublishRepository } from '../publish-repository/create.ts';
+import { loadPublishBranches } from '../publish-repository/prepare-branch.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
 import type { PackagePreparation } from '../package-publication/prepare.ts';
 import { planPackagePublicationPush, pushPackagePublications } from '../package-publication/push.ts';
@@ -37,6 +38,11 @@ export const publishWorkspaceClosure = async ({
 			fresh,
 			plan.nodes.map(node => node.branch),
 		);
+		const branches = plan.nodes.map((node, index) => ({
+			publishBranch: node.branch,
+			localBranch: `git-publish-${index}`,
+		}));
+		const existingBranches = await loadPublishBranches(repository, branches, fresh);
 		const preparations = new Map<string, PackagePreparation>();
 		const processPackage = async (index: number, {
 			streamPreview,
@@ -56,7 +62,7 @@ export const publishWorkspaceClosure = async ({
 					publishRemote,
 					sourceName,
 					sourceCommit,
-					fresh,
+					existingBranches,
 					preparations,
 					setStatus,
 				});

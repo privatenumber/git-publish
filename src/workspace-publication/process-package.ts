@@ -19,7 +19,7 @@ export const processWorkspacePackage = async ({
 	publishRemote,
 	sourceName,
 	sourceCommit,
-	fresh,
+	existingBranches,
 	preparations,
 	setStatus,
 }: {
@@ -31,7 +31,7 @@ export const processWorkspacePackage = async ({
 	publishRemote: PublishRemote;
 	sourceName: string;
 	sourceCommit: string | undefined;
-	fresh: boolean | undefined;
+	existingBranches: ReadonlySet<string>;
 	preparations: ReadonlyMap<string, PackagePreparation>;
 	setStatus: (status?: string) => void;
 }): Promise<PackagePreparation> => {
@@ -54,9 +54,8 @@ export const processWorkspacePackage = async ({
 	setStatus('Preparing publication commit');
 	await preparePublishBranch({
 		repository,
-		publishBranch: node.branch,
 		localBranch: `git-publish-${index}`,
-		fresh,
+		orphan: !existingBranches.has(node.branch),
 	});
 	const dependencyPublications = new Map<string, PackagePublication>();
 	for (const edge of node.dependencies) {
