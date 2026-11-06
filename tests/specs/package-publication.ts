@@ -6,10 +6,20 @@ import { pipeline } from 'node:stream/promises';
 import { describe, expect, test } from 'manten';
 import { createFixture } from 'fs-fixture';
 import tarFs from 'tar-fs';
-import { preparePackagePublication } from '../../src/package-publication/prepare.ts';
+import { preparePackagePublication, toInstallSpecifier } from '../../src/package-publication/prepare.ts';
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	test('preserves relative and absolute SCP paths in install specifiers', () => {
+		expect(toInstallSpecifier('git@host:repos/repo.git', 'abc'))
+			.toBe('git+ssh://git@host/~/repos/repo.git#abc');
+		expect(toInstallSpecifier('git@host:/srv/repo.git', 'abc'))
+			.toBe('git+ssh://git@host/srv/repo.git#abc');
+		for (const host of ['github.com', 'gitlab.com', 'bitbucket.org']) {
+			expect(toInstallSpecifier(`git@${host}:owner/repo.git`, 'abc'))
+				.toBe(`git+ssh://git@${host}/owner/repo.git#abc`);
+		}
+	});
 	test('rewrites direct closure dependencies before committing the packed package', async () => {
 		await using packageFixture = await createFixture({
 			package: {

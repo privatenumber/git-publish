@@ -47,7 +47,9 @@ const toPackageManagerGitUrl = (url: string) => {
 	}
 	const scpUrl = /^(?<user>[^@/:]+@)?(?<host>[^/:]+):(?<path>.+)$/.exec(url)?.groups;
 	if (scpUrl) {
-		return `git+ssh://${scpUrl.user ?? ''}${scpUrl.host}/${scpUrl.path}`;
+		const hosted = ['github.com', 'gitlab.com', 'bitbucket.org'].includes(scpUrl.host!);
+		const pathname = scpUrl.path!.startsWith('/') ? scpUrl.path : `${hosted ? '/' : '/~/'}${scpUrl.path}`;
+		return `git+ssh://${scpUrl.user ?? ''}${scpUrl.host}${pathname}`;
 	}
 	return `git+file://${path.resolve(url)}`;
 };

@@ -1002,7 +1002,7 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 	test('uses the default workspace template and installs the selected package when pnpm allows Git subdependencies', async () => {
 		const branchName = 'test-workspace-acceptance';
 		const remoteUrl = `git@example.test:${remoteFixture.path}`;
-		const packageManagerRemoteUrl = `git+ssh://git@example.test/${remoteFixture.path}`;
+		const packageManagerRemoteUrl = `git+ssh://git@example.test${remoteFixture.path}`;
 		await using commandsFixture = await createFixture(async (fixture) => {
 			await fixture.writeFile('ssh', `#!/bin/sh
 shift
