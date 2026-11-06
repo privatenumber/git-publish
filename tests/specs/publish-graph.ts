@@ -24,6 +24,20 @@ const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 };
 
 describe('Publication graph', () => {
+	test('does not resolve a prerelease runtime dependency through a stable range', async () => {
+		const workspace = await discoverTestWorkspace({
+			app: {
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+			},
+			core: {
+				name: 'core',
+				version: '1.1.0-beta.1',
+			},
+		});
+		expect(createPublishGraph(workspace, 'app').nodes.map(node => node.key)).toStrictEqual(['app']);
+	});
 	test('selects the dependency chain in dependency order', async () => {
 		await using fixture = await createFixture({
 			'package.json': JSON.stringify({

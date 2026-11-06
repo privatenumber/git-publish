@@ -850,6 +850,41 @@ exec '${npm}' "$@"
 		expect(branches).not.toContain('npm/selected-peer-core');
 	});
 
+	for (const [version, range, accepted] of [
+		['1.1.0-beta.1', '^1.0.0', false],
+		['1.0.0-beta.3', '*', true],
+	] as const) {
+		test(`validates prerelease ${version} against peer range ${range}`, async () => {
+			await using peerRemote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'package-lock.json': '{}',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					peerDependencies: { core: range },
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version,
+				}),
+			}, ['--initial-branch=prerelease']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', peerRemote.path]);
+			const result = await gitPublish(fixture.path, ['app', 'core']);
+			expect('exitCode' in result).toBe(!accepted);
+			if (!accepted) {
+				expect(result.stdout).toContain(range);
+				expect(await peerRemote.git('for-each-ref')).toBe('');
+			}
+		});
+	}
+
 	test('rejects a packed internal peer range mismatch before pushing', async () => {
 		await using peerRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('peer-mismatch', peerRemote.path, {

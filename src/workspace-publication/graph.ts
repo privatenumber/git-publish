@@ -1,7 +1,7 @@
 import path from 'node:path';
-import semver from 'semver';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import type { Workspace, WorkspacePackage } from './discover.ts';
+import { satisfiesWorkspaceRange } from './satisfies-range.ts';
 
 export type DependencyField = 'dependencies' | 'optionalDependencies';
 
@@ -185,7 +185,7 @@ export const createPublishGraph = (
 	const resolvePlainTarget = (key: string, specification: string, peer = false): string | undefined => {
 		const candidate = byName.get(key)?.[0];
 		const version = candidate?.packageJson.version;
-		if ((peer || packageManager !== 'pnpm') && version && semver.satisfies(version, specification, { includePrerelease: true })) {
+		if ((peer || packageManager !== 'pnpm') && version && satisfiesWorkspaceRange(version, specification)) {
 			return key;
 		}
 		return undefined;

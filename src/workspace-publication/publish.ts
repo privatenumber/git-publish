@@ -1,5 +1,4 @@
 import type { TaskInnerAPI } from 'tasuku';
-import semver from 'semver';
 import task from '../utils/task.ts';
 import { createPublishRepository } from '../publish-repository/create.ts';
 import { loadPublishBranches } from '../publish-repository/prepare-branch.ts';
@@ -11,6 +10,7 @@ import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 import { processWorkspacePackage } from './process-package.ts';
+import { satisfiesWorkspaceRange } from './satisfies-range.ts';
 
 export const publishWorkspaceClosure = async ({
 	plan,
@@ -98,7 +98,7 @@ export const publishWorkspaceClosure = async ({
 			}
 			const range = preparations.get(peer.from)!.peerDependencies[peer.key];
 			const { version } = preparations.get(peer.target)!;
-			if (!range || !version || !semver.satisfies(version, range, { includePrerelease: true })) {
+			if (range === undefined || !version || !satisfiesWorkspaceRange(version, range)) {
 				throw new Error(`Package ${JSON.stringify(peer.from)} requires peer ${JSON.stringify(peer.target)} in range ${JSON.stringify(range)}, but its packed version is ${JSON.stringify(version)}.`);
 			}
 		}
