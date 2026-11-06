@@ -246,6 +246,16 @@ exec '${gitPath}' "$@"
 	test('publishes all non-private members by default at the workspace root', async () => {
 		await using allRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('all', allRemote.path, { corePrivate: true });
+		for (const name of ['extra-a', 'extra-b']) {
+			await fixture.mkdir(`packages/${name}`);
+			await fixture.writeJson(`packages/${name}/package.json`, {
+				name,
+				version: '1.0.0',
+			});
+		}
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Add packages']);
+		await using output = await createFixture();
 		const result = await gitPublish(fixture.path);
 		expect('exitCode' in result).toBe(false);
 		for (const name of ['core', 'broker', 'adapter']) {
@@ -253,6 +263,16 @@ exec '${gitPath}' "$@"
 		}
 		const branches = await allRemote.git('branch', ['--list']);
 		expect(branches).not.toContain('test-monorepo');
+		const second = await gitPublish(fixture.path, ['--json', output.getPath('publication.json')]);
+		expect('exitCode' in second).toBe(false);
+		expect(second.stdout).toContain('unchanged');
+		const data = await output.readJson<{ packages: { name: string;
+			role: string; }[]; }>('publication.json');
+		expect(data.packages.filter(item => item.role === 'root').map(item => item.name).sort())
+			.toStrictEqual(['@test/adapter', '@test/broker', 'extra-a', 'extra-b']);
+		expect(result.stdout).toContain('Package');
+		expect(result.stdout).toContain('updated');
+		expect(result.stdout).toContain('--json');
 	});
 
 	test('selects workspace roots by name, path and glob', async () => {
@@ -266,6 +286,134 @@ exec '${gitPath}' "$@"
 		const invalid = await gitPublish(fixture.path, ['missing', '--dry']);
 		expect(('exitCode' in invalid) && invalid.exitCode).toBe(1);
 		expect(invalid.stderr).toContain('No workspace package matches "missing"');
+	});
+
+	test('reports separate install sets for shared runtime and peer packages', async () => {
+		await using setRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/a/package.json': JSON.stringify({
+				name: 'a',
+				version: '1.0.0',
+				peerDependencies: { core: '^1.0.0' },
+			}),
+			'packages/b/package.json': JSON.stringify({
+				name: 'b',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=sets']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', setRemote.path]);
+		await using output = await createFixture();
+		const result = await gitPublish(fixture.path, ['a', 'b', '--json', output.getPath('sets.json')]);
+		expect('exitCode' in result).toBe(false);
+		const data = await output.readJson<{
+			source: { ref: string;
+				commit: string; };
+			packages: { name: string;
+				installSpecifier: string;
+				role: string;
+				reused: boolean; }[];
+			installSets: Record<string, string[]>;
+		}>('sets.json');
+		expect(data.source).toStrictEqual({
+			ref: 'sets',
+			commit: await fixture.git('rev-parse', ['HEAD']),
+		});
+		expect(data.installSets).toStrictEqual({
+			a: ['a', 'core'],
+			b: ['b', 'core'],
+		});
+		const core = data.packages.find(item => item.name === 'core')!;
+		expect(core.role).toBe('dependency');
+		expect(core.reused).toBe(false);
+		const manifest = JSON.parse(await setRemote.git('show', ['npm/sets-b:package.json']));
+		expect(manifest.dependencies.core).toBe(core.installSpecifier);
+		expect(result.stdout.split(core.installSpecifier)).toHaveLength(3);
+		expect(result.stdout).toContain('npm 12+: add --allow-git=root');
+	});
+
+	for (const manager of ['pnpm', 'yarn', 'bun'] as const) {
+		test(`prints the ${manager} install set and applicable note`, async () => {
+			await using managerRemote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createChainWorkspace(`output-${manager}`, managerRemote.path);
+			await fixture.rm('package-lock.json');
+			if (manager === 'pnpm') {
+				await fixture.writeFile('pnpm-workspace.yaml', 'packages:\n  - packages/*\n');
+				await fixture.writeFile('pnpm-lock.yaml', '');
+			} else {
+				await fixture.writeFile(manager === 'yarn' ? 'yarn.lock' : 'bun.lock', '');
+			}
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Select package manager']);
+			const npm = path.join(path.dirname(process.execPath), 'npm');
+			await using commands = await createFixture({
+				[manager]: `#!/bin/sh
+if [ "$1" = --version ]; then echo 1.22.22; exit 0; fi
+if [ "$1" = pm ]; then exec '${npm}' pack --pack-destination "$4"; fi
+if [ "$1" = pack ] && [ "$2" = --filename ]; then exec '${npm}' pack --pack-destination "$(dirname "$3")"; fi
+exec '${npm}' "$@"
+`,
+			});
+			await fs.chmod(commands.getPath(manager), 0o755);
+			const result = await gitPublish(fixture.getPath('packages/adapter'), [], {
+				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+			});
+			expect('exitCode' in result).toBe(false);
+			expect(result.stdout).toContain(`${manager} add '`);
+			if (manager === 'yarn') {
+				expect(result.stdout).toContain('@test/adapter@git+file://');
+				expect(result.stdout).toContain('approvedGitRepositories');
+			} else if (manager === 'pnpm') {
+				expect(result.stdout).toContain('blockExoticSubdeps: false');
+			} else {
+				expect(result.stdout).not.toContain('blockExoticSubdeps');
+				expect(result.stdout).not.toContain('allow-git');
+			}
+		});
+	}
+
+	test('writes standalone publication details as JSON', async () => {
+		await using standaloneRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'standalone',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=standalone']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', standaloneRemote.path]);
+		await using output = await createFixture();
+		const result = await gitPublish(fixture.path, ['--json', output.getPath('result.json')]);
+		expect('exitCode' in result).toBe(false);
+		const commit = await standaloneRemote.git('rev-parse', ['npm/standalone']);
+		expect(await output.readJson('result.json')).toStrictEqual({
+			source: {
+				ref: 'standalone',
+				commit: await fixture.git('rev-parse', ['HEAD']),
+			},
+			packages: [{
+				name: 'standalone',
+				branch: 'npm/standalone',
+				commit,
+				installSpecifier: `git+file://${standaloneRemote.path}#${commit}`,
+				role: 'root',
+				reused: false,
+			}],
+			installSets: { standalone: ['standalone'] },
+		});
 	});
 
 	test('keeps a literal --branch for an independent workspace package', async () => {
@@ -301,7 +449,7 @@ exec '${gitPath}' "$@"
 		expect(gitPublishProcess.stdout).toContain('Pushing 1 package');
 	});
 
-	test('groups required dependencies under the selected package publication', async () => {
+	test('groups packages under the workspace publication', async () => {
 		const branchName = 'test-workspace-progress';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
 			corePrepack: 'node -e "setTimeout(() => {}, 1100)"',
@@ -311,17 +459,17 @@ exec '${gitPath}' "$@"
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(gitPublishProcess.stdout).toContain(`Published "@test/adapter" from "${branchName}"`);
-		expect(gitPublishProcess.stdout).toContain('Required workspace dependencies');
+		expect(gitPublishProcess.stdout).toContain('Packages');
 		expect(gitPublishProcess.stdout).toContain('@test/core');
 		expect(gitPublishProcess.stdout).toMatch(/@test\/core[^\n]*\(\d+(?:\.\d+)?(?:ms|s)\)/);
 		expect(gitPublishProcess.stdout).toContain('@test/broker');
 		expect(gitPublishProcess.stdout).toContain('@test/adapter');
 		expect(gitPublishProcess.stdout).toContain('Pushing 3 packages together');
 		expect(gitPublishProcess.stdout).not.toContain('workspace closure');
-		expect(gitPublishProcess.stdout.indexOf('→ Install command')).toBeGreaterThan(
+		expect(gitPublishProcess.stdout.indexOf('→ Install @test/adapter')).toBeGreaterThan(
 			gitPublishProcess.stdout.lastIndexOf(`Published "@test/adapter" from "${branchName}"`),
 		);
-		expect(gitPublishProcess.stdout.split('→ Install command')).toHaveLength(2);
+		expect(gitPublishProcess.stdout.split('→ Install @test/adapter')).toHaveLength(2);
 	});
 
 	test('retains publication success when cleanup fails', async () => {
@@ -336,7 +484,7 @@ exec '${gitPath}' "$@"
 		expect(await remoteGit('rev-parse', [`npm/${branchName}-@test/adapter`])).toBeTruthy();
 		expect(gitPublishProcess.stdout).toContain(`Published "@test/adapter" from "${branchName}"`);
 		expect(gitPublishProcess.stdout).toContain('Test cleanup failure at');
-		expect(gitPublishProcess.stdout).toContain('→ Install command');
+		expect(gitPublishProcess.stdout).toContain('→ Install @test/adapter');
 	});
 
 	test('ignores an outer workspace beyond the Git root', async () => {
@@ -677,7 +825,7 @@ exec sh -c "$*"
 		expect(adapterManifest.dependencies['@test/broker']).toBe(`${packageManagerRemoteUrl}#${shas.broker}`);
 
 		const adapterSpecifier = `${packageManagerRemoteUrl}#${shas.adapter}`;
-		expect(gitPublishProcess.stdout).toContain(`i '${adapterSpecifier}'`);
+		expect(gitPublishProcess.stdout).toContain(`npm install '${adapterSpecifier}'`);
 
 		await using consumerFixture = await createFixture({
 			'package.json': JSON.stringify({

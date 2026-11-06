@@ -14,7 +14,6 @@ export type WorkspacePublicationNode = PublishGraphNode & {
 };
 
 export type WorkspacePublicationPlan = {
-	selected: string;
 	roots: string[];
 	publishAll: boolean;
 	nodes: WorkspacePublicationNode[];
@@ -84,7 +83,6 @@ export const planWorkspacePublication = async ({
 	if (roots.size === 0) {
 		throw new Error('No non-private workspace packages found to publish.');
 	}
-	const selected = [...roots][0]!;
 	const graph = createPublishGraph({
 		...workspace,
 		packages: candidates,
@@ -128,7 +126,6 @@ export const planWorkspacePublication = async ({
 		});
 	}
 	return {
-		selected,
 		roots: [...roots],
 		publishAll,
 		nodes,

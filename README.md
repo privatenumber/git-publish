@@ -204,6 +204,34 @@ Standalone packages keep the default `npm/<gitRef>` branch. An explicit `--branc
 
 Internal peers retain their packed ranges. Publication fails before pushing if a packed peer range does not match its target's packed version. Unresolved `workspace:` peers are reported so consumers can provide them.
 
+For each selected package, the install command includes its runtime and peer closure as root dependencies. The commit-pinned Git URLs match those in the packed manifests. A single-package install uses the moving branch reference instead.
+
+- npm 12+: add `--allow-git=root` to the command for a multi-package install set.
+- pnpm 11+: set `blockExoticSubdeps: false` in the consumer's `pnpm-workspace.yaml` for a multi-package install set.
+- Yarn 4: add the repository to `approvedGitRepositories` in the consumer's `.yarnrc.yml`.
+
+Use `--json <path>` to write publication details after a successful push. At the workspace root, a default selection of more than three packages prints a summary table instead of install commands; use the JSON file to get each install set.
+
+```json
+{
+    "source": { "ref": "main",
+        "commit": "<source commit>" },
+    "packages": [
+        { "name": "@acme/core",
+            "branch": "npm/main-@acme/core",
+            "commit": "<publish commit>",
+            "installSpecifier": "git+https://github.com/acme/repo.git#<publish commit>",
+            "role": "root",
+            "reused": false }
+    ],
+    "installSets": { "@acme/core": [
+        "@acme/core"
+    ] }
+}
+```
+
+Each package's `role` is `root`, `dependency`, or `peer`. `reused` is true when the existing publication commit was unchanged. `source.commit` is the full commit ID, or `null` when the source has no commit. Install-set values are package names; look up their commit-pinned specifiers in `packages`.
+
 > [!IMPORTANT]
 > A recursive publication requires one push URL. Git cannot atomically push one dependency closure to multiple destinations.
 

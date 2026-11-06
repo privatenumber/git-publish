@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import spawn from 'nano-spawn';
 import { cli } from 'cleye';
 import type { PackageJson } from '@npmcli/package-json';
-import { cyan, dim } from 'ansis';
+import { dim } from 'ansis';
 import terminalLink from 'terminal-link';
 import packageMeta from '../package.json' with { type: 'json' };
 import task from './utils/task.ts';
@@ -20,7 +20,9 @@ import { renderPackageBranch } from './package-publication/branch.ts';
 import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
 import { planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
+import { createWorkspaceResult, formatWorkspaceResult } from './workspace-publication/output.ts';
 import { publishStandalonePackage } from './standalone-publication/publish.ts';
+import { toInstallSpecifier } from './package-publication/prepare.ts';
 
 const { stringify } = JSON;
 
@@ -28,7 +30,7 @@ const formatWorkspacePublicationPlan = (
 	plan: WorkspacePublicationPlan,
 	sourceName: string,
 ): string => {
-	const lines = [`Publishing packages for ${JSON.stringify(plan.selected)} from ${JSON.stringify(sourceName)}:`];
+	const lines = [`Publishing packages for ${plan.roots.map(name => JSON.stringify(name)).join(', ')} from ${JSON.stringify(sourceName)}:`];
 	const nodesByName = new Map(plan.nodes.map(node => [node.key, node]));
 	for (const node of plan.nodes) {
 		const rewrites = node.dependencies.map(edge => `${edge.key} → ${nodesByName.get(edge.target)!.branch}`).join(', ');
@@ -91,6 +93,11 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				alias: 'f',
 				description: 'Skip checks and force publish.',
 			},
+			json: {
+				type: String,
+				placeholder: '<path>',
+				description: 'Write publication details and install sets to a JSON file.',
+			},
 		},
 		help: {
 			description: packageMeta.description,
@@ -115,7 +122,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	const {
 		branch, remote, fresh, dry,
 	} = argv.flags;
-	const sourceCommitId = branch?.includes('{gitSha}')
+	const sourceCommitId = branch?.includes('{gitSha}') || argv.flags.json
 		? await getCurrentCommitId()
 		: undefined;
 	const packageManager = await detectPackageManager(cwd, gitRootPath);
@@ -150,8 +157,9 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			console.warn(peerDiagnostics);
 		}
 
+		const rootsDescription = closurePlan.roots.map(root => stringify(root)).join(', ');
 		const workspacePublish = await task(
-			`Publishing ${stringify(closurePlan.selected)} from ${stringify(sourceName)}`,
+			`Publishing ${rootsDescription} from ${stringify(sourceName)}`,
 			async ({
 				setTitle, setStatus,
 			}) => {
@@ -170,19 +178,8 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 					fresh,
 				});
 
-				const selected = preparationsByName.get(closurePlan.selected)!;
-				const repositoryName = getGitHubRepositoryName(remoteUrl);
-				if (repositoryName) {
-					const successLink = terminalLink(
-						`${cyan(selected.publication.branch)} ${dim(`(${selected.publication.commit})`)}`,
-						`https://github.com/${repositoryName}/tree/${selected.publication.branch!}`,
-					);
-					setTitle(`Published ${stringify(closurePlan.selected)} from ${stringify(sourceName)}: ${successLink}`);
-				} else {
-					setTitle(`Published ${stringify(closurePlan.selected)} from ${stringify(sourceName)}`);
-				}
-
-				return selected;
+				setTitle(`Published ${rootsDescription} from ${stringify(sourceName)}`);
+				return preparationsByName;
 			},
 		).catch(() => {
 			// Any failure here is already rendered within the task tree above
@@ -190,10 +187,14 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			// Set exitCode (instead of process.exit) so tasuku can flush its final render.
 			process.exitCode = 1;
 		});
-		const selected = workspacePublish;
-		if (selected) {
-			installSpecifier = getGitHubInstallSpecifier(remoteUrl, selected.publication.commit)
-				?? selected.publication.installSpecifier;
+		if (workspacePublish) {
+			const result = createWorkspaceResult(
+				closurePlan, workspacePublish, sourceName, sourceCommitId,
+			);
+			if (argv.flags.json) {
+				await fs.writeFile(argv.flags.json, `${stringify(result, null, 2)}\n`);
+			}
+			console.log(`\n${formatWorkspaceResult(result, closurePlan, packageManager, remoteUrl)}`);
 		}
 	} else {
 		const workspaceDependencies: string[] = [];
@@ -276,8 +277,28 @@ Pre-bundle these dependencies before publishing.`);
 		).catch(() => {
 			process.exitCode = 1;
 		});
-		if (preparation && getGitHubRepositoryName(remoteUrl)) {
-			installSpecifier = getGitHubInstallSpecifier(remoteUrl, publishBranch);
+		if (preparation) {
+			installSpecifier = getGitHubInstallSpecifier(remoteUrl, publishBranch)
+				?? toInstallSpecifier(remoteUrl, publishBranch);
+			if (argv.flags.json) {
+				await fs.writeFile(argv.flags.json, `${stringify({
+					source: {
+						ref: sourceName,
+						commit: sourceCommitId ?? null,
+					},
+					packages: [{
+						name: preparation.publication.packageName,
+						branch: preparation.publication.branch,
+						commit: preparation.publication.commit,
+						installSpecifier: preparation.publication.installSpecifier,
+						role: 'root',
+						reused: preparation.reusedExistingCommit,
+					}],
+					installSets: {
+						[preparation.publication.packageName]: [preparation.publication.packageName],
+					},
+				}, null, 2)}\n`);
+			}
 		}
 	}
 	if (installSpecifier) {
@@ -285,6 +306,9 @@ Pre-bundle these dependencies before publishing.`);
 			? `yarn add '${packageJson.name}@${installSpecifier}'`
 			: `${packageManager} i '${installSpecifier}'`;
 		console.log(`\n→ Install command\n  ${installCommand}`);
+		if (packageManager === 'yarn') {
+			console.log('  Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml');
+		}
 	}
 })().catch((error) => {
 	console.error('Error:', error.message);

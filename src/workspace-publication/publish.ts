@@ -86,27 +86,12 @@ export const publishWorkspaceClosure = async ({
 				throw error;
 			}
 		};
-		const selectedIndex = plan.nodes.findIndex(node => node.key === plan.selected);
-		if (selectedIndex > 0) {
-			await task('Required workspace dependencies', async () => task.group(
-				createTask => plan.nodes.slice(0, selectedIndex).map((_, index) => createTask(
-					plan.nodes[index]!.key,
-					async taskApi => processPackage(index, taskApi),
-				)),
-			));
-		}
-		await task(
-			plan.nodes[selectedIndex]!.key,
-			async taskApi => processPackage(selectedIndex, taskApi),
-		);
-		if (selectedIndex < plan.nodes.length - 1) {
-			await task('Required workspace peers', async () => task.group(
-				createTask => plan.nodes.slice(selectedIndex + 1).map((node, offset) => createTask(
-					node.key,
-					async taskApi => processPackage(selectedIndex + 1 + offset, taskApi),
-				)),
-			));
-		}
+		await task('Packages', async () => task.group(
+			createTask => plan.nodes.map((node, index) => createTask(
+				node.key,
+				async taskApi => processPackage(index, taskApi),
+			)),
+		));
 		for (const peer of plan.peers) {
 			if (!peer.target) {
 				continue;

@@ -26,7 +26,6 @@ export type WorkspacePeer = {
 };
 
 export type PublishGraph = {
-	selected: string;
 	nodes: PublishGraphNode[];
 	peers: WorkspacePeer[];
 };
@@ -270,7 +269,6 @@ export const createPublishGraph = (
 	}
 
 	return {
-		selected: roots[0]!,
 		nodes: [...nodes.values()],
 		peers,
 	};

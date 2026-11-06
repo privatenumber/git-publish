@@ -62,7 +62,6 @@ describe('Publication graph', () => {
 		const workspace = await discoverWorkspacePackages(fixture.path, 'npm');
 		const graph = createPublishGraph(workspace, '@hunk/session-broker-bun');
 
-		expect(graph.selected).toBe('@hunk/session-broker-bun');
 		expect(graph.nodes.map(node => node.key)).toStrictEqual([
 			'@hunk/session-broker-core',
 			'@hunk/session-broker',
