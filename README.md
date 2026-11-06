@@ -210,6 +210,8 @@ For each selected package, the install command includes its runtime and peer clo
 - pnpm 11+: set `blockExoticSubdeps: false` in the consumer's `pnpm-workspace.yaml` for a multi-package install set.
 - Yarn 4: add the repository to `approvedGitRepositories` in the consumer's `.yarnrc.yml`.
 
+For non-hosted Git URLs, npm can ignore commit pins when the same package appears at different commits. `git-publish` warns when an install set contains multiple packages and the remote is not on GitHub, GitLab, or Bitbucket.
+
 Use `--json <path>` to write publication details after a successful push. At the workspace root, a default selection of more than three packages prints a summary table instead of install commands; use the JSON file to get each install set.
 
 ```json

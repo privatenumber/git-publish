@@ -15,6 +15,7 @@ import {
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { getGitHubInstallSpecifier, getGitHubRepositoryName } from './utils/github.ts';
+import { isHostedGitRemote } from './utils/hosted-git.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { renderPackageBranch } from './package-publication/branch.ts';
 import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
@@ -191,6 +192,12 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			const result = createWorkspaceResult(
 				closurePlan, workspacePublish, sourceName, sourceCommitId,
 			);
+			if (
+				!isHostedGitRemote(remoteUrl)
+				&& Object.values(result.installSets).some(set => set.length > 1)
+			) {
+				console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
+			}
 			if (argv.flags.json) {
 				await fs.writeFile(argv.flags.json, `${stringify(result, null, 2)}\n`);
 			}

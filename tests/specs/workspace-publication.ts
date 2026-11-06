@@ -384,6 +384,23 @@ exec '${npm}' "$@"
 		});
 	}
 
+	for (const [remoteUrl, packageName, warning] of [
+		['git@github.com:owner/repo.git', 'adapter', false],
+		['https://gitlab.com/owner/repo.git', 'adapter', false],
+		['git@bitbucket.org:owner/repo.git', 'adapter', false],
+		['https://git.example.test/owner/repo.git', 'adapter', true],
+		['https://git.example.test/owner/repo.git', 'core', false],
+	] as const) {
+		test(`warns for non-hosted install sets: ${remoteUrl} ${packageName}`, async () => {
+			await using warningRemote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createChainWorkspace('warning', remoteUrl);
+			await fixture.git('config', ['remote.origin.pushurl', warningRemote.path]);
+			const result = await gitPublish(fixture.getPath(`packages/${packageName}`), ['--fresh']);
+			expect('exitCode' in result).toBe(false);
+			expect(result.stderr.includes('npm ignores commit pins for non-hosted Git URLs')).toBe(warning);
+		});
+	}
+
 	test('writes standalone publication details as JSON', async () => {
 		await using standaloneRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
