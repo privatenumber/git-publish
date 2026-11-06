@@ -207,7 +207,10 @@ exec '${gitPath}' "$@"
 					workspaces: ['packages/*'],
 				}),
 				...(manager === 'pnpm'
-					? { 'pnpm-workspace.yaml': 'packages:\n  - packages/*\n' }
+					? {
+						'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+						'pnpm-lock.yaml': '',
+					}
 					: { 'package-lock.json': '{}' }),
 				'packages/app/package.json': JSON.stringify({
 					name: 'app',
