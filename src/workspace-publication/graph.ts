@@ -193,6 +193,7 @@ export const createPublishGraph = (
 
 	const nodes = new Map<string, PublishGraphNode>();
 	const peers: WorkspacePeer[] = [];
+	const pendingPeers: WorkspacePeer[] = [];
 	const visited = new Set<string>();
 	const visiting: string[] = [];
 
@@ -239,6 +240,14 @@ export const createPublishGraph = (
 				target = resolvePlainTarget(key, specification, true);
 			}
 			if (target === undefined && !isWorkspaceProtocol) {
+				if (byName.has(key)) {
+					pendingPeers.push({
+						from: current.name,
+						key,
+						specification,
+						target: key,
+					});
+				}
 				continue;
 			}
 			peers.push({
@@ -265,6 +274,11 @@ export const createPublishGraph = (
 		const { target } = peers[index]!;
 		if (target) {
 			visit(byName.get(target)![0]!, 'peer');
+		}
+	}
+	for (const peer of pendingPeers) {
+		if (nodes.has(peer.target!)) {
+			peers.push(peer);
 		}
 	}
 
