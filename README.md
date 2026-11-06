@@ -216,19 +216,25 @@ Use `--json <path>` to write publication details after a successful push. At the
 
 ```json
 {
-    "source": { "ref": "main",
-        "commit": "<source commit>" },
+    "source": {
+        "ref": "main",
+        "commit": "<source commit>"
+    },
     "packages": [
-        { "name": "@acme/core",
+        {
+            "name": "@acme/core",
             "branch": "npm/main-@acme/core",
             "commit": "<publish commit>",
             "installSpecifier": "git+https://github.com/acme/repo.git#<publish commit>",
             "role": "root",
-            "reused": false }
+            "reused": false
+        }
     ],
-    "installSets": { "@acme/core": [
-        "@acme/core"
-    ] }
+    "installSets": {
+        "@acme/core": [
+            "@acme/core"
+        ]
+    }
 }
 ```
 
