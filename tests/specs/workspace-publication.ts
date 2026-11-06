@@ -767,6 +767,33 @@ exec '${npm}' "$@"
 		}
 	});
 
+	test('publishes plain-range internal peers in pnpm workspaces', async () => {
+		await using peerRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+			}),
+			'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+			'pnpm-lock.yaml': '',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				peerDependencies: { core: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=pnpm-peer']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', peerRemote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		expect('exitCode' in result).toBe(false);
+		expect(await peerRemote.git('rev-parse', ['npm/pnpm-peer-core'])).toMatch(/^[0-9a-f]{40}$/);
+	});
+
 	test('rejects a packed internal peer range mismatch before pushing', async () => {
 		await using peerRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('peer-mismatch', peerRemote.path, {

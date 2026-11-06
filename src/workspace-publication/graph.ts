@@ -182,10 +182,10 @@ export const createPublishGraph = (
 			return undefined;
 		}
 	};
-	const resolvePlainTarget = (key: string, specification: string): string | undefined => {
+	const resolvePlainTarget = (key: string, specification: string, peer = false): string | undefined => {
 		const candidate = byName.get(key)?.[0];
 		const version = candidate?.packageJson.version;
-		if (packageManager !== 'pnpm' && version && semver.satisfies(version, specification, { includePrerelease: true })) {
+		if ((peer || packageManager !== 'pnpm') && version && semver.satisfies(version, specification, { includePrerelease: true })) {
 			return key;
 		}
 		return undefined;
@@ -236,7 +236,7 @@ export const createPublishGraph = (
 			if (isWorkspaceProtocol) {
 				target = tryResolveTarget(current, key, specification);
 			} else {
-				target = resolvePlainTarget(key, specification);
+				target = resolvePlainTarget(key, specification, true);
 			}
 			if (target === undefined && !isWorkspaceProtocol) {
 				continue;
