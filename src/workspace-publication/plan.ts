@@ -44,7 +44,10 @@ export const planWorkspacePublication = async ({
 		return undefined;
 	}
 	const isRoot = path.resolve(cwd) === path.resolve(workspace.rootDirectory);
-	const publishAll = selection.length === 0 && isRoot;
+	const defaultAtRoot = selection.length === 0 && isRoot;
+	const publicRoot = defaultAtRoot && Boolean(workspace.rootPackage?.name)
+		&& !workspace.rootPackage?.packageJson.private;
+	const publishAll = defaultAtRoot && !publicRoot;
 	const candidates = [...workspace.packages];
 	if (workspace.rootPackage && !candidates.some(candidate => (
 		candidate.dir === workspace.rootDirectory
@@ -64,6 +67,8 @@ export const planWorkspacePublication = async ({
 				roots.add(match.name);
 			}
 		}
+	} else if (publicRoot) {
+		roots.add(workspace.rootPackage!.name);
 	} else if (publishAll) {
 		for (const candidate of workspace.packages) {
 			if (
@@ -87,6 +92,12 @@ export const planWorkspacePublication = async ({
 		...workspace,
 		packages: candidates,
 	}, [...roots], packageManager);
+	if (
+		publicRoot
+		&& graph.nodes.find(node => node.key === workspace.rootPackage!.name)!.dependencies.length === 0
+	) {
+		return undefined;
+	}
 	if (!force) {
 		const privatePackage = graph.nodes.find(node => (
 			path.resolve(node.package.dir) === path.resolve(workspace.rootDirectory)
@@ -105,7 +116,9 @@ export const planWorkspacePublication = async ({
 			throw new Error(`Workspace package ${JSON.stringify(node.key)} is outside the Git repository and cannot be published.`);
 		}
 		const branch = renderPackageBranch({
-			template: branchTemplate,
+			template: publicRoot && node.key === workspace.rootPackage!.name && !publishBranch
+				? 'npm/{gitRef}'
+				: branchTemplate,
 			gitRef: sourceName,
 			gitSha: sourceCommitId,
 			packageName: node.key,

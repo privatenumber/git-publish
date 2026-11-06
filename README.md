@@ -166,7 +166,7 @@ Manual commits often:
 
 ### Can I use this in a monorepo?
 
-Yes. Run `git-publish` inside a package directory to select that package, or run it at the workspace root to select every non-private member. The workspace root itself is excluded from the default selection.
+Yes. Run `git-publish` inside a package directory to select that package; at the workspace root, it selects the root package if it is named and public, or every non-private member if the root is private or unnamed.
 
 You can select packages by name, directory, or a quoted glob of package directories:
 

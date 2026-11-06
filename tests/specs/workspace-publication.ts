@@ -275,6 +275,74 @@ exec '${gitPath}' "$@"
 		expect(result.stdout).toContain('--json');
 	});
 
+	test('publishes a public workspace root as a standalone package', async () => {
+		await using rootRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				version: '1.0.0',
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/member/package.json': JSON.stringify({
+				name: 'member',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=public-root']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', rootRemote.path]);
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result).toBe(false);
+		const manifest = JSON.parse(await rootRemote.git('show', ['npm/public-root:package.json']));
+		expect(manifest.name).toBe('root');
+		const branches = await rootRemote.git('for-each-ref', ['--format=%(refname:short)', 'refs/heads']);
+		expect(branches).toBe('npm/public-root');
+	});
+
+	test('includes internal runtime dependencies of a public workspace root', async () => {
+		await using rootRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				version: '1.0.0',
+				workspaces: ['packages/*'],
+				dependencies: { member: '^1.0.0' },
+			}),
+			'package-lock.json': '{}',
+			'packages/member/package.json': JSON.stringify({
+				name: 'member',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=public-closure']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', rootRemote.path]);
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result).toBe(false);
+		const commit = await rootRemote.git('rev-parse', ['npm/public-closure-member']);
+		const manifest = JSON.parse(await rootRemote.git('show', ['npm/public-closure:package.json']));
+		expect(manifest.dependencies.member).toBe(`git+file://${rootRemote.path}#${commit}`);
+	});
+
+	test('publishes members by default for an unnamed workspace root', async () => {
+		await using rootRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({ workspaces: ['packages/*'] }),
+			'package-lock.json': '{}',
+			'packages/member/package.json': JSON.stringify({
+				name: 'member',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=unnamed-root']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', rootRemote.path]);
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result).toBe(false);
+		expect(await rootRemote.git('rev-parse', ['npm/unnamed-root-member'])).toMatch(/^[0-9a-f]{40}$/);
+	});
+
 	test('selects workspace roots by name, path and glob', async () => {
 		await using selectionRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('select', selectionRemote.path);
