@@ -13,6 +13,7 @@ export type WorkspacePackage = {
 
 export type Workspace = {
 	rootDirectory: string;
+	rootPackage: WorkspacePackage | undefined;
 	packages: WorkspacePackage[];
 };
 
@@ -57,12 +58,18 @@ export const discoverWorkspacePackages = async (
 ): Promise<Workspace> => {
 	const tool = workspaceTools[packageManager];
 	const options = { tools: [tool] };
-	const { packages, rootDir } = await getPackages(directory, options).catch((error: unknown) => {
+	const result = await getPackages(directory, options).catch((error: unknown) => {
 		const reason = error instanceof Error ? error.message : String(error);
 		throw new Error(`No ${packageManager} workspace found in ${directory}: ${reason}`);
 	});
+	const { packages, rootDir, rootPackage } = result;
 	return {
 		rootDirectory: rootDir,
+		rootPackage: rootPackage && {
+			name: rootPackage.packageJson.name,
+			dir: rootPackage.dir,
+			packageJson: rootPackage.packageJson,
+		},
 		packages: packages.map(({ packageJson, dir }) => ({
 			name: packageJson.name,
 			dir,

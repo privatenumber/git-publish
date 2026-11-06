@@ -125,9 +125,11 @@ export const findWorkspacePackageDirectory = (
 
 export const createPublishGraph = (
 	workspace: Workspace,
-	selected: string,
+	selection: string | string[],
 	packageManager: PackageManager = 'npm',
 ): PublishGraph => {
+	const roots = typeof selection === 'string' ? [selection] : selection;
+	const rootNames = new Set(roots);
 	const byName = new Map<string, WorkspacePackage[]>();
 	for (const candidate of workspace.packages) {
 		const group = byName.get(candidate.name);
@@ -195,7 +197,7 @@ export const createPublishGraph = (
 	const visited = new Set<string>();
 	const visiting: string[] = [];
 
-	const visit = (current: WorkspacePackage): void => {
+	const visit = (current: WorkspacePackage, role: 'dependency' | 'peer'): void => {
 		if (visited.has(current.name)) {
 			return;
 		}
@@ -222,7 +224,7 @@ export const createPublishGraph = (
 					field,
 					target,
 				});
-				visit(byName.get(target)![0]);
+				visit(byName.get(target)![0]!, role);
 			}
 		}
 		const peerEntries = current.packageJson.peerDependencies ?? {};
@@ -253,24 +255,22 @@ export const createPublishGraph = (
 			key: current.name,
 			package: current,
 			dependencies,
-			role: current.name === selected ? 'root' : 'dependency',
+			role: rootNames.has(current.name) ? 'root' : role,
 		});
 	};
 
-	visit(selectWorkspacePackage(workspace, selected));
-	const runtimeNodes = new Set(nodes.keys());
+	for (const root of roots) {
+		visit(selectWorkspacePackage(workspace, root), 'dependency');
+	}
 	for (let index = 0; index < peers.length; index += 1) {
 		const { target } = peers[index]!;
 		if (target) {
-			visit(byName.get(target)![0]!);
-			if (!runtimeNodes.has(target)) {
-				nodes.get(target)!.role = 'peer';
-			}
+			visit(byName.get(target)![0]!, 'peer');
 		}
 	}
 
 	return {
-		selected,
+		selected: roots[0]!,
 		nodes: [...nodes.values()],
 		peers,
 	};

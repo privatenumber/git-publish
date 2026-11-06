@@ -191,6 +191,7 @@ describe('Publication graph', () => {
 
 		const graph = createPublishGraph(workspace, '@test/app');
 		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app', '@test/core']);
+		expect(graph.nodes.map(node => node.role)).toStrictEqual(['root', 'peer']);
 		expect(graph.peers).toStrictEqual([{
 			from: '@test/app',
 			key: '@test/core',

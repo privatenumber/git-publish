@@ -166,9 +166,15 @@ Manual commits often:
 
 ### Can I use this in a monorepo?
 
-Yes. Run `git-publish` from inside the specific package directory (e.g., `packages/my-lib`).
+Yes. Run `git-publish` inside a package directory to select that package, or run it at the workspace root to select every non-private member. The workspace root itself is excluded from the default selection.
 
-`git-publish` publishes the selected package and its internal `workspace:` dependencies from `dependencies` and `optionalDependencies`. It creates each package commit before one atomic push, so a failed branch update does not expose a partial dependency closure.
+You can select packages by name, directory, or a quoted glob of package directories:
+
+```sh
+git-publish @acme/core ./packages/adapter './packages/plugins/*'
+```
+
+`git-publish` publishes the selected packages and their internal runtime and peer dependencies. For npm, Yarn, and Bun, a plain semver range also selects a workspace package when its version satisfies that range. For pnpm, internal edges must use `workspace:`. Each package commit is created before one atomic push, so a failed branch update does not expose a partial dependency closure.
 
 `--branch` accepts a small branch template with these placeholders:
 
@@ -196,7 +202,7 @@ For one package, a literal branch remains exact. For example, `git-publish --bra
 
 Standalone packages keep the default `npm/<gitRef>` branch. An explicit `--branch` can use the same placeholders or remain a literal branch name.
 
-Internal workspace peer dependencies are not published. `git-publish` prints a warning for each peer so consumers can provide it.
+Internal peers retain their packed ranges. Publication fails before pushing if a packed peer range does not match its target's packed version. Unresolved `workspace:` peers are reported so consumers can provide them.
 
 > [!IMPORTANT]
 > A recursive publication requires one push URL. Git cannot atomically push one dependency closure to multiple destinations.

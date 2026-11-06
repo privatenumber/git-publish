@@ -21,10 +21,21 @@ describe('Error cases', () => {
 		expect(('exitCode' in misspelledFlag) && misspelledFlag.exitCode).toBe(1);
 		expect(misspelledFlag.stderr).toBe('Error: Unknown flag: --drry. (Did you mean --dry?)');
 
-		const positionalArgument = await gitPublish(fixture.path, ['unexpected']);
-		expect(('exitCode' in positionalArgument) && positionalArgument.exitCode).toBe(1);
-		expect(positionalArgument.stderr).toBe('Error: This command does not accept positional arguments.');
 		expect(await markerFixture.exists('packed')).toBe(false);
+	});
+
+	test('rejects package selection in a standalone repository', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		const result = await gitPublish(fixture.path, ['unexpected']);
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.stderr).toContain('Package selection requires a workspace.');
 	});
 
 	test('Missing default remote', async () => {

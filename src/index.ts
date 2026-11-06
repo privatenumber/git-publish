@@ -58,6 +58,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		name: packageMeta.name,
 		version: packageMeta.version,
 		strictFlags: true,
+		parameters: ['[packages...]'],
 		flags: {
 			branch: {
 				type: String,
@@ -95,10 +96,6 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			description: packageMeta.description,
 		},
 	});
-	if (argv._.length > 0) {
-		throw new Error('This command does not accept positional arguments.');
-	}
-
 	await assertCleanTree();
 
 	const cwd = process.cwd();
@@ -130,7 +127,11 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		packageManager,
 		publishBranch: branch,
 		force: argv.flags.force,
+		selection: argv._.packages,
 	});
+	if (!closurePlan && argv._.packages.length > 0) {
+		throw new Error('Package selection requires a workspace.');
+	}
 	if (!closurePlan && packageJson.private && !argv.flags.force) {
 		throw new Error('This package is marked as private. Use --force to publish it anyway.');
 	}

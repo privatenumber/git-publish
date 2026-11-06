@@ -234,13 +234,38 @@ exec '${gitPath}' "$@"
 		expect('exitCode' in selectedPublication).toBe(false);
 	});
 
-	test('requires --force for a private workspace root', async () => {
+	test('requires --force when selecting a private workspace root', async () => {
 		await using fixture = await createChainWorkspace('private-root', remoteFixture.path);
-		const rejected = await gitPublish(fixture.path);
+		const rejected = await gitPublish(fixture.path, ['.']);
 		expect(('exitCode' in rejected) && rejected.exitCode).toBe(1);
-		expect(rejected.stderr).toContain('This package is marked as private');
-		const forced = await gitPublish(fixture.path, ['--dry', '--force']);
+		expect(rejected.stderr).toContain('marked as private');
+		const forced = await gitPublish(fixture.path, ['.', '--dry', '--force']);
 		expect('exitCode' in forced).toBe(false);
+	});
+
+	test('publishes all non-private members by default at the workspace root', async () => {
+		await using allRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('all', allRemote.path, { corePrivate: true });
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result).toBe(false);
+		for (const name of ['core', 'broker', 'adapter']) {
+			expect(await allRemote.git('rev-parse', [`npm/all-@test/${name}`])).toMatch(/^[0-9a-f]{40}$/);
+		}
+		const branches = await allRemote.git('branch', ['--list']);
+		expect(branches).not.toContain('test-monorepo');
+	});
+
+	test('selects workspace roots by name, path and glob', async () => {
+		await using selectionRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('select', selectionRemote.path);
+		const result = await gitPublish(fixture.path, ['@test/adapter', './packages/core', './packages/*']);
+		expect('exitCode' in result).toBe(false);
+		for (const name of ['core', 'broker', 'adapter']) {
+			expect(await selectionRemote.git('rev-parse', [`npm/select-@test/${name}`])).toMatch(/^[0-9a-f]{40}$/);
+		}
+		const invalid = await gitPublish(fixture.path, ['missing', '--dry']);
+		expect(('exitCode' in invalid) && invalid.exitCode).toBe(1);
+		expect(invalid.stderr).toContain('No workspace package matches "missing"');
 	});
 
 	test('keeps a literal --branch for an independent workspace package', async () => {
