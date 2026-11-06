@@ -1,4 +1,6 @@
 import path from 'node:path';
+import semver from 'semver';
+import type { PackageManager } from '../utils/detect-package-manager.ts';
 import type { Workspace, WorkspacePackage } from './discover.ts';
 
 export type DependencyField = 'dependencies' | 'optionalDependencies';
@@ -124,6 +126,7 @@ export const findWorkspacePackageDirectory = (
 export const createPublishGraph = (
 	workspace: Workspace,
 	selected: string,
+	packageManager: PackageManager = 'npm',
 ): PublishGraph => {
 	const byName = new Map<string, WorkspacePackage[]>();
 	for (const candidate of workspace.packages) {
@@ -178,6 +181,14 @@ export const createPublishGraph = (
 			return undefined;
 		}
 	};
+	const resolvePlainTarget = (key: string, specification: string): string | undefined => {
+		const candidate = byName.get(key)?.[0];
+		const version = candidate?.packageJson.version;
+		if (packageManager !== 'pnpm' && version && semver.satisfies(version, specification, { includePrerelease: true })) {
+			return key;
+		}
+		return undefined;
+	};
 
 	const nodes = new Map<string, PublishGraphNode>();
 	const peers: WorkspacePeer[] = [];
@@ -197,10 +208,15 @@ export const createPublishGraph = (
 		for (const field of ['dependencies', 'optionalDependencies'] as const) {
 			const entries = current.packageJson[field] ?? {};
 			for (const [key, specification] of Object.entries(entries)) {
-				if (typeof specification !== 'string' || !specification.startsWith('workspace:')) {
+				if (typeof specification !== 'string') {
 					continue;
 				}
-				const target = resolveTarget(current, key, specification);
+				const target = specification.startsWith('workspace:')
+					? resolveTarget(current, key, specification)
+					: resolvePlainTarget(key, specification);
+				if (!target) {
+					continue;
+				}
 				dependencies.push({
 					key,
 					field,
@@ -218,8 +234,8 @@ export const createPublishGraph = (
 			let target: string | undefined;
 			if (isWorkspaceProtocol) {
 				target = tryResolveTarget(current, key, specification);
-			} else if (byName.has(key)) {
-				target = key;
+			} else {
+				target = resolvePlainTarget(key, specification);
 			}
 			if (target === undefined && !isWorkspaceProtocol) {
 				continue;

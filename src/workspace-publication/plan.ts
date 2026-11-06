@@ -44,7 +44,7 @@ export const planWorkspacePublication = async ({
 		return undefined;
 	}
 	const selected = selectedPackage.name;
-	const graph = createPublishGraph(workspace, selected);
+	const graph = createPublishGraph(workspace, selected, packageManager);
 	if (!force) {
 		const privatePackage = graph.nodes.find(node => (
 			path.resolve(node.package.dir) === path.resolve(workspace.rootDirectory)

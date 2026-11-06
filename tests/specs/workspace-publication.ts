@@ -177,6 +177,49 @@ exec '${gitPath}' "$@"
 		expect(calls.trim().split('\n')).toStrictEqual(['ls-remote', 'fetch']);
 	});
 
+	for (const [manager, range, internal] of [
+		['npm', '^1.0.0', true],
+		['npm', '^2.0.0', false],
+		['pnpm', '^1.0.0', false],
+	] as const) {
+		test(`${manager} ${range} ${internal ? 'publishes' : 'leaves external'} plain workspace ranges`, async () => {
+			await using rangeRemote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				...(manager === 'pnpm'
+					? { 'pnpm-workspace.yaml': 'packages:\n  - packages/*\n' }
+					: { 'package-lock.json': '{}' }),
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					dependencies: { core: range },
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.2.0',
+				}),
+			}, ['--initial-branch=plain']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', rangeRemote.path]);
+			const result = await gitPublish(fixture.getPath('packages/app'));
+			expect('exitCode' in result).toBe(false);
+			const manifest = JSON.parse(await rangeRemote.git('show', ['npm/plain-app:package.json']));
+			if (internal) {
+				const commit = await rangeRemote.git('rev-parse', ['npm/plain-core']);
+				expect(manifest.dependencies.core).toBe(`git+file://${rangeRemote.path}#${commit}`);
+			} else {
+				expect(manifest.dependencies.core).toBe(range);
+				const branches = await rangeRemote.git('branch', ['--list']);
+				expect(branches).not.toContain('npm/plain-core');
+			}
+		});
+	}
+
 	test('publishes private workspace members as dependencies and selected packages', async () => {
 		const branchName = 'test-private-workspace-dependency';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
@@ -449,9 +492,20 @@ exec '${gitPath}' "$@"
 	test('rejects a packed internal peer range mismatch before pushing', async () => {
 		await using peerRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('peer-mismatch', peerRemote.path, {
-			peerSpecification: '^2.0.0',
+			peerSpecification: 'workspace:*',
 		});
-		const result = await gitPublish(fixture.getPath('packages/adapter'));
+		await using commands = await createFixture({
+			npm: `#!/bin/sh
+if [ "$1" = pack ] && [ -f package.json ]; then
+  "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.peerDependencies) { p.peerDependencies["@test/core"] = "^2.0.0"; fs.writeFileSync("package.json", JSON.stringify(p)); }'
+fi
+exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+`,
+		});
+		await fs.chmod(commands.getPath('npm'), 0o755);
+		const result = await gitPublish(fixture.getPath('packages/adapter'), [], {
+			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+		});
 		expect(('exitCode' in result) && result.exitCode).toBe(1);
 		expect(result.stdout).toContain('@test/adapter');
 		expect(result.stdout).toContain('@test/core');
