@@ -193,7 +193,7 @@ exec '${gitPath}' "$@"
 
 	test('requires --force for a private workspace root', async () => {
 		await using fixture = await createChainWorkspace('private-root', remoteFixture.path);
-		const rejected = await gitPublish(fixture.path, ['--dry']);
+		const rejected = await gitPublish(fixture.path);
 		expect(('exitCode' in rejected) && rejected.exitCode).toBe(1);
 		expect(rejected.stderr).toContain('This package is marked as private');
 		const forced = await gitPublish(fixture.path, ['--dry', '--force']);
