@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {
-	describe, test, expect, onFinish,
+	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
