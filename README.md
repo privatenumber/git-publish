@@ -208,7 +208,7 @@ Internal peers retain their packed ranges. Publication fails before pushing if a
 
 For each selected package, the install command includes required runtime and peer packages as root dependencies. Packages reachable only through optional dependencies install transitively. The commit-pinned Git URLs match those in the packed manifests. A single-package install uses the moving branch reference instead.
 
-- npm 12+: add `--allow-git=root` to the command for any Git install.
+- npm 12+: add `--allow-git=root` to the command for any Git install. Optional transitive Git dependencies need `--allow-git=all`.
 - pnpm 11+: set `blockExoticSubdeps: false` in the consumer's `pnpm-workspace.yaml` for a multi-package install set.
 - Yarn 4: add the repository to `approvedGitRepositories` in the consumer's `.yarnrc.yml`.
 
