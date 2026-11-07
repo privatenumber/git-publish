@@ -14,6 +14,12 @@ describe('Package publication', () => {
 		expect(toInstallSpecifier('ssh://git:secret@example.test/repo.git', 'abc'))
 			.toBe('git+ssh://git@example.test/repo.git#abc');
 	});
+
+	test('treats Windows drive paths as local Git URLs', () => {
+		for (const url of ['C:\\git\\repo.git', 'C:/git/repo.git']) {
+			expect(toInstallSpecifier(url, 'abc')).toBe('git+file:///C:/git/repo.git#abc');
+		}
+	});
 	test('preserves relative and absolute SCP paths in install specifiers', () => {
 		expect(toInstallSpecifier('git@host:repos/repo.git', 'abc'))
 			.toBe('git+ssh://git@host/~/repos/repo.git#abc');

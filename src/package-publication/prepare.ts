@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import type { PackageJson } from '@npmcli/package-json';
 import { extractTarball, type File } from '../utils/extract-tarball.ts';
@@ -7,6 +8,7 @@ import { getStdout } from '../utils/get-stdout.ts';
 import { gitStatusTracked } from '../utils/git.ts';
 import { readJson } from '../utils/read-json.ts';
 import { findUnpublishedFilesFieldEntries } from '../utils/unpublished-files-field.ts';
+import { isLocalGitUrl } from '../publish-repository/remote.ts';
 
 const { stringify } = JSON;
 
@@ -49,13 +51,17 @@ const toPackageManagerGitUrl = (url: string) => {
 	if (/^(?:file|git|https?|ssh):\/\//.test(url)) {
 		return `git+${url}`;
 	}
+	if (isLocalGitUrl(url)) {
+		const windows = /^[a-z]:[\\/]/i.test(url);
+		return `git+${pathToFileURL(windows ? url : path.resolve(url), { windows }).href}`;
+	}
 	const scpUrl = /^(?<user>[^@/:]+@)?(?<host>[^/:]+):(?<path>.+)$/.exec(url)?.groups;
 	if (scpUrl) {
 		const hosted = ['github.com', 'gitlab.com', 'bitbucket.org'].includes(scpUrl.host!);
 		const pathname = scpUrl.path!.startsWith('/') ? scpUrl.path : `${hosted ? '/' : '/~/'}${scpUrl.path}`;
 		return `git+ssh://${scpUrl.user ?? ''}${scpUrl.host}${pathname}`;
 	}
-	return `git+file://${path.resolve(url)}`;
+	return `git+${pathToFileURL(path.resolve(url)).href}`;
 };
 
 export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPackageManagerGitUrl(fetchUrl)}#${commit}`;
