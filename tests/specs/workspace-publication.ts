@@ -421,6 +421,26 @@ exec '${gitPath}' "$@"
 		expect(await rootRemote.git('rev-parse', ['npm/root-peer'])).toMatch(/^[0-9a-f]{40}$/);
 	});
 
+	test('reports unresolved peers of a public workspace root', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				version: '1.0.0',
+				workspaces: ['packages/*'],
+				peerDependencies: { missing: 'workspace:*' },
+			}),
+			'package-lock.json': '{}',
+		}, ['--initial-branch=root-peer']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.path, ['--dry']);
+		expect('exitCode' in result).toBe(false);
+		expect(result.stderr).toContain('missing');
+		expect(result.stderr).toContain('does not resolve to a workspace package');
+	});
+
 	test('publishes members by default for an unnamed workspace root', async () => {
 		await using rootRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({

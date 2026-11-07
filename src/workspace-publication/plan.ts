@@ -92,7 +92,7 @@ export const planWorkspacePublication = async ({
 		...workspace,
 		packages: candidates,
 	}, [...roots], packageManager);
-	if (publicRoot && graph.nodes.length === 1) {
+	if (publicRoot && graph.nodes.length === 1 && graph.peers.length === 0) {
 		return undefined;
 	}
 	if (!force) {
