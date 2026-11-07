@@ -21,6 +21,11 @@ describe('Package publication', () => {
 			.toBe('git+ssh://git@example.test/repo.git#abc');
 	});
 
+	test('omits SSH query credentials from install specifiers', () => {
+		expect(toInstallSpecifier('ssh://git@host/repo.git?access_token=secret', 'abc'))
+			.toBe('git+ssh://git@host/repo.git#abc');
+	});
+
 	test('treats Windows drive paths as local Git URLs', () => {
 		for (const url of [String.raw`C:\git\repo.git`, 'C:/git/repo.git']) {
 			expect(toInstallSpecifier(url, 'abc')).toBe('git+file:///C:/git/repo.git#abc');

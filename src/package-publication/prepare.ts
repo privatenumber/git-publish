@@ -38,6 +38,7 @@ const toPackageManagerGitUrl = (url: string) => {
 	const parsed = URL.parse(url.replace(/^git\+/, ''));
 	if (parsed?.protocol === 'ssh:') {
 		parsed.password = '';
+		parsed.search = '';
 		return `git+${parsed.href}`;
 	}
 	if (parsed && ['http:', 'https:', 'git:'].includes(parsed.protocol)) {

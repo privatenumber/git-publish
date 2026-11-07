@@ -4,6 +4,8 @@ import { getErrorDetails } from '../../src/utils/error.ts';
 import { redactRemote } from '../../src/utils/redact-remote.ts';
 
 test('redacts username tokens while preserving SSH usernames', () => {
+	expect(redactRemote('ssh://git@host/repo.git?access_token=secret'))
+		.toBe('ssh://git@host/repo.git?[redacted]');
 	expect(redactRemote('https://host/repo.git?access_token=secret'))
 		.toBe('https://host/repo.git?[redacted]');
 	for (const scheme of ['http', 'https', 'git', 'git+https']) {
