@@ -94,6 +94,7 @@ export const preparePackagePublication = async ({
 	if (scripts) {
 		delete scripts.prepare;
 		delete scripts.prepack;
+		delete scripts.postpack;
 		if (!('preinstall' in scripts || 'install' in scripts || 'postinstall' in scripts)) {
 			delete scripts.build;
 		}

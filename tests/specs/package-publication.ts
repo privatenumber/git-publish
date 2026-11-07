@@ -137,7 +137,6 @@ describe('Package publication', () => {
 			preinstall: 'node preinstall.js',
 			install: 'node install.js',
 			postinstall: 'node postinstall.js',
-			postpack: 'node postpack.js',
 		});
 		expect(preparation.reusedExistingCommit).toBe(false);
 		expect(preparation.publication).toStrictEqual({

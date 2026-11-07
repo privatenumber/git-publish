@@ -142,7 +142,7 @@ You can also run the build before `git-publish`. Existing build output, includin
 
 1. Checks out or creates the publish branch
 2. Packs the package with your package manager (`npm pack`, `pnpm pack`, `yarn pack`, or `bun pm pack`), which runs `prepare` and `prepack` and includes only publishable files
-3. Removes `prepare` and `prepack` scripts and the `workspaces` and `devDependencies` fields from the packed manifest, then commits the packed files. Install lifecycle scripts remain intact; `build` is removed only when no install hook remains.
+3. Removes `prepare`, `prepack`, and `postpack` scripts and the `workspaces` and `devDependencies` fields from the packed manifest, then commits the packed files. Install lifecycle scripts remain intact; `build` is removed only when no install hook remains.
 4. Pushes the branch to the Git remote
 5. Prints the command to install the package via Git
 
