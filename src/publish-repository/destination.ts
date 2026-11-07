@@ -35,7 +35,10 @@ const parseRepository = (value: string, directory: string) => {
 export const getPublicationUrls = (fetchUrl: string, pushUrls: string[], directory: string) => {
 	if (pushUrls.length !== 1) {
 		const fetchIdentity = parseRepository(fetchUrl, directory).identity;
-		const selected = pushUrls.some(url => parseRepository(url, directory).identity === fetchIdentity)
+		const matchesFetch = pushUrls.some(url => (
+			parseRepository(url, directory).identity === fetchIdentity
+		));
+		const selected = matchesFetch
 			? fetchUrl
 			: pushUrls[0] ?? fetchUrl;
 		return {

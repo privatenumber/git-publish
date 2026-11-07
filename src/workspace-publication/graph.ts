@@ -193,12 +193,17 @@ export const createPublishGraph = (
 		}
 		return undefined;
 	};
-	const validateWorkspaceRange = (from: WorkspacePackage, key: string, specification: string, target: string) => {
+	const validateWorkspaceRange = (
+		from: WorkspacePackage,
+		key: string,
+		specification: string,
+		target: string,
+	) => {
 		const reference = parseWorkspaceSpecification(specification);
 		if (reference?.kind !== 'version' || ['*', '^', '~'].includes(reference.range)) {
 			return;
 		}
-		const version = byName.get(target)![0]!.packageJson.version;
+		const { version } = byName.get(target)![0]!.packageJson;
 		if (!version || !satisfiesWorkspaceRange(version, reference.range)) {
 			throw new Error(`Package ${JSON.stringify(from.name)} requires ${JSON.stringify(key)} in workspace range ${JSON.stringify(reference.range)}, but ${JSON.stringify(target)} has version ${JSON.stringify(version)}.`);
 		}

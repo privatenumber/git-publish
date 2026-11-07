@@ -205,8 +205,9 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			if (argv.flags.json) {
 				await fs.writeFile(argv.flags.json, `${stringify(result, null, 2)}\n`);
 			}
-			const aliases = new Set(Object.values(result.aliases).flatMap(entries => Object.entries(entries)
-				.map(([alias, target]) => `${alias}\0${target}`)));
+			const aliases = new Set(Object.values(result.aliases).flatMap(entries => (
+				Object.entries(entries).map(([alias, target]) => `${alias}\0${target}`)
+			)));
 			for (const entry of aliases) {
 				const [alias, target] = entry.split('\0');
 				console.warn(`Warning: npm 12 needs --allow-git=all for alias ${JSON.stringify(alias)} of ${JSON.stringify(target)}.`);

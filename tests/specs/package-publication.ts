@@ -16,7 +16,7 @@ describe('Package publication', () => {
 	});
 
 	test('treats Windows drive paths as local Git URLs', () => {
-		for (const url of ['C:\\git\\repo.git', 'C:/git/repo.git']) {
+		for (const url of [String.raw`C:\git\repo.git`, 'C:/git/repo.git']) {
 			expect(toInstallSpecifier(url, 'abc')).toBe('git+file:///C:/git/repo.git#abc');
 		}
 	});
