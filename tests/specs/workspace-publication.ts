@@ -780,6 +780,15 @@ exec '${npm}' "$@"
 		expect(await second.git('rev-parse', ['npm/mirror-@test/core'])).toBe(commit);
 	});
 
+	test('publishes a single workspace package without atomic push support', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await remote.git('config', ['receive.advertiseAtomic', 'false']);
+		await using fixture = await createChainWorkspace('no-atomic', remote.path);
+		const result = await gitPublish(fixture.getPath('packages/core'));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('rev-parse', ['npm/no-atomic-@test/core'])).toMatch(/^[0-9a-f]{40}$/);
+	});
+
 	test('groups packages under the workspace publication', async () => {
 		const branchName = 'test-workspace-progress';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {

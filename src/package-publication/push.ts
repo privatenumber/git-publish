@@ -67,7 +67,7 @@ export const pushPackagePublications = async ({
 		}
 		return;
 	}
-	const args = ['push', '--atomic'];
+	const args = ['push', ...(publications.length > 1 ? ['--atomic'] : [])];
 	if (pushPlan.fresh) {
 		for (const publication of publications) {
 			args.push(`--force-with-lease=refs/heads/${publication.branch}:${pushPlan.remoteTips.get(publication.branch) ?? ''}`);
