@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {
-	describe, test, expect, onFinish, onTestFail,
+	describe, test, expect, onFinish,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
@@ -943,37 +943,6 @@ exec '${npm}' "$@"
 		const result = await gitPublish(fixture.getPath('packages/app'));
 		expect('exitCode' in result).toBe(false);
 		expect(await peerRemote.git('rev-parse', ['npm/pnpm-peer-core'])).toMatch(/^[0-9a-f]{40}$/);
-	});
-
-	test('validates pnpm packed aliased peer ranges', async () => {
-		await using remote = await createGitFixture(undefined, ['--bare']);
-		await using fixture = await createGitFixture({
-			'package.json': JSON.stringify({
-				name: 'root',
-				private: true,
-			}),
-			'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
-			'.gitignore': 'node_modules',
-			'packages/app/package.json': JSON.stringify({
-				name: 'app',
-				version: '1.0.0',
-				peerDependencies: { alias: 'workspace:core@*' },
-			}),
-			'packages/core/package.json': JSON.stringify({
-				name: 'core',
-				version: '1.0.0',
-			}),
-		}, ['--initial-branch=alias-peer']);
-		// pnpm resolves an aliased workspace specifier at pack time only from installed dependencies
-		await spawn('pnpm', ['install'], { cwd: fixture.path });
-		await fixture.git('add', ['.']);
-		await fixture.git('commit', ['-m', 'Initial commit']);
-		await fixture.git('remote', ['add', 'origin', remote.path]);
-		const result = await gitPublish(fixture.getPath('packages/app'));
-		onTestFail(() => console.log(result));
-		expect('exitCode' in result).toBe(false);
-		const manifest = JSON.parse(await remote.git('show', ['npm/alias-peer-app:package.json']));
-		expect(manifest.peerDependencies.alias).toBe('npm:core@*');
 	});
 
 	test('validates mismatched peers already selected for publication', async () => {

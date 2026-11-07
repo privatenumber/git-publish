@@ -10,7 +10,7 @@ import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 import { processWorkspacePackage } from './process-package.ts';
-import { satisfiesWorkspaceRange } from './satisfies-range.ts';
+import { satisfiesPackedPeer } from './satisfies-range.ts';
 
 export const publishWorkspaceClosure = async ({
 	plan,
@@ -98,13 +98,7 @@ export const publishWorkspaceClosure = async ({
 			}
 			const range = preparations.get(peer.from)!.peerDependencies[peer.key];
 			const { version } = preparations.get(peer.target)!;
-			const alias = range?.match(/^npm:(@[^/]+\/[^@]+|[^@]+)@(.+)$/);
-			const peerRange = alias ? alias[2]! : range;
-			if (
-				peerRange === undefined || !version
-				|| (alias && alias[1] !== peer.target)
-				|| !satisfiesWorkspaceRange(version, peerRange)
-			) {
+			if (range === undefined || !version || !satisfiesPackedPeer(range, peer.target, version)) {
 				throw new Error(`Package ${JSON.stringify(peer.from)} requires peer ${JSON.stringify(peer.target)} in range ${JSON.stringify(range)}, but its packed version is ${JSON.stringify(version)}.`);
 			}
 		}

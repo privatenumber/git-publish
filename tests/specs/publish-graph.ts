@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { discoverWorkspacePackages } from '../../src/workspace-publication/discover.ts';
+import { satisfiesPackedPeer } from '../../src/workspace-publication/satisfies-range.ts';
 import {
 	createPublishGraph,
 	findWorkspacePackageDirectory,
@@ -24,6 +25,15 @@ const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 };
 
 describe('Publication graph', () => {
+	test('validates packed peer ranges, including pnpm aliases', () => {
+		expect(satisfiesPackedPeer('^1.0.0', 'core', '1.2.0')).toBe(true);
+		expect(satisfiesPackedPeer('npm:core@*', 'core', '1.0.0')).toBe(true);
+		expect(satisfiesPackedPeer('npm:@scope/core@^1.0.0', '@scope/core', '1.0.0')).toBe(true);
+		expect(satisfiesPackedPeer('npm:other@*', 'core', '1.0.0')).toBe(false);
+		// pnpm 10.29.3 packs an installed `workspace:core@*` peer this way
+		expect(satisfiesPackedPeer('1.0.0core@*', 'core', '1.0.0')).toBe(false);
+	});
+
 	test('does not resolve a prerelease runtime dependency through a stable range', async () => {
 		const workspace = await discoverTestWorkspace({
 			app: {
