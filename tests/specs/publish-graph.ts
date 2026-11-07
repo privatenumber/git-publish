@@ -2,6 +2,8 @@ import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { discoverWorkspacePackages } from '../../src/workspace-publication/discover.ts';
 import { satisfiesPackedPeer } from '../../src/workspace-publication/satisfies-range.ts';
+import { createWorkspaceResult, formatWorkspaceAliasWarnings } from '../../src/workspace-publication/output.ts';
+import type { PackagePreparation } from '../../src/package-publication/prepare.ts';
 import {
 	createPublishGraph,
 	findWorkspacePackageDirectory,
@@ -25,6 +27,44 @@ const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 };
 
 describe('Publication graph', () => {
+	test('reports aliased peer edges in each install set', async () => {
+		const workspace = await discoverTestWorkspace({
+			app: {
+				name: 'app',
+				version: '1.0.0',
+				peerDependencies: { alias: 'workspace:core@*' },
+			},
+			core: {
+				name: 'core',
+				version: '1.0.0',
+			},
+		});
+		const graph = createPublishGraph(workspace, 'app');
+		const nodes = graph.nodes.map(node => ({ ...node, branch: `npm/${node.key}` }));
+		const preparations = new Map<string, PackagePreparation>(nodes.map(node => [node.key, {
+			publication: {
+				packageName: node.key,
+				branch: node.branch,
+				commit: 'abc',
+				installSpecifier: 'git+https://example.test/repo#abc',
+			},
+			files: [],
+			unpublishedFilesFieldEntries: [],
+			reusedExistingCommit: false,
+			version: '1.0.0',
+			peerDependencies: {},
+		}]));
+		const result = createWorkspaceResult({
+			roots: ['app'],
+			publishAll: false,
+			nodes,
+			peers: graph.peers,
+		}, preparations, 'main', 'abc');
+		expect(result.aliases).toStrictEqual({ app: { alias: 'core' } });
+		expect(formatWorkspaceAliasWarnings(result)).toStrictEqual([
+			'Warning: npm 12 needs --allow-git=all for alias "alias" of "core".',
+		]);
+	});
 	test('validates packed peer ranges, including pnpm aliases', () => {
 		expect(satisfiesPackedPeer('^1.0.0', 'core', '1.2.0')).toBe(true);
 		expect(satisfiesPackedPeer('npm:core@*', 'core', '1.0.0')).toBe(true);

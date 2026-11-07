@@ -23,7 +23,9 @@ import { renderPackageBranch } from './package-publication/branch.ts';
 import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
 import { planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
-import { createWorkspaceResult, formatWorkspaceResult } from './workspace-publication/output.ts';
+import {
+	createWorkspaceResult, formatWorkspaceResult, formatWorkspaceAliasWarnings,
+} from './workspace-publication/output.ts';
 import { publishStandalonePackage } from './standalone-publication/publish.ts';
 import { toInstallSpecifier } from './package-publication/prepare.ts';
 
@@ -207,12 +209,8 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			if (argv.flags.json) {
 				await fs.writeFile(argv.flags.json, `${stringify(result, null, 2)}\n`);
 			}
-			const aliases = new Set(Object.values(result.aliases).flatMap(entries => (
-				Object.entries(entries).map(([alias, target]) => `${alias}\0${target}`)
-			)));
-			for (const entry of aliases) {
-				const [alias, target] = entry.split('\0');
-				console.warn(`Warning: npm 12 needs --allow-git=all for alias ${JSON.stringify(alias)} of ${JSON.stringify(target)}.`);
+			for (const warning of formatWorkspaceAliasWarnings(result)) {
+				console.warn(warning);
 			}
 			console.log(`\n${formatWorkspaceResult(result, closurePlan, packageManager, remoteUrl)}`);
 		}

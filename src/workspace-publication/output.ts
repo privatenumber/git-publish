@@ -52,6 +52,11 @@ export const createWorkspaceResult = (
 			node.dependencies.filter(edge => edge.key !== edge.target)
 				.map(edge => [edge.key, edge.target])
 		));
+		for (const peer of plan.peers) {
+			if (names.has(peer.from) && peer.target && peer.key !== peer.target) {
+				entries.push([peer.key, peer.target]);
+			}
+		}
 		return [root, Object.fromEntries(entries)];
 	}));
 	return {
@@ -76,6 +81,16 @@ export const createWorkspaceResult = (
 };
 
 export type WorkspaceResult = ReturnType<typeof createWorkspaceResult>;
+
+export const formatWorkspaceAliasWarnings = (result: WorkspaceResult): string[] => {
+	const aliases = new Set(Object.values(result.aliases).flatMap(entries => (
+		Object.entries(entries).map(([alias, target]) => `${alias}\0${target}`)
+	)));
+	return [...aliases].map((entry) => {
+		const [alias, target] = entry.split('\0');
+		return `Warning: npm 12 needs --allow-git=all for alias ${JSON.stringify(alias)} of ${JSON.stringify(target)}.`;
+	});
+};
 
 export const formatWorkspaceResult = (
 	result: WorkspaceResult,
