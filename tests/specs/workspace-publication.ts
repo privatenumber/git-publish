@@ -968,6 +968,7 @@ exec '${npm}' "$@"
 		await fixture.git('commit', ['-m', 'Initial commit']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
 		const result = await gitPublish(fixture.getPath('packages/app'));
+		onTestFail(() => console.log(result));
 		expect('exitCode' in result).toBe(false);
 		const manifest = JSON.parse(await remote.git('show', ['npm/alias-peer-app:package.json']));
 		expect(manifest.peerDependencies.alias).toBe('npm:core@*');
