@@ -1,6 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import spawn from 'nano-spawn';
+import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import glob from 'fast-glob';
 import type { PackageManager } from './detect-package-manager.ts';
 import { readJson } from './read-json.ts';
@@ -21,7 +21,7 @@ const isNotEnoent = (error: unknown): boolean => (
 const getPackArguments = async (
 	packageManager: PackageManager,
 	packDestinationDirectory: string,
-	packCwd: string,
+	packOptions: SpawnOptions,
 ) => {
 	if (packageManager === 'bun') {
 		return ['pm', 'pack', '--destination', packDestinationDirectory];
@@ -32,7 +32,7 @@ const getPackArguments = async (
 		// `--filename`, and each rejects or ignores the other. Ask the Yarn that this
 		// package resolves to (packageManager, yarnPath) which major it is.
 		const tarballPath = path.join(packDestinationDirectory, 'package.tgz');
-		const version = await getStdout(spawn('yarn', ['--version'], { cwd: packCwd }));
+		const version = await getStdout(spawn('yarn', ['--version'], packOptions));
 		return Number.parseInt(version, 10) >= 2
 			? ['pack', '--out', tarballPath]
 			: ['pack', '--filename', tarballPath];
@@ -166,9 +166,20 @@ export const packPackage = async (
 	const packCwd = gitSubdirectory
 		? path.join(packWorktreePath, gitSubdirectory)
 		: packWorktreePath;
+	const binaryPaths = new Set([
+		path.join(cwd, 'node_modules', '.bin'),
+		path.join(gitRootPath, 'node_modules', '.bin'),
+		process.env.PATH,
+	]);
 
-	const packArgs = await getPackArguments(packageManager, packDestinationDirectory, packCwd);
-	await spawn(packageManager, packArgs, { cwd: packCwd });
+	const packOptions = {
+		cwd: packCwd,
+		env: {
+			PATH: [...binaryPaths].filter(pathEntry => pathEntry !== undefined).join(path.delimiter),
+		},
+	};
+	const packArgs = await getPackArguments(packageManager, packDestinationDirectory, packOptions);
+	await spawn(packageManager, packArgs, packOptions);
 
 	// Find the generated tarball (package managers create it with their own naming)
 	const files = await fs.readdir(packDestinationDirectory);

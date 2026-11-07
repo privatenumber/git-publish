@@ -1,5 +1,6 @@
 import path from 'node:path';
-import type { Workspace, WorkspacePackage } from './workspace.ts';
+import type { Workspace, WorkspacePackage } from './discover.ts';
+import { satisfiesWorkspaceRange } from './satisfies-range.ts';
 
 export type DependencyField = 'dependencies' | 'optionalDependencies';
 
@@ -7,25 +8,24 @@ export type PublishGraphEdge = {
 	key: string;
 	field: DependencyField;
 	target: string;
-	specification: string;
 };
 
 export type PublishGraphNode = {
 	key: string;
 	package: WorkspacePackage;
 	dependencies: PublishGraphEdge[];
+	role: 'root' | 'dependency' | 'peer';
 };
 
 export type WorkspacePeer = {
 	from: string;
 	key: string;
 	specification: string;
+	optional: boolean;
 	target?: string;
 };
 
 export type PublishGraph = {
-	rootDir: string;
-	selected: string;
 	nodes: PublishGraphNode[];
 	peers: WorkspacePeer[];
 };
@@ -33,19 +33,18 @@ export type PublishGraph = {
 type WorkspaceReference =
 	| {
 		kind: 'version';
+		range: string;
 	}
 	| {
 		kind: 'alias';
 		name: string;
+		range: string;
 	}
 	| {
 		kind: 'path';
 		path: string;
 	};
 
-// Only structural malformation is rejected here. Range content is deferred to
-// the package manager: any non-empty range resolves by name, and real version
-// mismatches surface at pack and install time.
 const parseWorkspaceSpecification = (specification: string): WorkspaceReference | undefined => {
 	if (!specification.startsWith('workspace:')) {
 		return undefined;
@@ -70,6 +69,7 @@ const parseWorkspaceSpecification = (specification: string): WorkspaceReference 
 		return {
 			kind: 'alias',
 			name,
+			range,
 		};
 	}
 	if (body.startsWith('@')) {
@@ -77,6 +77,7 @@ const parseWorkspaceSpecification = (specification: string): WorkspaceReference 
 	}
 	return {
 		kind: 'version',
+		range: body,
 	};
 };
 
@@ -102,10 +103,10 @@ export const selectWorkspacePackage = (
 	return selected;
 };
 
-export const resolvePackageDirectory = (
+export const findWorkspacePackageDirectory = (
 	workspace: Workspace,
 	cwd: string,
-): WorkspacePackage => {
+): WorkspacePackage | undefined => {
 	const directory = path.resolve(cwd);
 	let selected: WorkspacePackage | undefined;
 	let selectedLength = -1;
@@ -119,17 +120,20 @@ export const resolvePackageDirectory = (
 			selectedLength = candidateDirectory.length;
 		}
 	}
-	if (!selected) {
-		throw new Error(`Current directory ${directory} is not inside a workspace package.`);
-	}
 	return selected;
 };
 
 export const createPublishGraph = (
 	workspace: Workspace,
-	selected: string,
+	roots: string[],
+	{ policy }: { policy: { plainRanges: boolean;
+		plainPeers: boolean; }; },
 ): PublishGraph => {
+	const rootNames = new Set(roots);
 	const byName = new Map<string, WorkspacePackage[]>();
+	const byDirectory = new Map(workspace.packages.map(candidate => (
+		[path.resolve(candidate.dir), candidate.name]
+	)));
 	for (const candidate of workspace.packages) {
 		const group = byName.get(candidate.name);
 		if (group) {
@@ -138,13 +142,6 @@ export const createPublishGraph = (
 			byName.set(candidate.name, [candidate]);
 		}
 	}
-	for (const [name, group] of byName) {
-		if (group.length > 1) {
-			const directories = group.map(candidate => candidate.dir).sort().map(directory => `- ${directory}`).join('\n');
-			throw new Error(`Duplicate workspace package name ${JSON.stringify(name)} found in:\n${directories}`);
-		}
-	}
-
 	const resolveTarget = (
 		from: WorkspacePackage,
 		key: string,
@@ -182,13 +179,67 @@ export const createPublishGraph = (
 			return undefined;
 		}
 	};
+	const resolvePlainTarget = (
+		from: WorkspacePackage,
+		key: string,
+		specification: string,
+		peer = false,
+	): string | undefined => {
+		if (specification.startsWith('file:') || specification.startsWith('link:')) {
+			return byDirectory.get(path.resolve(from.dir, specification.slice(specification.indexOf(':') + 1)));
+		}
+		if (
+			(peer ? policy.plainPeers : policy.plainRanges)
+			&& byName.get(key)?.some(candidate => candidate.packageJson.version
+				&& satisfiesWorkspaceRange(candidate.packageJson.version, specification))
+		) {
+			return key;
+		}
+		return undefined;
+	};
+	const validateWorkspaceRange = (
+		from: WorkspacePackage,
+		key: string,
+		specification: string,
+		target: string,
+	) => {
+		const reference = parseWorkspaceSpecification(specification);
+		if (!reference || reference.kind === 'path' || ['*', '^', '~'].includes(reference.range)) {
+			return;
+		}
+		const { version } = byName.get(target)![0]!.packageJson;
+		if (!version || !satisfiesWorkspaceRange(version, reference.range)) {
+			throw new Error(`Package ${JSON.stringify(from.name)} requires ${JSON.stringify(key)} in workspace range ${JSON.stringify(reference.range)}, but ${JSON.stringify(target)} has version ${JSON.stringify(version)}.`);
+		}
+	};
+
+	const resolveEdge = (
+		from: WorkspacePackage, key: string, specification: string, peer: boolean,
+	) => {
+		const workspaceProtocol = specification.startsWith('workspace:');
+		const target = workspaceProtocol
+			? (peer
+				? tryResolveTarget(from, key, specification)
+				: resolveTarget(from, key, specification))
+			: resolvePlainTarget(from, key, specification, peer);
+		if (target) {
+			if (byName.get(target)!.length > 1) {
+				selectWorkspacePackage(workspace, target);
+			}
+			if (workspaceProtocol) {
+				validateWorkspaceRange(from, key, specification, target);
+			}
+		}
+		return target;
+	};
 
 	const nodes = new Map<string, PublishGraphNode>();
 	const peers: WorkspacePeer[] = [];
+	const pendingPeers: WorkspacePeer[] = [];
 	const visited = new Set<string>();
 	const visiting: string[] = [];
 
-	const visit = (current: WorkspacePackage): void => {
+	const visit = (current: WorkspacePackage, role: 'dependency' | 'peer'): void => {
 		if (visited.has(current.name)) {
 			return;
 		}
@@ -201,17 +252,22 @@ export const createPublishGraph = (
 		for (const field of ['dependencies', 'optionalDependencies'] as const) {
 			const entries = current.packageJson[field] ?? {};
 			for (const [key, specification] of Object.entries(entries)) {
-				if (typeof specification !== 'string' || !specification.startsWith('workspace:')) {
+				if (field === 'dependencies' && Object.hasOwn(current.packageJson.optionalDependencies ?? {}, key)) {
 					continue;
 				}
-				const target = resolveTarget(current, key, specification);
+				if (typeof specification !== 'string') {
+					continue;
+				}
+				const target = resolveEdge(current, key, specification, false);
+				if (!target) {
+					continue;
+				}
 				dependencies.push({
 					key,
 					field,
 					target,
-					specification,
 				});
-				visit(byName.get(target)![0]);
+				visit(byName.get(target)![0]!, role);
 			}
 		}
 		const peerEntries = current.packageJson.peerDependencies ?? {};
@@ -220,19 +276,25 @@ export const createPublishGraph = (
 				continue;
 			}
 			const isWorkspaceProtocol = specification.startsWith('workspace:');
-			let target: string | undefined;
-			if (isWorkspaceProtocol) {
-				target = tryResolveTarget(current, key, specification);
-			} else if (byName.has(key)) {
-				target = key;
-			}
+			const optional = current.packageJson.peerDependenciesMeta?.[key]?.optional === true;
+			const target = resolveEdge(current, key, specification, true);
 			if (target === undefined && !isWorkspaceProtocol) {
+				if (byName.has(key)) {
+					pendingPeers.push({
+						from: current.name,
+						key,
+						specification,
+						optional,
+						target: key,
+					});
+				}
 				continue;
 			}
 			peers.push({
 				from: current.name,
 				key,
 				specification,
+				optional,
 				target,
 			});
 		}
@@ -242,14 +304,26 @@ export const createPublishGraph = (
 			key: current.name,
 			package: current,
 			dependencies,
+			role: rootNames.has(current.name) ? 'root' : role,
 		});
 	};
 
-	visit(selectWorkspacePackage(workspace, selected));
+	for (const root of roots) {
+		visit(selectWorkspacePackage(workspace, root), 'dependency');
+	}
+	for (let index = 0; index < peers.length; index += 1) {
+		const { target } = peers[index]!;
+		if (target) {
+			visit(byName.get(target)![0]!, 'peer');
+		}
+	}
+	for (const peer of pendingPeers) {
+		if (nodes.has(peer.target!)) {
+			peers.push(peer);
+		}
+	}
 
 	return {
-		rootDir: workspace.rootDir,
-		selected,
 		nodes: [...nodes.values()],
 		peers,
 	};

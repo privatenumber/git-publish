@@ -108,11 +108,11 @@ npx git-publish --remote git@github.com:owner/public-repo.git --branch test-pkg
 
 | Flag                    | Description                                                   |
 | ----------------------- | ------------------------------------------------------------- |
-| `-b, --branch <name>`   | Target branch name. Defaults to `npm/<current branch or tag>` |
+| `-b, --branch <template>` | Target branch template. Supports `{gitRef}`, `{gitSha}`, and `{package}` |
 | `-r, --remote <remote>` | Git remote name or URL to push to (default: `origin`)         |
 | `-o, --fresh`           | Create a fresh single-commit branch. Force-pushes to remote   |
 | `-d, --dry`             | Simulate the process. Does not commit or push                 |
-| `-f, --force`           | Publish even if `package.json` has `"private": true`          |
+| `-f, --force`           | Publish a private workspace root or standalone package        |
 | `-h, --help`            | Show CLI help                                                 |
 | `--version`             | Show CLI version                                              |
 
@@ -134,13 +134,19 @@ Add your build command to the [`prepack`](https://docs.npmjs.com/cli/v11/using-n
 
 This mirrors the same behavior as `npm publish`.
 
+`git-publish` checks each positive `package.json` `"files"` entry from the packed package after lifecycle hooks run. If an entry matches no packed file or directory, it warns and still publishes. That usually means the build did not run, or the entry is wrong.
+
+You can also run the build before `git-publish`. Existing build output, including gitignored files such as `dist/`, is included when it matches the package's `files` field. See [Preparing monorepo packages](#preparing-monorepo-packages) for workspace builds and custom hooks in a fork.
+
 ### What does `git-publish` do?
 
 1. Checks out or creates the publish branch
 2. Packs the package with your package manager (`npm pack`, `pnpm pack`, `yarn pack`, or `bun pm pack`), which runs `prepare` and `prepack` and includes only publishable files
-3. Commits the packed files
+3. Removes `prepare`, `prepack`, and `postpack` scripts and the `workspaces` and `devDependencies` fields from the packed manifest, then commits the packed files. Install lifecycle scripts remain intact; `build` is removed only when no install hook remains.
 4. Pushes the branch to the Git remote
 5. Prints the command to install the package via Git
+
+Install URLs name the repository that receives the push.
 
 ### Why preserve commit history on the publish branch?
 
@@ -162,12 +168,120 @@ Manual commits often:
 
 ### Can I use this in a monorepo?
 
-Yes. Run `git-publish` from inside the specific package directory (e.g., `packages/my-lib`).
+Yes. Run `git-publish` inside a package directory to select that package; at the workspace root, it selects the root package if it is named and public, or every non-private member if the root is private or unnamed.
 
-It will detect and publish only that package's contents to the root of the Git branch.
+You can select packages by name, directory, or a quoted glob of package directories:
+
+```sh
+git-publish @acme/core ./packages/adapter './packages/plugins/*'
+```
+
+`git-publish` publishes the selected packages and their internal runtime and peer dependencies. It recognizes `workspace:` references and `file:` or `link:` paths to workspace packages. A plain semver runtime range selects a workspace package when its version satisfies the range for npm and Bun, for Yarn unless transparent workspaces are disabled, and for pnpm when `linkWorkspacePackages` is enabled (`true` or `deep`). Plain peer ranges are also considered for workspace packages. Each package commit is created before one atomic push, so a failed branch update does not expose a partial dependency closure.
+
+`--branch` accepts a small branch template with these placeholders:
+
+- `{gitRef}`: The current branch, exact tag, or short commit fallback.
+- `{gitSha}`: The full source commit object ID.
+- `{package}`: The package name from `package.json`.
+
+Quote branch templates in the shell, for example `'preview/{package}'`.
+
+When `--branch` is omitted, workspace packages use the default template `npm/{gitRef}-{package}`. For a `core <- broker <- adapter` closure published from `feature/auth`, it creates:
+
+```text
+npm/feature/auth-@acme/core
+npm/feature/auth-@acme/broker
+npm/feature/auth-@acme/adapter
+```
+
+Pass a template to choose each workspace branch independently:
+
+```sh
+git-publish --branch 'preview/{package}'
+```
+
+For one package, a literal branch remains exact. For example, `git-publish --branch preview` publishes to `preview`. A multi-package workspace closure must render a unique branch for every package. Include `{package}` when a literal template would collide.
+
+Standalone packages keep the default `npm/<gitRef>` branch. An explicit `--branch` can use the same placeholders or remain a literal branch name.
+
+Internal peers retain their packed ranges. Publication fails before pushing if a packed peer range does not match its target's packed version, or if a packed dependency or peer still uses `workspace:`.
+
+Lifecycle hooks may remove internal dependencies from the packed manifest. Changing or adding internal dependencies during packing is not supported; publication fails when it detects such changes.
+
+For each selected package, the install command includes required runtime and peer packages as root dependencies. Packages reachable only through optional dependencies install transitively. The commit-pinned Git URLs match those in the packed manifests. A single-package install uses the moving branch reference instead.
+
+- npm 12+: add `--allow-git=root` to the command for any Git install. Optional transitive Git dependencies need `--allow-git=all`.
+- pnpm 11+: set `blockExoticSubdeps: false` in the consumer's `pnpm-workspace.yaml` for a multi-package install set.
+- Yarn 4: add the repository to `approvedGitRepositories` in the consumer's `.yarnrc.yml`.
+
+For non-hosted Git URLs, npm can ignore commit pins when the same package appears at different commits. `git-publish` warns when an install set contains multiple packages and the remote is not on GitHub, GitLab, or Bitbucket.
+
+Use `--json <path>` to write publication details after a successful push. At the workspace root, a default selection of more than three packages prints a summary table instead of install commands; use the JSON file to get each install set.
+
+```json
+{
+    "source": {
+        "ref": "main",
+        "commit": "<source commit>"
+    },
+    "packages": [
+        {
+            "name": "@acme/core",
+            "branch": "npm/main-@acme/core",
+            "commit": "<publish commit>",
+            "installSpecifier": "git+https://github.com/acme/repo.git#<publish commit>",
+            "role": "root",
+            "reused": false
+        }
+    ],
+    "installSets": {
+        "@acme/core": {
+            "required": [
+                "@acme/core"
+            ],
+            "optional": []
+        }
+    },
+    "aliases": {
+        "@acme/core": {}
+    }
+}
+```
+
+Each package's `role` is `root`, `dependency`, or `peer`. `reused` is true when the existing publication commit was unchanged. `source.commit` is the full commit ID, or `null` when the source has no commit. Each install set lists required and optional package names; look up their commit-pinned specifiers in `packages`.
+
+`aliases` maps each root to its internal runtime and peer aliases and target package names. Install commands include required aliases as root arguments.
 
 > [!IMPORTANT]
-> Currently does not support resolving `workspace:` protocol dependencies. Avoid using those or pre-bundle them before publishing.
+> A multi-package publication requires one push URL. Git cannot atomically push one dependency closure to multiple destinations. A single package can be pushed to multiple destinations sequentially.
+
+#### Preparing monorepo packages
+
+Install the repository's dependencies before publishing so the package manager can resolve [`workspace:` references](https://pnpm.io/workspaces#workspace-protocol-workspace) and run package hooks. `git-publish` does not automatically run a script named `build`.
+
+If the repository has a workspace build command, run it before publishing. For example, in a pnpm monorepo with a root `build` script and a remote named `fork` pointing to your fork:
+
+```sh
+# From the repository root
+pnpm install
+pnpm build
+cd packages/my-lib
+git-publish --remote fork
+```
+
+Use the repository's documented build command to generate output for the selected package and all its required workspace dependencies. Each package's `files` field must include its build output.
+
+If packages need custom preparation, add or adjust their `prepack` scripts in your fork's `package.json` files. Each package can use its own command. Commit the manifest and source changes before running `git-publish`: it requires a clean tracked working tree and packs from the committed source. Gitignored build output does not need to be committed.
+
+Package hooks run in an isolated checkout that is cleaned between packages. Only the current package's ignored output matching its `files` field is copied from the source checkout. A hook that needs a sibling's generated output must build it in the hook or use committed output.
+
+#### Installing with pnpm
+
+pnpm can block a Git dependency declared by another Git dependency with [`blockExoticSubdeps`](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps). A consumer that installs a published workspace closure must opt in:
+
+```sh
+pnpm add --config.block-exotic-subdeps=false '<install-specifier>'
+```
 
 ## Sponsors
 

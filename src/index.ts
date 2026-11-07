@@ -1,28 +1,54 @@
-import path from 'node:path';
 import fs from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
-import spawn, { SubprocessError } from 'nano-spawn';
-import task from 'tasuku';
+import spawn from 'nano-spawn';
 import { cli } from 'cleye';
 import type { PackageJson } from '@npmcli/package-json';
-import byteSize from 'byte-size';
-import { cyan, dim, lightBlue } from 'kolorist';
+import { dim } from 'ansis';
 import terminalLink from 'terminal-link';
 import packageMeta from '../package.json' with { type: 'json' };
+import task from './utils/task.ts';
 import { getStdout } from './utils/get-stdout.ts';
 import {
-	assertCleanTree, getCurrentSourceName, gitStatusTracked, getCurrentCommit,
+	assertCleanTree, getCurrentSourceName, getCurrentCommit,
 } from './utils/git.ts';
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
-import { packPackage } from './utils/pack-package.ts';
-import { extractTarball } from './utils/extract-tarball.ts';
-import { getGitHubRepositoryName } from './utils/github.ts';
-import { createPublishRepository, type PublishRepository } from './publish-repository/create.ts';
-import { preparePublishBranch } from './publish-repository/prepare-branch.ts';
+import {
+	getGitHubRepositoryName, isHostedGitRemote, redactRemote,
+} from './utils/git-url.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
+import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
+import { planStandalonePublication, planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
+import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
+import {
+	createWorkspaceResult, formatWorkspaceResult,
+} from './workspace-publication/output.ts';
 
 const { stringify } = JSON;
+
+const formatWorkspacePublicationPlan = (
+	plan: WorkspacePublicationPlan,
+	sourceName: string,
+): string => {
+	const lines = [`Publishing packages for ${plan.roots.map(name => JSON.stringify(name)).join(', ')} from ${JSON.stringify(sourceName)}:`];
+	const nodesByName = new Map(plan.nodes.map(node => [node.key, node]));
+	for (const node of plan.nodes) {
+		const rewrites = node.dependencies.map(edge => `${edge.key} → ${nodesByName.get(edge.target)!.branch}`).join(', ');
+		lines.push(`- ${node.key}${node.package.packageJson.private ? ' (private)' : ''} → ${node.branch}${rewrites ? ` (dependencies: ${rewrites})` : ''}`);
+	}
+	return lines.join('\n');
+};
+
+const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string | undefined => {
+	const unresolvedPeers = plan.peers.filter(peer => !peer.target);
+	if (unresolvedPeers.length === 0) {
+		return undefined;
+	}
+	const lines = ['Workspace peer dependencies could not be resolved. Consumers must provide them:'];
+	for (const peer of unresolvedPeers) {
+		lines.push(`- ${JSON.stringify(peer.from)} declares ${JSON.stringify(peer.key)}: ${JSON.stringify(peer.specification)} does not resolve to a workspace package.`);
+	}
+	return lines.join('\n');
+};
 
 (async () => {
 	let usedDefaultRemote = false;
@@ -30,12 +56,13 @@ const { stringify } = JSON;
 		name: packageMeta.name,
 		version: packageMeta.version,
 		strictFlags: true,
+		parameters: ['[packages...]'],
 		flags: {
 			branch: {
 				type: String,
 				alias: 'b',
-				placeholder: '<branch name>',
-				description: 'The branch to publish the package to. Defaults to prefixing "npm/" to the current branch or tag name.',
+				placeholder: '<branch template>',
+				description: 'Branch template. Supports {gitRef}, {gitSha}, and {package}.',
 			},
 			remote: {
 				type: String,
@@ -62,20 +89,20 @@ const { stringify } = JSON;
 				alias: 'f',
 				description: 'Skip checks and force publish.',
 			},
+			json: {
+				type: String,
+				placeholder: '<path>',
+				description: 'Write publication details and install sets to a JSON file.',
+			},
 		},
 		help: {
 			description: packageMeta.description,
 		},
 	});
-	if (argv._.length > 0) {
-		throw new Error('This command does not accept positional arguments.');
-	}
-
 	await assertCleanTree();
 
 	const cwd = process.cwd();
 	const gitRootPath = await getStdout(spawn('git', ['rev-parse', '--show-toplevel']));
-	const gitSubdirectory = path.relative(gitRootPath, cwd);
 	const sourceName = await getCurrentSourceName();
 	const sourceCommit = await getCurrentCommit();
 	const packageJsonPath = 'package.json';
@@ -87,291 +114,101 @@ const { stringify } = JSON;
 	}
 
 	const packageJson = await readJson(packageJsonPath) as PackageJson;
-	if (packageJson.private && !argv.flags.force) {
-		throw new Error('This package is marked as private. Use --force to publish it anyway.');
-	}
-
-	const workspaceDependencies: string[] = [];
-	for (const [field, dependencies] of Object.entries({
-		dependencies: packageJson.dependencies,
-		optionalDependencies: packageJson.optionalDependencies,
-	})) {
-		if (!dependencies) {
-			continue;
-		}
-
-		for (const [name, specification] of Object.entries(dependencies)) {
-			if (specification?.startsWith('workspace:')) {
-				workspaceDependencies.push(`- ${field}.${name}: ${specification}`);
-			}
-		}
-	}
-
-	if (workspaceDependencies.length > 0) {
-		throw new Error(`Cannot publish packages with workspace dependencies:
-${workspaceDependencies.join('\n')}
-Pre-bundle these dependencies before publishing.`);
-	}
 
 	const {
 		branch, remote, fresh, dry,
 	} = argv.flags;
-
-	const publishBranch = branch || (
-		gitSubdirectory
-			? `npm/${sourceName}-${packageJson.name}`
-			: `npm/${sourceName}`
-	);
-	try {
-		await getStdout(spawn('git', ['check-ref-format', '--branch', publishBranch]));
-	} catch {
-		throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
+	const sourceCommitId = branch?.includes('{gitSha}') || argv.flags.json
+		? await getCurrentCommit({ short: false })
+		: undefined;
+	const packageManager = await detectPackageManager(cwd, gitRootPath);
+	const closurePlan = await planWorkspacePublication({
+		cwd,
+		gitRootPath,
+		sourceName,
+		sourceCommitId,
+		packageManager,
+		publishBranch: branch,
+		force: argv.flags.force,
+		selection: argv._.packages,
+	});
+	if (!closurePlan && argv._.packages.length > 0) {
+		throw new Error('Package selection requires a workspace.');
 	}
+	if (!closurePlan && packageJson.private && !argv.flags.force) {
+		throw new Error('This package is marked as private. Use --force to publish it anyway.');
+	}
+	const plan = closurePlan ?? await planStandalonePublication({
+		cwd,
+		gitRootPath,
+		packageJson,
+		sourceName,
+		sourceCommitId,
+		publishBranch: branch,
+	});
 	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
-	const remoteUrl = publishRemote.fetchUrl;
-
-	await task(
-		`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,
-		async ({
-			task, setTitle, setStatus, setOutput,
-		}) => {
+	const remoteUrl = publishRemote.installUrl;
+	if (plan.nodes.length > 1) {
+		assertAtomicPackagePublicationDestination(publishRemote.pushUrls);
+	}
+	if (dry && !plan.standalone) {
+		console.log(formatWorkspacePublicationPlan(plan, sourceName));
+	}
+	const peerDiagnostics = formatWorkspacePeerDiagnostics(plan);
+	if (peerDiagnostics) {
+		console.warn(peerDiagnostics);
+	}
+	const rootsDescription = plan.roots.map(root => stringify(root)).join(', ');
+	const publishBranch = plan.nodes[0]!.branch;
+	const publication = await task(
+		plan.standalone
+			? `Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`
+			: `Publishing ${rootsDescription} from ${stringify(sourceName)}`,
+		async ({ setTitle, setStatus }) => {
 			if (dry) {
 				setStatus('Dry run');
+				if (plan.standalone) {
+					console.log(`Pushing branch ${stringify(publishBranch)} to remote ${stringify(redactRemote(remote))}`);
+				}
+				return;
 			}
-
-			const localTemporaryBranch = `git-publish-${randomBytes(16).toString('hex')}`;
-			let publishRepository: PublishRepository;
-
-			let success = false;
-
-			let commitSha: string;
-			const packageManager = await detectPackageManager(cwd, gitRootPath);
-			let primaryError: unknown;
-
-			try {
-				const creatingWorktrees = await task('Creating temporary repositories', async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					publishRepository = await createPublishRepository({
-						sourceRepositoryPath: gitRootPath,
-						publishRemote,
-					});
-				});
-
-				if (!dry) {
-					creatingWorktrees.clear();
-				}
-
-				const checkoutBranch = await task('Loading publish branch', async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					await preparePublishBranch({
-						repository: publishRepository,
-						publishBranch,
-						localBranch: localTemporaryBranch,
-						fresh,
-					});
-				});
-
-				if (!dry) {
-					checkoutBranch.clear();
-				}
-
-				const packTask = await task('Packing package', async ({ streamPreview, setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					let tarballPath;
-					try {
-						tarballPath = await packPackage(
-							packageManager,
-							publishRepository.packWorktreePath,
-							publishRepository.packTemporaryDirectory,
-							cwd,
-							gitRootPath,
-							gitSubdirectory,
-						);
-					} catch (error) {
-						// The pack subprocess (e.g. a failing prepack/build script) captures
-						// the real reason in its output, but nano-spawn's error.message only
-						// says "Command failed with exit code N". Surface the output inline
-						// under this task so the failure is diagnosable.
-						if (error instanceof SubprocessError) {
-							const details = error.output || error.stderr;
-							if (details) {
-								streamPreview.write(details);
-							}
-						}
-						throw error;
-					}
-
-					const publishFiles = await extractTarball(
-						tarballPath,
-						publishRepository.publishWorktreePath,
-					);
-					const publishedPackageJsonPath = path.join(
-						publishRepository.publishWorktreePath,
-						packageJsonPath,
-					);
-					const publishedPackageJson = await readJson(publishedPackageJsonPath) as PackageJson;
-					const { scripts } = publishedPackageJson;
-					if (scripts && ('prepare' in scripts || 'prepack' in scripts)) {
-						/*
-						 * npm reruns these hooks when installing Git dependencies:
-						 * https://github.com/npm/cli/blob/2a03860fcafe92b22770fc554b25994b29bacbdb/docs/lib/content/using-npm/scripts.md#L49-L65
-						 */
-						delete scripts.prepare;
-						delete scripts.prepack;
-						await fs.writeFile(publishedPackageJsonPath, stringify(publishedPackageJson, null, 2));
-					}
-
-					return publishFiles;
-				});
-
-				if (!dry) {
-					packTask.clear();
-				}
-
-				const commit = await task('Committing publish assets', async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					await spawn('git', ['add', '-A'], publishRepository.gitOptions);
-
-					const publishFiles = await packTask.result;
-					if (!publishFiles || publishFiles.length === 0) {
-						throw new Error('No publish files found');
-					}
-
-					const totalSize = publishFiles.reduce((accumulator, { size }) => accumulator + size, 0);
-
-					console.log(lightBlue(`Publishing ${packageJson.name}`));
-					console.log(publishFiles.map(({ file, size }) => `${file} ${dim(byteSize(size).toString())}`).join('\n'));
-					console.log(`\n${lightBlue('Total size')}`, byteSize(totalSize).toString());
-
-					const trackedFiles = await gitStatusTracked(publishRepository.gitOptions);
-					if (trackedFiles.length === 0) {
-						console.warn('⚠️  No new changes found to commit.');
-					} else {
-						let commitMessage = `Published from "${sourceName}"`;
-						if (sourceCommit) {
-							commitMessage += ` (${sourceCommit})`;
-						}
-
-						await spawn(
-							'git',
-							[
-								'-c',
-								'user.name=git-publish',
-								'-c',
-								'user.email=bot@git-publish',
-								'commit',
-								'--no-verify',
-								'-m',
-								commitMessage,
-								'--author=git-publish <bot@git-publish>',
-							],
-							publishRepository.gitOptions,
-						);
-					}
-
-					commitSha = (await getCurrentCommit(publishRepository.gitOptions))!;
-				});
-
-				if (!dry) {
-					commit.clear();
-				}
-
-				const push = await task(
-					`Pushing branch ${stringify(publishBranch)} to remote ${stringify(remote)}`,
-					async ({ setStatus, setWarning }) => {
-						if (dry) {
-							setWarning('');
-							return;
-						}
-
-						const { pushRemoteNames } = publishRepository;
-						for (const [index, pushRemoteName] of pushRemoteNames.entries()) {
-							setStatus(`${index + 1} of ${pushRemoteNames.length}`);
-							await spawn('git', [
-								'push',
-								...(fresh ? ['--force'] : []),
-								'--no-verify',
-								pushRemoteName,
-								`HEAD:${publishBranch}`,
-							], publishRepository.gitOptions);
-						}
-						success = true;
-					},
-				);
-
-				if (!dry) {
-					push.clear();
-				}
-			} catch (error) {
-				primaryError = error;
-				throw error;
-			} finally {
-				const cleanup = await task('Cleaning up', async ({ setWarning }) => {
-					if (dry) {
-						setWarning('');
-						return;
-					}
-
-					if (publishRepository) {
-						await publishRepository.dispose().catch((error: unknown) => {
-							if (error instanceof AggregateError) {
-								setWarning(error.errors.map(nested => (nested instanceof Error ? nested.message : String(nested))).join('\n'));
-							} else {
-								setWarning(error instanceof Error ? error.message : String(error));
-							}
-							if (!primaryError) {
-								throw error;
-							}
-						});
-					}
-				});
-
-				cleanup.clear();
+			const preparations = await publishWorkspaceClosure({
+				plan,
+				packageManager,
+				repositoryPath: gitRootPath,
+				publishRemote,
+				sourceName,
+				sourceCommit,
+				fresh,
+			});
+			const repositoryName = plan.standalone && getGitHubRepositoryName(remoteUrl);
+			if (repositoryName) {
+				const { commit } = preparations.get(plan.nodes[0]!.key)!.publication;
+				const branchLink = terminalLink(publishBranch, `https://github.com/${repositoryName}/tree/${publishBranch}`, { fallback: false });
+				const commitLink = terminalLink(commit.slice(0, 7), `https://github.com/${repositoryName}/commit/${commit}`, { fallback: false });
+				setTitle(`Successfully published branch: ${branchLink} ${dim(`(${commitLink})`)}`);
+			} else if (!plan.standalone) {
+				setTitle(`Published ${rootsDescription} from ${stringify(sourceName)}`);
 			}
-
-			if (success) {
-				const repositoryName = getGitHubRepositoryName(remoteUrl);
-				if (repositoryName) {
-					const successLink = terminalLink(
-						`${cyan(publishBranch)} ${dim(`(${commitSha!})`)}`,
-						`https://github.com/${repositoryName}/tree/${publishBranch!}`,
-					);
-					setTitle(`Successfully published branch: ${successLink}`);
-
-					const output = [
-						'Install command',
-						packageManager === 'yarn'
-							? `yarn add '${packageJson.name}@${remoteUrl}#${publishBranch}'`
-							: `${packageManager} i '${remoteUrl}#${publishBranch}'`,
-					].join('\n');
-
-					setOutput(output);
-				}
-			}
+			return preparations;
 		},
 	).catch(() => {
-		// Any failure here is already rendered within the task tree above
-		// (including the pack subprocess output), so exit without re-printing it.
-		// Set exitCode (instead of process.exit) so tasuku can flush its final render.
 		process.exitCode = 1;
 	});
+	if (publication) {
+		const result = createWorkspaceResult(plan, publication, sourceName, sourceCommitId);
+		if (!isHostedGitRemote(remoteUrl) && Object.values(result.installSets).some(set => (
+			set.required.length + set.optional.length > 1
+		))) {
+			console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
+		}
+		if (argv.flags.json) {
+			const { presentation: _presentation, ...jsonResult } = result;
+			await fs.writeFile(argv.flags.json, `${stringify(jsonResult, null, 2)}\n`);
+		}
+		console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl)}`);
+	}
 })().catch((error) => {
-	console.error('Error:', error.message);
+	console.error('Error:', redactRemote(error.message));
 	process.exit(1);
 });
