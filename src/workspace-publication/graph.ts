@@ -142,13 +142,6 @@ export const createPublishGraph = (
 			byName.set(candidate.name, [candidate]);
 		}
 	}
-	for (const [name, group] of byName) {
-		if (group.length > 1) {
-			const directories = group.map(candidate => candidate.dir).sort().map(directory => `- ${directory}`).join('\n');
-			throw new Error(`Duplicate workspace package name ${JSON.stringify(name)} found in:\n${directories}`);
-		}
-	}
-
 	const resolveTarget = (
 		from: WorkspacePackage,
 		key: string,
@@ -195,11 +188,10 @@ export const createPublishGraph = (
 		if (specification.startsWith('file:') || specification.startsWith('link:')) {
 			return byDirectory.get(path.resolve(from.dir, specification.slice(specification.indexOf(':') + 1)));
 		}
-		const candidate = byName.get(key)?.[0];
-		const version = candidate?.packageJson.version;
 		if (
 			(peer ? policy.plainPeers : policy.plainRanges)
-			&& version && satisfiesWorkspaceRange(version, specification)
+			&& byName.get(key)?.some(candidate => candidate.packageJson.version
+				&& satisfiesWorkspaceRange(candidate.packageJson.version, specification))
 		) {
 			return key;
 		}
@@ -224,14 +216,19 @@ export const createPublishGraph = (
 	const resolveEdge = (
 		from: WorkspacePackage, key: string, specification: string, peer: boolean,
 	) => {
-		if (!specification.startsWith('workspace:')) {
-			return resolvePlainTarget(from, key, specification, peer);
-		}
-		const target = peer
-			? tryResolveTarget(from, key, specification)
-			: resolveTarget(from, key, specification);
+		const workspaceProtocol = specification.startsWith('workspace:');
+		const target = workspaceProtocol
+			? (peer
+				? tryResolveTarget(from, key, specification)
+				: resolveTarget(from, key, specification))
+			: resolvePlainTarget(from, key, specification, peer);
 		if (target) {
-			validateWorkspaceRange(from, key, specification, target);
+			if (byName.get(target)!.length > 1) {
+				selectWorkspacePackage(workspace, target);
+			}
+			if (workspaceProtocol) {
+				validateWorkspaceRange(from, key, specification, target);
+			}
 		}
 		return target;
 	};

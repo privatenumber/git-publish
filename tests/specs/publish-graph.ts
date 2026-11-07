@@ -910,6 +910,43 @@ describe('Publication graph', () => {
 		expect(message).toContain('Duplicate workspace package name "@test/duplicate"');
 	});
 
+	test('ignores unrelated duplicate names but rejects resolved ambiguous edges', async () => {
+		const workspace = await discoverTestWorkspace({
+			app: {
+				name: 'app',
+				version: '1.0.0',
+			},
+			a: {
+				name: 'a',
+				version: '1.0.0',
+			},
+			b: {
+				name: 'b',
+				version: '2.0.0',
+			},
+		});
+		const app = workspace.packages.find(candidate => candidate.name === 'app')!;
+		const a = workspace.packages.find(candidate => candidate.name === 'a')!;
+		const b = workspace.packages.find(candidate => candidate.name === 'b')!;
+		a.name = 'duplicate';
+		b.name = 'duplicate';
+		const options = {
+			policy: {
+				plainRanges: true,
+				plainPeers: true,
+			},
+		};
+		expect(createPublishGraph(workspace, ['app'], options).nodes.map(node => node.key)).toEqual(['app']);
+		for (const specification of ['workspace:*', '^1.0.0', `file:${a.dir}`]) {
+			for (const field of ['dependencies', 'peerDependencies'] as const) {
+				app.packageJson[field] = { duplicate: specification };
+				expect(() => createPublishGraph(workspace, ['app'], options))
+					.toThrow('Duplicate workspace package name "duplicate"');
+				app.packageJson[field] = {};
+			}
+		}
+	});
+
 	test('rejects missing workspace targets', async () => {
 		const workspace = await discoverTestWorkspace({
 			app: {
