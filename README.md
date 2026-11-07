@@ -236,11 +236,16 @@ Use `--json <path>` to write publication details after a successful push. At the
         "@acme/core": [
             "@acme/core"
         ]
+    },
+    "aliases": {
+        "@acme/core": {}
     }
 }
 ```
 
 Each package's `role` is `root`, `dependency`, or `peer`. `reused` is true when the existing publication commit was unchanged. `source.commit` is the full commit ID, or `null` when the source has no commit. Install-set values are package names; look up their commit-pinned specifiers in `packages`.
+
+`aliases` maps each root to its internal dependency aliases and target package names. npm 12 requires `--allow-git=all` when an install set contains an alias.
 
 > [!IMPORTANT]
 > A recursive publication requires one push URL. Git cannot atomically push one dependency closure to multiple destinations.

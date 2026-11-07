@@ -33,6 +33,12 @@ export const createWorkspaceResult = (
 			.filter(name => name !== root && visited.has(name));
 		return [root, [root, ...others]];
 	}));
+	const aliases = Object.fromEntries(plan.roots.map((root) => {
+		const names = new Set(installSets[root]!);
+		return [root, Object.fromEntries(plan.nodes.filter(node => names.has(node.key)).flatMap(node => (
+			node.dependencies.filter(edge => edge.key !== edge.target).map(edge => [edge.key, edge.target])
+		)))];
+	}));
 	return {
 		source: {
 			ref,
@@ -50,6 +56,7 @@ export const createWorkspaceResult = (
 			};
 		}),
 		installSets,
+		aliases,
 	};
 };
 

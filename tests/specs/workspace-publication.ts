@@ -508,6 +508,36 @@ exec '${gitPath}' "$@"
 		expect(result.stdout).toContain('npm 12+: add --allow-git=root');
 	});
 
+	test('reports internal aliases in install sets and warns about npm policy', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { alias: 'workspace:core@*' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=alias']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await using output = await createFixture();
+		const result = await gitPublish(fixture.getPath('packages/app'), ['--json', output.getPath('result.json')]);
+		expect('exitCode' in result).toBe(false);
+		expect(result.stderr).toContain('npm 12 needs --allow-git=all for alias "alias"');
+		const json = await output.readJson<{ aliases: Record<string, Record<string, string>> }>('result.json');
+		expect(json.aliases).toStrictEqual({ app: { alias: 'core' } });
+	});
+
 	for (const manager of ['pnpm', 'yarn', 'bun'] as const) {
 		test(`prints the ${manager} install set and applicable note`, async () => {
 			await using managerRemote = await createGitFixture(undefined, ['--bare']);
@@ -594,6 +624,7 @@ exec '${npm}' "$@"
 				reused: false,
 			}],
 			installSets: { standalone: ['standalone'] },
+			aliases: { standalone: {} },
 		});
 	});
 
