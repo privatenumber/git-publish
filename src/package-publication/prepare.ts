@@ -34,6 +34,10 @@ export type PackagePublicationDependency = {
 
 const toPackageManagerGitUrl = (url: string) => {
 	const parsed = URL.parse(url.replace(/^git\+/, ''));
+	if (parsed?.protocol === 'ssh:') {
+		parsed.password = '';
+		return `git+${parsed.href}`;
+	}
 	if (parsed && ['http:', 'https:', 'git:'].includes(parsed.protocol)) {
 		parsed.username = '';
 		parsed.password = '';

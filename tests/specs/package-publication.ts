@@ -10,6 +10,10 @@ import { preparePackagePublication, toInstallSpecifier } from '../../src/package
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	test('removes SSH passwords from install specifiers', () => {
+		expect(toInstallSpecifier('ssh://git:secret@example.test/repo.git', 'abc'))
+			.toBe('git+ssh://git@example.test/repo.git#abc');
+	});
 	test('preserves relative and absolute SCP paths in install specifiers', () => {
 		expect(toInstallSpecifier('git@host:repos/repo.git', 'abc'))
 			.toBe('git+ssh://git@host/~/repos/repo.git#abc');
