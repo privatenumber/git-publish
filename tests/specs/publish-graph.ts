@@ -40,7 +40,10 @@ describe('Publication graph', () => {
 			},
 		});
 		const graph = createPublishGraph(workspace, 'app');
-		const nodes = graph.nodes.map(node => ({ ...node, branch: `npm/${node.key}` }));
+		const nodes = graph.nodes.map(node => ({
+			...node,
+			branch: `npm/${node.key}`,
+		}));
 		const preparations = new Map<string, PackagePreparation>(nodes.map(node => [node.key, {
 			publication: {
 				packageName: node.key,
