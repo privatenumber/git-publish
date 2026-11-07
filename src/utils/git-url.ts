@@ -5,8 +5,9 @@ export const hostedGitHosts = new Set(['github.com', 'gitlab.com', 'bitbucket.or
 
 export const parseGitUrl = (value: string) => {
 	const windows = /^[a-z]:[\\/]/i.test(value);
-	const url = windows ? null : URL.parse(value.replace(/^git\+/, ''));
-	const scp = !windows && !url?.hostname && url?.protocol !== 'file:'
+	const drivePath = /^[a-z]:/i.test(value);
+	const url = drivePath ? null : URL.parse(value.replace(/^git\+/, ''));
+	const scp = !drivePath && !url?.hostname && url?.protocol !== 'file:'
 		? /^(?:([^@/:]+)@)?([^/:]+):(.+)$/.exec(value)
 		: null;
 	const host = (url?.hostname || scp?.[2])?.toLowerCase();
