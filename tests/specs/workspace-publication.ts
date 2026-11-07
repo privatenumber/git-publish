@@ -913,6 +913,34 @@ exec '${npm}' "$@"
 		expect(await peerRemote.git('rev-parse', ['npm/pnpm-peer-core'])).toMatch(/^[0-9a-f]{40}$/);
 	});
 
+	test('validates pnpm packed aliased peer ranges', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+			}),
+			'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+			'pnpm-lock.yaml': '',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				peerDependencies: { alias: 'workspace:core@*' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=alias-peer']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		expect('exitCode' in result).toBe(false);
+		const manifest = JSON.parse(await remote.git('show', ['npm/alias-peer-app:package.json']));
+		expect(manifest.peerDependencies.alias).toBe('npm:core@*');
+	});
+
 	test('validates mismatched peers already selected for publication', async () => {
 		await using peerRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({

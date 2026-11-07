@@ -98,7 +98,13 @@ export const publishWorkspaceClosure = async ({
 			}
 			const range = preparations.get(peer.from)!.peerDependencies[peer.key];
 			const { version } = preparations.get(peer.target)!;
-			if (range === undefined || !version || !satisfiesWorkspaceRange(version, range)) {
+			const alias = range?.match(/^npm:(@[^/]+\/[^@]+|[^@]+)@(.+)$/);
+			const peerRange = alias ? alias[2]! : range;
+			if (
+				peerRange === undefined || !version
+				|| (alias && alias[1] !== peer.target)
+				|| !satisfiesWorkspaceRange(version, peerRange)
+			) {
 				throw new Error(`Package ${JSON.stringify(peer.from)} requires peer ${JSON.stringify(peer.target)} in range ${JSON.stringify(range)}, but its packed version is ${JSON.stringify(version)}.`);
 			}
 		}
