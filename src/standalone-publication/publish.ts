@@ -13,6 +13,7 @@ import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { packPackage } from '../utils/pack-package.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
+import { redactRemote } from '../utils/redact-remote.ts';
 
 const { stringify } = JSON;
 
@@ -159,7 +160,7 @@ export const publishStandalonePackage = async ({
 			prepare.clear();
 		}
 
-		const push = task(`Pushing branch ${stringify(publishBranch)} to remote ${stringify(remoteName)}`, async ({ setStatus, setWarning }) => {
+		const push = task(`Pushing branch ${stringify(publishBranch)} to remote ${stringify(redactRemote(remoteName))}`, async ({ setStatus, setWarning }) => {
 			if (dry) {
 				setWarning('');
 				return;

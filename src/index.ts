@@ -17,6 +17,7 @@ import { detectPackageManager } from './utils/detect-package-manager.ts';
 import { getGitHubInstallSpecifier, getGitHubRepositoryName } from './utils/github.ts';
 import { isHostedGitRemote } from './utils/hosted-git.ts';
 import { shellQuote } from './utils/shell-quote.ts';
+import { redactRemote } from './utils/redact-remote.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { renderPackageBranch } from './package-publication/branch.ts';
 import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
@@ -321,6 +322,6 @@ Pre-bundle these dependencies before publishing.`);
 		}
 	}
 })().catch((error) => {
-	console.error('Error:', error.message);
+	console.error('Error:', redactRemote(error.message));
 	process.exit(1);
 });

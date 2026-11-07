@@ -1,15 +1,16 @@
 import type { Writable } from 'node:stream';
 import { SubprocessError } from 'nano-spawn';
+import { redactRemote } from './redact-remote.ts';
 
 export const getErrorDetails = (error: unknown): string => {
 	if (error instanceof AggregateError) {
 		return error.errors.map(getErrorDetails).join('\n');
 	}
 	if (error instanceof SubprocessError) {
-		return error.output || error.stderr || error.message;
+		return redactRemote(error.output || error.stderr || error.message);
 	}
 
-	return error instanceof Error ? error.message : String(error);
+	return redactRemote(error instanceof Error ? error.message : String(error));
 };
 
 export const writeSubprocessErrorOutput = (stream: Writable, error: unknown) => {
@@ -18,6 +19,6 @@ export const writeSubprocessErrorOutput = (stream: Writable, error: unknown) => 
 	}
 	const details = error.output || error.stderr;
 	if (details) {
-		stream.write(details);
+		stream.write(redactRemote(details));
 	}
 };

@@ -142,6 +142,21 @@ describe('Remote transport', async () => {
 		]);
 	});
 
+	test('redacts credentials in dry-run remote output', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=main']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		const result = await gitPublish(fixture.path, ['--dry', '--remote', 'https://user:secret@example.test/repo.git']);
+		expect('exitCode' in result).toBe(false);
+		expect(result.stdout).not.toContain('secret');
+		expect(result.stderr).not.toContain('secret');
+	});
+
 	test('uses selected-remote configuration without applying origin settings', async () => {
 		const branchName = 'test-selected-remote-configuration';
 		await using commandsFixture = await createFixture(async (fixture) => {
