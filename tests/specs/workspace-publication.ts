@@ -243,6 +243,32 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 		expect(manifest.dependencies?.['@test/broker']).toBeUndefined();
 	});
 
+	test('rejects an internal dependency changed by a pack hook', async () => {
+		for (const packed of ['npm:other@^1.0.0', 'file:../other', 'git+https://example.test/repo.git']) {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createChainWorkspace('changed-dependency', remote.path);
+			await using commands = await createFixture({
+				npm: `#!/bin/sh
+if [ "$1" = pack ] && [ -f package.json ]; then
+  "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.name === "@test/adapter") { p.dependencies["@test/broker"] = ${JSON.stringify(packed)}; fs.writeFileSync("package.json", JSON.stringify(p)); }'
+fi
+exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+`,
+			});
+			await fs.chmod(commands.getPath('npm'), 0o755);
+			const result = await gitPublish(fixture.getPath('packages/adapter'), [], {
+				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+			});
+			expect(('exitCode' in result) && result.exitCode).toBe(1);
+			const output = result.stdout + result.stderr;
+			expect(output).toContain('@test/adapter');
+			expect(output).toContain('@test/broker');
+			expect(output).toContain('workspace:*');
+			expect(output).toContain(packed);
+			expect(await remote.git('for-each-ref')).toBe('');
+		}
+	});
+
 	test('publishes and reloads a workspace closure from the push destination', async () => {
 		await using upstream = await createGitFixture(undefined, ['--bare']);
 		await using destination = await createGitFixture(undefined, ['--bare']);

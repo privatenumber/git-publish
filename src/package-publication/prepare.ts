@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
+import semver from 'semver';
 import type { PackageJson } from '@npmcli/package-json';
 import { extractTarball, type File } from '../utils/extract-tarball.ts';
 import { getStdout } from '../utils/get-stdout.ts';
@@ -98,14 +99,21 @@ export const preparePackagePublication = async ({
 	const files = await extractTarball(packedTarball, publishWorktree);
 	const manifestPath = path.join(publishWorktree, 'package.json');
 	const manifest = await readJson(manifestPath) as PackageJson;
+	const sourceManifest = await readJson(sourceManifestPath) as PackageJson;
 	const original = stringify(manifest);
 	for (const edge of dependencyEdges) {
 		const field = manifest[edge.field];
 		if (field && Object.hasOwn(field, edge.key)) {
+			const packed = field[edge.key]!;
+			const source = sourceManifest[edge.field]?.[edge.key];
+			const alias = /^npm:(@[^/]+\/[^@]+|[^@]+)@(.+)$/.exec(packed);
+			if (packed !== source && !semver.validRange(packed)
+				&& !(alias && alias[1] === edge.target && semver.validRange(alias[2]!))) {
+				throw new Error(`Package ${stringify(packageName)} dependency ${stringify(edge.key)} changed during packing from ${stringify(source)} to ${stringify(packed)}.`);
+			}
 			field[edge.key] = dependencyPublications.get(edge.target)!.installSpecifier;
 		}
 	}
-	const sourceManifest = await readJson(sourceManifestPath) as PackageJson;
 	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
 		const packed = manifest[field];
 		if (packed) {
