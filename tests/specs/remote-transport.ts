@@ -50,6 +50,11 @@ describe('Remote transport', async () => {
 			});
 		expect(getPublicationUrls('https://github.com/a/r', ['a', 'b'], '/repo'))
 			.toStrictEqual({
+				installUrl: 'a',
+				historyUrl: 'a',
+			});
+		expect(getPublicationUrls('https://github.com/a/r', ['a', 'git@github.com:a/r.git'], '/repo'))
+			.toStrictEqual({
 				installUrl: 'https://github.com/a/r',
 				historyUrl: 'https://github.com/a/r',
 			});
