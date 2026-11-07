@@ -27,7 +27,7 @@ Install specifiers drop passwords, HTTP(S) and `git://` usernames, and query str
 
 npm treats a commit-pinned Git dependency as satisfied by any commit of the same URL when the host is not one it recognizes. In [`dep-valid.js` at v12.2.2](https://github.com/npm/cli/blob/v12.2.2/workspaces/arborist/lib/dep-valid.js#L98-L115), the committish is compared only on the hosted branch; for other hosts it compares `fetchSpec`, which excludes the commit:
 
-```js
+```text
 if (!resHost) {
   if (resRepo.fetchSpec !== requested.fetchSpec) {
     return false
