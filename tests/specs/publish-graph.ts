@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
+import spawn from 'nano-spawn';
 import { discoverWorkspacePackages } from '../../src/workspace-publication/discover.ts';
 import { satisfiesPackedPeer, satisfiesWorkspaceRange } from '../../src/workspace-publication/satisfies-range.ts';
 import { planWorkspacePublication } from '../../src/workspace-publication/plan.ts';
@@ -114,6 +115,39 @@ describe('Publication graph', () => {
 		expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['app']);
 		await fixture.writeFile('.yarnrc.yml', 'enableTransparentWorkspaces: true\n');
 		expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['core', 'app']);
+	});
+	test('uses the Yarn environment setting over workspace configuration', async () => {
+		await using fixture = await createFixture({
+			'package.json': JSON.stringify({
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'yarn.lock': '',
+			'.yarnrc.yml': 'enableTransparentWorkspaces: true\n',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		});
+		const script = `import { planWorkspacePublication } from ${JSON.stringify(new URL('../../src/workspace-publication/plan.ts', import.meta.url).href)};
+		const plan = await planWorkspacePublication({ cwd: ${JSON.stringify(fixture.path)}, gitRootPath: ${JSON.stringify(fixture.path)}, sourceName: 'main', packageManager: 'yarn', force: false, selection: ['app'] });
+		console.log(JSON.stringify(plan.nodes.map(node => node.key)));`;
+		for (const value of ['false', '0']) {
+			const { stdout } = await spawn(process.execPath, ['--input-type=module', '-e', script], {
+				env: { YARN_ENABLE_TRANSPARENT_WORKSPACES: value },
+			});
+			expect(JSON.parse(stdout)).toStrictEqual(['app']);
+		}
+		await fixture.writeFile('.yarnrc.yml', 'enableTransparentWorkspaces: false\n');
+		const { stdout } = await spawn(process.execPath, ['--input-type=module', '-e', script], {
+			env: { YARN_ENABLE_TRANSPARENT_WORKSPACES: 'true' },
+		});
+		expect(JSON.parse(stdout)).toStrictEqual(['core', 'app']);
 	});
 	test('reports aliased peer edges in each install set', async () => {
 		const workspace = await discoverTestWorkspace({

@@ -157,7 +157,10 @@ export const planWorkspacePublication = async ({
 	const yarnSettings = yaml.load(yarnConfig) as
 		| { enableTransparentWorkspaces?: boolean }
 		| undefined;
-	const transparentWorkspaces = yarnSettings?.enableTransparentWorkspaces !== false;
+	const yarnEnvironment = process.env.YARN_ENABLE_TRANSPARENT_WORKSPACES;
+	const transparentWorkspaces = yarnEnvironment === undefined
+		? yarnSettings?.enableTransparentWorkspaces !== false
+		: !['false', '0'].includes(yarnEnvironment.toLowerCase());
 	const policy = {
 		plainRanges: packageManager !== 'pnpm' && (packageManager !== 'yarn' || transparentWorkspaces),
 		plainPeers: packageManager !== 'yarn' || transparentWorkspaces,
