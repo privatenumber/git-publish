@@ -1,19 +1,21 @@
+import path from 'node:path';
+import spawn from 'nano-spawn';
 import type { TaskInnerAPI } from 'tasuku';
 import byteSize from 'byte-size';
 import { blueBright, dim } from 'ansis';
 import { terminalColumns } from 'terminal-columns';
 import task from '../utils/task.ts';
 import { createPublishRepository } from '../publish-repository/create.ts';
-import { loadPublishBranches } from '../publish-repository/prepare-branch.ts';
+import { loadPublishBranches, preparePublishBranch } from '../publish-repository/prepare-branch.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
-import type { PackagePreparation } from '../package-publication/prepare.ts';
+import { preparePackagePublication, type PackagePreparation, type PackagePublication } from '../package-publication/prepare.ts';
 import { planPackagePublicationPush, pushPackagePublications } from '../package-publication/push.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
+import { packPackage } from '../utils/pack-package.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 import { validatePeerRanges } from '../package-publication/validate.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
-import { processWorkspacePackage } from './process-package.ts';
 
 export const publishWorkspaceClosure = async ({
 	plan,
@@ -58,21 +60,44 @@ export const publishWorkspaceClosure = async ({
 			const node = plan.nodes[index]!;
 			startTime();
 			try {
-				const preparation = await processWorkspacePackage({
-					index,
-					localBranch: branches[index]!.localBranch,
-					node,
+				setStatus('Preparing isolated checkout');
+				const packWorktreeOptions = {
+					cwd: repository.packWorktreePath,
+					env: repository.gitOptions.env,
+				};
+				await spawn('git', ['reset', '--hard', 'HEAD'], packWorktreeOptions);
+				await spawn('git', ['clean', '-fdx'], packWorktreeOptions);
+				setStatus('Packing package and running lifecycle scripts');
+				const tarball = await packPackage(
 					packageManager,
-					repository,
+					repository.packWorktreePath,
+					path.join(repository.packTemporaryDirectory, String(index)),
+					node.package.dir,
 					repositoryPath,
-					publishRemote,
-					sourceName,
-					sourceCommit,
-					existingBranches,
-					preparations,
-					setStatus,
-					standalone: plan.standalone,
+					path.relative(repositoryPath, node.package.dir),
+				);
+				setStatus('Preparing publication commit');
+				await preparePublishBranch({
+					repository,
+					localBranch: branches[index]!.localBranch,
+					orphan: !existingBranches.has(node.branch),
+				});
+				const dependencyPublications = new Map<string, PackagePublication>();
+				for (const edge of node.dependencies) {
+					dependencyPublications.set(edge.target, preparations.get(edge.target)!.publication);
+				}
+				const preparation = await preparePackagePublication({
+					packageName: node.key,
+					sourceManifestPath: path.join(node.package.dir, 'package.json'),
+					packedTarball: tarball,
+					publishWorktree: repository.publishWorktreePath,
+					branch: node.branch,
+					fetchUrl: publishRemote.installUrl,
+					commitMessage: `Published ${plan.standalone ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(sourceName)}${sourceCommit ? ` (${sourceCommit})` : ''}`,
+					dependencyEdges: node.dependencies,
+					dependencyPublications,
 					peers: plan.peers.filter(peer => peer.from === node.key),
+					gitOptions: repository.gitOptions,
 				});
 				preparations.set(node.key, preparation);
 				if (plan.standalone) {

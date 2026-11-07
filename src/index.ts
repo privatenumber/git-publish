@@ -9,7 +9,6 @@ import task from './utils/task.ts';
 import { getStdout } from './utils/get-stdout.ts';
 import {
 	assertCleanTree, getCurrentSourceName, getCurrentCommit,
-	getCurrentCommitId,
 } from './utils/git.ts';
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
@@ -46,10 +45,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	}
 	const lines = ['Workspace peer dependencies could not be resolved. Consumers must provide them:'];
 	for (const peer of unresolvedPeers) {
-		const target = peer.target
-			? ` resolves to ${JSON.stringify(peer.target)}`
-			: ' does not resolve to a workspace package';
-		lines.push(`- ${JSON.stringify(peer.from)} declares ${JSON.stringify(peer.key)}: ${JSON.stringify(peer.specification)}${target}.`);
+		lines.push(`- ${JSON.stringify(peer.from)} declares ${JSON.stringify(peer.key)}: ${JSON.stringify(peer.specification)} does not resolve to a workspace package.`);
 	}
 	return lines.join('\n');
 };
@@ -123,7 +119,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		branch, remote, fresh, dry,
 	} = argv.flags;
 	const sourceCommitId = branch?.includes('{gitSha}') || argv.flags.json
-		? await getCurrentCommitId()
+		? await getCurrentCommit({ short: false })
 		: undefined;
 	const packageManager = await detectPackageManager(cwd, gitRootPath);
 	const closurePlan = await planWorkspacePublication({
@@ -182,7 +178,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				repositoryPath: gitRootPath,
 				publishRemote,
 				sourceName,
-				sourceCommit: sourceCommit ?? undefined,
+				sourceCommit,
 				fresh,
 			});
 			const repositoryName = plan.standalone && getGitHubRepositoryName(remoteUrl);

@@ -3,6 +3,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const hostedGitHosts = new Set(['github.com', 'gitlab.com', 'bitbucket.org']);
 
+type GitUrlKind = 'http' | 'https' | 'git' | 'ssh' | 'scp' | 'file' | 'local' | 'other';
+
+const scpPath = (value: string, host: string) => (value.startsWith('/')
+	? value
+	: `${hostedGitHosts.has(host) ? '/' : '/~/'}${value}`);
+
 export const parseGitUrl = (value: string) => {
 	const windows = /^[a-z]:[\\/]/i.test(value);
 	const drivePath = /^[a-z]:/i.test(value);
@@ -11,11 +17,17 @@ export const parseGitUrl = (value: string) => {
 		? /^(?:([^@/:]+)@)?([^/:]+):(.+)$/.exec(value)
 		: null;
 	const host = (url?.hostname || scp?.[2])?.toLowerCase();
-	let kind = 'local';
+	let kind: GitUrlKind = 'local';
 	if (!windows && url?.protocol === 'file:') {
 		kind = 'file';
 	} else if (url?.hostname) {
-		kind = url.protocol.slice(0, -1);
+		const protocols = {
+			'http:': 'http',
+			'https:': 'https',
+			'git:': 'git',
+			'ssh:': 'ssh',
+		} as const;
+		kind = protocols[url.protocol as keyof typeof protocols] ?? 'other';
 	} else if (scp) {
 		kind = 'scp';
 	}
@@ -49,8 +61,8 @@ export const parseRepository = (value: string, directory: string) => {
 		return { identity: `file:${path.resolve(directory, value)}` };
 	}
 	const rawPath = parsed.path.replace(/\/+$/, '').replace(/\.git$/, '');
-	const pathname = kind === 'scp' && !rawPath.startsWith('/')
-		? `${hostedGitHosts.has(host) ? '/' : '/~/'}${rawPath}`
+	const pathname = kind === 'scp'
+		? scpPath(rawPath, host)
 		: rawPath;
 	const user = (kind === 'scp' || kind === 'ssh') && !hostedGitHosts.has(host)
 		? `${parsed.user}@`
@@ -84,7 +96,7 @@ export const toPackageManagerGitUrl = (value: string) => {
 		return `git+${pathToFileURL(parsed.windows ? value : path.resolve(value), { windows: parsed.windows }).href}`;
 	}
 	if (kind === 'scp') {
-		const pathname = parsed.path.startsWith('/') ? parsed.path : `${hostedGitHosts.has(parsed.scpHost!) ? '/' : '/~/'}${parsed.path}`;
+		const pathname = scpPath(parsed.path, parsed.scpHost!);
 		return `git+ssh://${parsed.user ? `${parsed.user}@` : ''}${parsed.scpHost}${pathname}`;
 	}
 	return `git+${value}`;
