@@ -176,7 +176,7 @@ You can select packages by name, directory, or a quoted glob of package director
 git-publish @acme/core ./packages/adapter './packages/plugins/*'
 ```
 
-`git-publish` publishes the selected packages and their internal runtime and peer dependencies. For npm, Yarn, and Bun, a plain semver range also selects a workspace package when its version satisfies that range. For pnpm, internal edges must use `workspace:`. Each package commit is created before one atomic push, so a failed branch update does not expose a partial dependency closure.
+`git-publish` publishes the selected packages and their internal runtime and peer dependencies. It recognizes `workspace:` references and `file:` or `link:` paths to workspace packages. A plain semver runtime range selects a workspace package when its version satisfies the range for npm and Bun, for Yarn unless transparent workspaces are disabled, and for pnpm when `linkWorkspacePackages` is enabled (`true` or `deep`). Plain peer ranges are also considered for workspace packages. Each package commit is created before one atomic push, so a failed branch update does not expose a partial dependency closure.
 
 `--branch` accepts a small branch template with these placeholders:
 
@@ -205,6 +205,8 @@ For one package, a literal branch remains exact. For example, `git-publish --bra
 Standalone packages keep the default `npm/<gitRef>` branch. An explicit `--branch` can use the same placeholders or remain a literal branch name.
 
 Internal peers retain their packed ranges. Publication fails before pushing if a packed peer range does not match its target's packed version, or if a packed dependency or peer still uses `workspace:`.
+
+Lifecycle hooks may remove internal dependencies from the packed manifest. Changing or adding internal dependencies during packing is not supported; publication fails when it detects such changes.
 
 For each selected package, the install command includes required runtime and peer packages as root dependencies. Packages reachable only through optional dependencies install transitively. The commit-pinned Git URLs match those in the packed manifests. A single-package install uses the moving branch reference instead.
 
