@@ -15,11 +15,12 @@ export const createWorkspaceResult = (
 		target: edge.target,
 		optional: edge.field === 'optionalDependencies',
 	}))]));
+	const packages = new Map(plan.nodes.map(node => [node.key, node.package.packageJson]));
 	for (const peer of plan.peers) {
 		if (peer.target) {
 			edges.get(peer.from)!.push({
 				target: peer.target,
-				optional: false,
+				optional: packages.get(peer.from)?.peerDependenciesMeta?.[peer.key]?.optional === true,
 			});
 		}
 	}

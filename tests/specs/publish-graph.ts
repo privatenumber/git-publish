@@ -66,6 +66,7 @@ describe('Publication graph', () => {
 				name: 'app',
 				version: '1.0.0',
 				peerDependencies: { alias: 'workspace:core@*' },
+				peerDependenciesMeta: { alias: { optional: true } },
 			},
 			core: {
 				name: 'core',
@@ -97,6 +98,7 @@ describe('Publication graph', () => {
 			peers: graph.peers,
 		}, preparations, 'main', 'abc');
 		expect(result.aliases).toStrictEqual({ app: { alias: 'core' } });
+		expect(result.installSets.app).toStrictEqual({ required: ['app'], optional: ['core'] });
 		expect(formatWorkspaceAliasWarnings(result)).toStrictEqual([
 			'Warning: npm 12 needs --allow-git=all for alias "alias" of "core".',
 		]);

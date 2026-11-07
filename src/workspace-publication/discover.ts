@@ -9,7 +9,9 @@ import { readJson } from '../utils/read-json.ts';
 export type WorkspacePackage = {
 	name: string;
 	dir: string;
-	packageJson: Package['packageJson'];
+	packageJson: Package['packageJson'] & {
+		peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+	};
 };
 
 export type Workspace = {
