@@ -682,6 +682,18 @@ exec '${npm}' "$@"
 		expect(gitPublishProcess.stdout).toContain('Pushing 1 package');
 	});
 
+	test('pushes a single workspace package to multiple destinations', async () => {
+		await using first = await createGitFixture(undefined, ['--bare']);
+		await using second = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('mirror', first.path);
+		await fixture.git('config', ['--add', 'remote.origin.pushurl', first.path]);
+		await fixture.git('config', ['--add', 'remote.origin.pushurl', second.path]);
+		const result = await gitPublish(fixture.getPath('packages/core'));
+		expect('exitCode' in result).toBe(false);
+		const commit = await first.git('rev-parse', ['npm/mirror-@test/core']);
+		expect(await second.git('rev-parse', ['npm/mirror-@test/core'])).toBe(commit);
+	});
+
 	test('groups packages under the workspace publication', async () => {
 		const branchName = 'test-workspace-progress';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {

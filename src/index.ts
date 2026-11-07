@@ -150,7 +150,9 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	if (closurePlan) {
 		const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
 		const remoteUrl = publishRemote.installUrl;
-		assertAtomicPackagePublicationDestination(publishRemote.pushUrls);
+		if (closurePlan.nodes.length > 1) {
+			assertAtomicPackagePublicationDestination(publishRemote.pushUrls);
+		}
 
 		if (dry) {
 			console.log(formatWorkspacePublicationPlan(closurePlan, sourceName));

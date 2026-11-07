@@ -55,6 +55,18 @@ export const pushPackagePublications = async ({
 }): Promise<void> => {
 	const [pushRemoteName] = repository.pushRemoteNames;
 	const publications = [...input];
+	if (publications.length === 1 && repository.pushRemoteNames.length > 1) {
+		for (const remoteName of repository.pushRemoteNames) {
+			await spawn('git', [
+				'push',
+				...(pushPlan.fresh ? ['--force'] : []),
+				'--no-verify',
+				remoteName,
+				`${publications[0]!.commit}:refs/heads/${publications[0]!.branch}`,
+			], repository.gitOptions);
+		}
+		return;
+	}
 	const args = ['push', '--atomic'];
 	if (pushPlan.fresh) {
 		for (const publication of publications) {

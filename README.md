@@ -248,7 +248,7 @@ Each package's `role` is `root`, `dependency`, or `peer`. `reused` is true when 
 `aliases` maps each root to its internal dependency aliases and target package names. npm 12 requires `--allow-git=all` when an install set contains an alias.
 
 > [!IMPORTANT]
-> A recursive publication requires one push URL. Git cannot atomically push one dependency closure to multiple destinations.
+> A multi-package publication requires one push URL. Git cannot atomically push one dependency closure to multiple destinations. A single package can be pushed to multiple destinations sequentially.
 
 #### Preparing monorepo packages
 
