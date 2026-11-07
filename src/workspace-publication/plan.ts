@@ -161,8 +161,25 @@ export const planWorkspacePublication = async ({
 	const transparentWorkspaces = yarnEnvironment === undefined
 		? yarnSettings?.enableTransparentWorkspaces !== false
 		: !['false', '0'].includes(yarnEnvironment.toLowerCase());
+	let pnpmLinkWorkspacePackages = false;
+	if (packageManager === 'pnpm') {
+		const workspaceConfig = (yaml.load(await fs.readFile(path.join(workspace.rootDirectory, 'pnpm-workspace.yaml'), 'utf8')) ?? {}) as {
+			linkWorkspacePackages?: boolean;
+			'link-workspace-packages'?: boolean;
+		};
+		const npmrc = await fs.readFile(path.join(workspace.rootDirectory, '.npmrc'), 'utf8').catch((error: NodeJS.ErrnoException) => {
+			if (error.code === 'ENOENT') {
+				return '';
+			}
+			throw error;
+		});
+		pnpmLinkWorkspacePackages = workspaceConfig.linkWorkspacePackages === true
+			|| workspaceConfig['link-workspace-packages'] === true
+			|| /^\s*link-workspace-packages\s*=\s*true\s*$/m.test(npmrc);
+	}
 	const policy = {
-		plainRanges: packageManager !== 'pnpm' && (packageManager !== 'yarn' || transparentWorkspaces),
+		plainRanges: (packageManager !== 'pnpm' || pnpmLinkWorkspacePackages)
+			&& (packageManager !== 'yarn' || transparentWorkspaces),
 		plainPeers: true,
 	};
 	const graph = createPublishGraph({

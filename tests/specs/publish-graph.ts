@@ -178,6 +178,37 @@ describe('Publication graph', () => {
 		});
 		expect(plan!.nodes.map(node => node.key)).toStrictEqual(['app', 'core']);
 	});
+	test('links pnpm plain ranges when workspace linking is enabled', async () => {
+		await using fixture = await createFixture({
+			'package.json': JSON.stringify({ private: true }),
+			'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		});
+		const options = {
+			cwd: fixture.path,
+			gitRootPath: fixture.path,
+			sourceName: 'main',
+			sourceCommitId: undefined,
+			packageManager: 'pnpm' as const,
+			force: false,
+			selection: ['app'],
+		};
+		for (const config of ['linkWorkspacePackages: true', 'link-workspace-packages: true']) {
+			await fixture.writeFile('pnpm-workspace.yaml', `packages:\n  - packages/*\n${config}\n`);
+			expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['core', 'app']);
+		}
+		await fixture.writeFile('pnpm-workspace.yaml', 'packages:\n  - packages/*\n');
+		await fixture.writeFile('.npmrc', 'link-workspace-packages=true\n');
+		expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['core', 'app']);
+	});
 	test('reports aliased peer edges in each install set', async () => {
 		const workspace = await discoverTestWorkspace({
 			app: {
