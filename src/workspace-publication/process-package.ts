@@ -69,7 +69,7 @@ export const processWorkspacePackage = async ({
 		packedTarball: tarball,
 		publishWorktree: repository.publishWorktreePath,
 		branch: node.branch,
-		fetchUrl: publishRemote.fetchUrl,
+		fetchUrl: publishRemote.installUrl,
 		commitMessage: `Published ${JSON.stringify(node.key)} from ${JSON.stringify(sourceName)}${sourceCommit ? ` (${sourceCommit})` : ''}`,
 		dependencyEdges: node.dependencies,
 		dependencyPublications,

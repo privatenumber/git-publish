@@ -1,9 +1,12 @@
+import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
+import { getPublicationUrls } from './destination.ts';
 
 export type PublishRemote = {
-	fetchUrl: string;
 	pushUrls: string[];
+	installUrl: string;
+	historyUrl: string;
 	configuredName?: string;
 };
 
@@ -14,7 +17,7 @@ export const getPublishRemote = async (
 ): Promise<PublishRemote> => {
 	const options = { cwd: repositoryPath };
 	let configuredName: string | undefined = remote;
-	const fetchUrl = await getStdout(spawn('git', ['remote', 'get-url', remote], options)).catch(() => {
+	const fetchUrl = await getStdout(spawn('git', ['config', '--get', `remote.${remote}.url`], options)).catch(() => {
 		configuredName = undefined;
 		if (usesDefaultRemote) {
 			throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
@@ -22,10 +25,23 @@ export const getPublishRemote = async (
 
 		return remote;
 	});
-	const pushUrlOutput = await getStdout(spawn('git', ['remote', 'get-url', '--push', '--all', remote], options)).catch(() => fetchUrl);
+	const pushUrlOutput = configuredName
+		? await getStdout(spawn('git', ['config', '--get-all', `remote.${remote}.pushurl`], options)).catch(async () => {
+			const [expandedFetch, expandedPush] = await Promise.all([
+				getStdout(spawn('git', ['remote', 'get-url', remote], options)),
+				getStdout(spawn('git', ['remote', 'get-url', '--push', remote], options)),
+			]);
+			return expandedPush === expandedFetch ? fetchUrl : expandedPush;
+		})
+		: fetchUrl;
+	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')
+		? path.resolve(repositoryPath, url)
+		: url);
+	const normalizedFetch = normalizeLocal(fetchUrl);
+	const pushUrls = pushUrlOutput.split('\n').map(normalizeLocal);
 	return {
-		fetchUrl,
-		pushUrls: pushUrlOutput.split('\n'),
+		pushUrls,
+		...getPublicationUrls(normalizedFetch, pushUrls, repositoryPath),
 		configuredName,
 	};
 };
@@ -49,9 +65,9 @@ export const configurePublishTransport = async ({
 	fetchRemoteName: string;
 	pushRemoteNames: string[];
 }) => {
-	if (isLocalGitUrl(publishRemote.fetchUrl)) {
+	if (isLocalGitUrl(publishRemote.historyUrl)) {
 		const uploadPack = await getStdout(spawn('git', ['config', '--get', `remote.${fetchRemoteName}.uploadpack`], gitOptions)).catch(() => 'git-upload-pack');
-		await spawn('git', ['config', `remote.${fetchRemoteName}.uploadpack`, getGitServerCommand(publishRemote.fetchUrl, uploadPack)], gitOptions);
+		await spawn('git', ['config', `remote.${fetchRemoteName}.uploadpack`, getGitServerCommand(publishRemote.historyUrl, uploadPack)], gitOptions);
 	}
 	for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
 		if (!isLocalGitUrl(pushUrl)) {

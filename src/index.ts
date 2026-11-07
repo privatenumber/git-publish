@@ -148,7 +148,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 
 	if (closurePlan) {
 		const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
-		const remoteUrl = publishRemote.fetchUrl;
+		const remoteUrl = publishRemote.installUrl;
 		assertAtomicPackagePublicationDestination(publishRemote.pushUrls);
 
 		if (dry) {
@@ -244,7 +244,7 @@ Pre-bundle these dependencies before publishing.`);
 			throw new Error(`Invalid publish branch ${stringify(publishBranch)}.`);
 		}
 		const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
-		const remoteUrl = publishRemote.fetchUrl;
+		const remoteUrl = publishRemote.installUrl;
 
 		const preparation = await task(
 			`Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`,

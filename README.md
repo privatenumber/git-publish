@@ -146,6 +146,8 @@ You can also run the build before `git-publish`. Existing build output, includin
 4. Pushes the branch to the Git remote
 5. Prints the command to install the package via Git
 
+Install URLs name the repository that receives the push.
+
 ### Why preserve commit history on the publish branch?
 
 Lockfiles record the commit hash of a Git dependency, not the branch name. If that commit becomes unreachable from the branch history, it may be garbage-collected, breaking installs.

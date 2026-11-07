@@ -119,7 +119,7 @@ export const publishStandalonePackage = async ({
 				packedTarball: packedTarball!,
 				publishWorktree: repository!.publishWorktreePath,
 				branch: publishBranch,
-				fetchUrl: publishRemote.fetchUrl,
+				fetchUrl: publishRemote.installUrl,
 				commitMessage: `Published from ${stringify(sourceName)}${sourceCommit ? ` (${sourceCommit})` : ''}`,
 				dependencyEdges: [],
 				dependencyPublications: new Map(),

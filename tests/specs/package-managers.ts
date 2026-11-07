@@ -92,7 +92,7 @@ exec npm "$@"
 				await git('add', ['package.json', lockfile]);
 				await git('commit', ['-m', 'Initial commit']);
 				await git('remote', ['add', 'origin', remoteUrl]);
-				await git('config', ['remote.origin.pushurl', remoteFixture.path]);
+				await git('config', [`url.${remoteFixture.path}.insteadOf`, remoteUrl]);
 
 				const result = await gitPublish(fixture.path, ['--fresh'], {
 					PATH: `${commandsFixture.path}${path.delimiter}${process.env.PATH}`,

@@ -17,7 +17,7 @@ describe('Workspace publication', async () => {
 	test('never publishes or prints remote URL credentials', async () => {
 		await using credentialRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('credentials', 'https://user:secret@example.test/repo.git');
-		await fixture.git('config', ['remote.origin.pushurl', credentialRemote.path]);
+		await fixture.git('config', [`url.${credentialRemote.path}.insteadOf`, 'https://user:secret@example.test/repo.git']);
 		await using output = await createFixture();
 		const result = await gitPublish(fixture.getPath('packages/adapter'), ['--fresh', '--json', output.getPath('result.json')]);
 		expect('exitCode' in result).toBe(false);
@@ -191,6 +191,28 @@ exec '${gitPath}' "$@"
 		expect('exitCode' in result).toBe(false);
 		const calls = await fixture.readFile('git-calls', 'utf8');
 		expect(calls.trim().split('\n')).toStrictEqual(['ls-remote', 'fetch']);
+	});
+
+	test('publishes and reloads a workspace closure from the push destination', async () => {
+		await using upstream = await createGitFixture(undefined, ['--bare']);
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('triangular', upstream.path);
+		await fixture.git('config', ['remote.origin.pushurl', destination.path]);
+		await using output = await createFixture();
+		const args = ['--json', output.getPath('result.json')];
+		const first = await gitPublish(fixture.getPath('packages/adapter'), args);
+		expect('exitCode' in first).toBe(false);
+		const branches = ['core', 'broker', 'adapter'].map(name => `npm/triangular-@test/${name}`);
+		const commits = await Promise.all(branches.map(branch => destination.git('rev-parse', [branch])));
+		const manifest = JSON.parse(await destination.git('show', [`${branches[1]}:package.json`]));
+		expect(manifest.dependencies['@test/core']).toBe(`git+file://${destination.path}#${commits[0]}`);
+		const json = await output.readFile('result.json', 'utf8');
+		expect(json).toContain(`git+file://${destination.path}#`);
+		expect(first.stdout).toContain(`git+file://${destination.path}#`);
+		expect(await upstream.git('for-each-ref')).toBe('');
+		const second = await gitPublish(fixture.getPath('packages/adapter'), args);
+		expect('exitCode' in second).toBe(false);
+		expect(await Promise.all(branches.map(branch => destination.git('rev-parse', [branch])))).toStrictEqual(commits);
 	});
 
 	for (const [manager, range, internal] of [
@@ -536,7 +558,7 @@ exec '${npm}' "$@"
 		test(`warns for non-hosted install sets: ${remoteUrl} ${packageName}`, async () => {
 			await using warningRemote = await createGitFixture(undefined, ['--bare']);
 			await using fixture = await createChainWorkspace('warning', remoteUrl);
-			await fixture.git('config', ['remote.origin.pushurl', warningRemote.path]);
+			await fixture.git('config', [`url.${warningRemote.path}.insteadOf`, remoteUrl]);
 			const result = await gitPublish(fixture.getPath(`packages/${packageName}`), ['--fresh']);
 			expect('exitCode' in result).toBe(false);
 			expect(result.stderr.includes('npm ignores commit pins for non-hosted Git URLs')).toBe(warning);
