@@ -171,6 +171,10 @@ describe('Remote transport', async () => {
 		expect(token.stdout).not.toContain('ghp_secret');
 		expect(token.stdout).toContain('https://[redacted]@github.com/o/r.git');
 		expect(token.stderr).not.toContain('ghp_secret');
+		const query = await gitPublish(fixture.path, ['--dry', '--remote', 'https://host/repo.git?access_token=secret']);
+		expect('exitCode' in query).toBe(false);
+		expect(query.stdout).not.toContain('secret');
+		expect(query.stderr).not.toContain('secret');
 	});
 
 	test('uses selected-remote configuration without applying origin settings', async () => {

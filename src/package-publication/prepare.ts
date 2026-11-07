@@ -43,6 +43,7 @@ const toPackageManagerGitUrl = (url: string) => {
 	if (parsed && ['http:', 'https:', 'git:'].includes(parsed.protocol)) {
 		parsed.username = '';
 		parsed.password = '';
+		parsed.search = '';
 		return `git+${parsed.href}`;
 	}
 	if (url.startsWith('git+')) {
