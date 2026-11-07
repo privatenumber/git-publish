@@ -148,6 +148,9 @@ describe('Publication graph', () => {
 			required: ['app'],
 			optional: ['core'],
 		});
+		const optionalOutput = formatWorkspaceResult(result, 'npm', 'https://example.test/repo');
+		expect(optionalOutput).toContain("Optional peers alias: install with npm install 'alias@git+https://example.test/repo#abc'");
+		expect(optionalOutput).not.toContain('Optional workspace dependencies core install transitively');
 		const app = nodes.find(node => node.key === 'app')!;
 		graph.peers[0]!.optional = false;
 		app.dependencies.push({

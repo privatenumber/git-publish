@@ -12,12 +12,14 @@ export const createWorkspaceResult = (
 	commit: string | undefined,
 ) => {
 	const edges = new Map(plan.nodes.map(node => [node.key, node.dependencies.map(edge => ({
+		key: edge.key,
 		target: edge.target,
 		optional: edge.field === 'optionalDependencies',
 	}))]));
 	for (const peer of plan.peers) {
 		if (peer.target) {
 			edges.get(peer.from)!.push({
+				key: peer.key,
 				target: peer.target,
 				optional: peer.optional,
 			});
@@ -79,6 +81,59 @@ export const createWorkspaceResult = (
 		}
 		return [root, Object.fromEntries([...names].map(([name, entries]) => [name, [...entries]]))];
 	}));
+	const automaticEdges = new Map(plan.nodes.map(node => (
+		[node.key, node.dependencies.map(edge => edge.target)]
+	)));
+	for (const peer of plan.peers) {
+		if (peer.target && !peer.optional) {
+			automaticEdges.get(peer.from)!.push(peer.target);
+		}
+	}
+	const optionalInstall = Object.fromEntries(plan.roots.map((root) => {
+		const installed = new Set<string>();
+		const pending = [root];
+		while (pending.length > 0) {
+			const name = pending.pop()!;
+			if (!installed.has(name)) {
+				installed.add(name);
+				pending.push(...automaticEdges.get(name)!);
+			}
+		}
+		const peers = plan.peers.filter(peer => (
+			peer.optional && peer.target && installed.has(peer.from) && !installed.has(peer.target)
+		));
+		const peerNames = new Map<string, Set<string>>();
+		const peerPending = peers.map((peer) => {
+			const names = peerNames.get(peer.target!) ?? new Set<string>();
+			names.add(peer.key);
+			peerNames.set(peer.target!, names);
+			return peer.target!;
+		});
+		const visited = new Set<string>();
+		while (peerPending.length > 0) {
+			const name = peerPending.pop()!;
+			if (visited.has(name)) {
+				continue;
+			}
+			visited.add(name);
+			for (const edge of edges.get(name)!) {
+				if (!edge.optional && !installed.has(edge.target)) {
+					const names = peerNames.get(edge.target) ?? new Set<string>();
+					names.add(edge.key);
+					peerNames.set(edge.target, names);
+					peerPending.push(edge.target);
+				}
+			}
+		}
+		return [root, {
+			dependencies: installSets[root]!.optional.filter(name => installed.has(name)),
+			peers: peers.map(peer => ({
+				name: peer.key,
+				target: peer.target!,
+			})),
+			peerNames: Object.fromEntries([...peerNames].map(([name, entries]) => [name, [...entries]])),
+		}];
+	}));
 	return {
 		source: {
 			ref,
@@ -100,6 +155,7 @@ export const createWorkspaceResult = (
 		presentation: {
 			publishAll: plan.publishAll,
 			installNames,
+			optionalInstall,
 		},
 	};
 };
@@ -145,9 +201,20 @@ export const formatWorkspaceResult = (
 			notes = 'pnpm 11+: set blockExoticSubdeps: false in pnpm-workspace.yaml';
 		}
 		const title = roots.length === 1 && packageCount === 1 ? 'command' : root;
-		const optionalNote = optional.length > 0
-			? `\n  Optional workspace dependencies ${optional.join(', ')} install transitively (npm 12 needs --allow-git=all for them)`
+		const { peers: optionalPeers, dependencies: optionalDependencies, peerNames } = (
+			result.presentation.optionalInstall[root]!
+		);
+		const optionalNote = optionalDependencies.length > 0
+			? `\n  Optional workspace dependencies ${optionalDependencies.join(', ')} install transitively (npm 12 needs --allow-git=all for them)`
 			: '';
-		return `→ Install ${title}\n  ${command} ${argumentsList.join(' ')}${notes ? `\n  ${notes}` : ''}${optionalNote}`;
+		const peerArguments = Object.entries(peerNames).flatMap(([target, aliases]) => (
+			aliases.map(name => shellQuote(packageManager === 'yarn' || name !== target
+				? `${name}@${packages.get(target)!.installSpecifier}`
+				: packages.get(target)!.installSpecifier))
+		));
+		const peerNote = optionalPeers.length > 0
+			? `\n  Optional peers ${optionalPeers.map(peer => peer.name).join(', ')}: install with ${command} ${peerArguments.join(' ')}`
+			: '';
+		return `→ Install ${title}\n  ${command} ${argumentsList.join(' ')}${notes ? `\n  ${notes}` : ''}${optionalNote}${peerNote}`;
 	}).join('\n\n');
 };
