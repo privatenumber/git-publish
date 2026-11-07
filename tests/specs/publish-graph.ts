@@ -226,6 +226,61 @@ describe('Publication graph', () => {
 			}
 		}
 	});
+	test('rejects conflicting aliases only when they share an install set', async () => {
+		await using fixture = await createFixture({
+			'package.json': JSON.stringify({
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: {
+					b: 'workspace:*',
+					c: 'workspace:*',
+				},
+			}),
+			'packages/b/package.json': JSON.stringify({
+				name: 'b',
+				version: '1.0.0',
+				dependencies: {
+					alias: 'workspace:x@*',
+				},
+			}),
+			'packages/c/package.json': JSON.stringify({
+				name: 'c',
+				version: '1.0.0',
+				peerDependencies: {
+					alias: 'workspace:y@*',
+				},
+			}),
+			'packages/x/package.json': JSON.stringify({
+				name: 'x',
+				version: '1.0.0',
+			}),
+			'packages/y/package.json': JSON.stringify({
+				name: 'y',
+				version: '1.0.0',
+			}),
+		});
+		const options = {
+			cwd: fixture.path,
+			gitRootPath: fixture.path,
+			sourceName: 'main',
+			sourceCommitId: undefined,
+			packageManager: 'npm' as const,
+			force: false,
+			selection: ['b', 'c'],
+		};
+		expect((await planWorkspacePublication(options))!.roots).toStrictEqual(['b', 'c']);
+		await expect(planWorkspacePublication({
+			...options,
+			selection: ['app'],
+		}))
+			.rejects.toThrow('Install name "alias" refers to both "x" and "y"');
+	});
+
 	test('reports aliased peer edges in each install set', async () => {
 		const workspace = await discoverTestWorkspace({
 			app: {

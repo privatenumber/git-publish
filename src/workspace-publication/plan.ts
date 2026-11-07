@@ -11,6 +11,7 @@ import {
 	createPublishGraph, findWorkspacePackageDirectory, type PublishGraphNode, type WorkspacePeer,
 } from './graph.ts';
 import { findWorkspacePackages, type WorkspacePackage } from './discover.ts';
+import { createInstallGraph } from './install-graph.ts';
 
 export type WorkspacePublicationNode = PublishGraphNode & {
 	branch: string;
@@ -232,10 +233,26 @@ export const planWorkspacePublication = async ({
 			branch,
 		});
 	}
-	return {
+	const plan = {
 		roots: [...roots],
 		publishAll,
 		nodes,
 		peers: graph.peers,
 	};
+	const { edges, reachable } = createInstallGraph(plan);
+	for (const root of plan.roots) {
+		const members = reachable([root], () => true);
+		const names = new Map([[root, root]]);
+		for (const edge of edges) {
+			if (!members.has(edge.from)) {
+				continue;
+			}
+			const previous = names.get(edge.key);
+			if (previous !== undefined && previous !== edge.target) {
+				throw new Error(`Install name ${JSON.stringify(edge.key)} refers to both ${JSON.stringify(previous)} and ${JSON.stringify(edge.target)} in the install set for ${JSON.stringify(root)}.`);
+			}
+			names.set(edge.key, edge.target);
+		}
+	}
+	return plan;
 };
