@@ -39,23 +39,26 @@ export const planPackagePublicationPush = async (
 	repository: PublishRepository,
 	fresh: boolean | undefined,
 	branches: Iterable<string>,
+	standalone?: boolean,
 ): Promise<PackagePublicationPushPlan> => ({
 	fresh: Boolean(fresh),
-	remoteTips: fresh ? await readRemoteTips(repository, branches) : new Map(),
+	remoteTips: fresh && !standalone ? await readRemoteTips(repository, branches) : new Map(),
 });
 
 export const pushPackagePublications = async ({
 	repository,
 	publications: input,
 	pushPlan,
+	standalone,
 }: {
 	repository: PublishRepository;
 	publications: Iterable<PackagePublication>;
 	pushPlan: PackagePublicationPushPlan;
+	standalone?: boolean;
 }): Promise<void> => {
 	const [pushRemoteName] = repository.pushRemoteNames;
 	const publications = [...input];
-	if (publications.length === 1 && repository.pushRemoteNames.length > 1) {
+	if (publications.length === 1 && (standalone || repository.pushRemoteNames.length > 1)) {
 		for (const remoteName of repository.pushRemoteNames) {
 			await spawn('git', [
 				'push',

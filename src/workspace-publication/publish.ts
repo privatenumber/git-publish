@@ -1,4 +1,7 @@
 import type { TaskInnerAPI } from 'tasuku';
+import byteSize from 'byte-size';
+import { blueBright, dim } from 'ansis';
+import { terminalColumns } from 'terminal-columns';
 import task from '../utils/task.ts';
 import { createPublishRepository } from '../publish-repository/create.ts';
 import { loadPublishBranches } from '../publish-repository/prepare-branch.ts';
@@ -38,6 +41,7 @@ export const publishWorkspaceClosure = async ({
 			repository,
 			fresh,
 			plan.nodes.map(node => node.branch),
+			plan.standalone,
 		);
 		const branches = plan.nodes.map((node, index) => ({
 			publishBranch: node.branch,
@@ -67,8 +71,31 @@ export const publishWorkspaceClosure = async ({
 					existingBranches,
 					preparations,
 					setStatus,
+					standalone: plan.standalone,
 				});
 				preparations.set(node.key, preparation);
+				if (plan.standalone) {
+					const totalSize = preparation.files.reduce((sum, file) => sum + file.size, 0);
+					console.log(terminalColumns([
+						...preparation.files.slice().sort((a, b) => (
+							a.file < b.file ? -1 : (a.file > b.file ? 1 : 0)
+						)).map(({ file, size }) => [dim(file), dim(byteSize(size).toString())]),
+						['Total size', byteSize(totalSize).toString()],
+					], {
+						stdoutColumns: Number.POSITIVE_INFINITY,
+						columns: [
+							{
+								width: 'content-width',
+								paddingRight: 2,
+							},
+							{
+								width: 'content-width',
+								align: 'right',
+								postprocess: line => blueBright(line),
+							},
+						],
+					}));
+				}
 				if (preparation.reusedExistingCommit) {
 					setStatus('Unchanged; reusing existing commit');
 				} else {
@@ -114,6 +141,7 @@ export const publishWorkspaceClosure = async ({
 						repository,
 						publications: [...preparations.values()].map(preparation => preparation.publication),
 						pushPlan,
+						standalone: plan.standalone,
 					});
 				} catch (error) {
 					writeSubprocessErrorOutput(streamPreview, error);

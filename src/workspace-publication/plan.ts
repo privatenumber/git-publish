@@ -3,13 +3,14 @@ import fs from 'node:fs/promises';
 import spawn from 'nano-spawn';
 import micromatch from 'micromatch';
 import yaml from 'js-yaml';
+import type { PackageJson } from '@npmcli/package-json';
 import { renderPackageBranch } from '../package-publication/branch.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getStdout } from '../utils/get-stdout.ts';
 import {
 	createPublishGraph, findWorkspacePackageDirectory, type PublishGraphNode, type WorkspacePeer,
 } from './graph.ts';
-import { findWorkspacePackages } from './discover.ts';
+import { findWorkspacePackages, type WorkspacePackage } from './discover.ts';
 
 export type WorkspacePublicationNode = PublishGraphNode & {
 	branch: string;
@@ -20,6 +21,61 @@ export type WorkspacePublicationPlan = {
 	publishAll: boolean;
 	nodes: WorkspacePublicationNode[];
 	peers: WorkspacePeer[];
+	standalone?: boolean;
+};
+
+export const planStandalonePublication = async ({
+	cwd, gitRootPath, packageJson, sourceName, sourceCommitId, publishBranch,
+}: {
+	cwd: string;
+	gitRootPath: string;
+	packageJson: PackageJson;
+	sourceName: string;
+	sourceCommitId: string | undefined;
+	publishBranch: string | undefined;
+}): Promise<WorkspacePublicationPlan> => {
+	const workspaceDependencies: string[] = [];
+	for (const field of ['dependencies', 'optionalDependencies'] as const) {
+		for (const [name, specification] of Object.entries(packageJson[field] ?? {})) {
+			if (specification?.startsWith('workspace:')) {
+				workspaceDependencies.push(`- ${field}.${name}: ${specification}`);
+			}
+		}
+	}
+	if (workspaceDependencies.length > 0) {
+		throw new Error(`Cannot publish packages with workspace dependencies:\n${workspaceDependencies.join('\n')}\nPre-bundle these dependencies before publishing.`);
+	}
+	const name = packageJson.name!;
+	const branch = publishBranch
+		? renderPackageBranch({
+			template: publishBranch,
+			gitRef: sourceName,
+			gitSha: sourceCommitId,
+			packageName: name,
+		})
+		: `npm/${sourceName}${path.relative(gitRootPath, cwd) ? `-${name}` : ''}`;
+	try {
+		await getStdout(spawn('git', ['check-ref-format', '--branch', branch]));
+	} catch {
+		throw new Error(`Invalid publish branch ${JSON.stringify(branch)}.`);
+	}
+	return {
+		standalone: true,
+		roots: [name],
+		publishAll: false,
+		peers: [],
+		nodes: [{
+			key: name,
+			package: {
+				name,
+				dir: cwd,
+				packageJson: packageJson as WorkspacePackage['packageJson'],
+			},
+			dependencies: [],
+			role: 'root',
+			branch,
+		}],
+	};
 };
 
 export const planWorkspacePublication = async ({

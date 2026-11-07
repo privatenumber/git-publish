@@ -23,6 +23,7 @@ export const processWorkspacePackage = async ({
 	existingBranches,
 	preparations,
 	setStatus,
+	standalone,
 }: {
 	index: number;
 	localBranch: string;
@@ -36,6 +37,7 @@ export const processWorkspacePackage = async ({
 	existingBranches: ReadonlySet<string>;
 	preparations: ReadonlyMap<string, PackagePreparation>;
 	setStatus: (status?: string) => void;
+	standalone: boolean | undefined;
 }): Promise<PackagePreparation> => {
 	setStatus('Preparing isolated checkout');
 	const packWorktreeOptions = {
@@ -70,7 +72,7 @@ export const processWorkspacePackage = async ({
 		publishWorktree: repository.publishWorktreePath,
 		branch: node.branch,
 		fetchUrl: publishRemote.installUrl,
-		commitMessage: `Published ${JSON.stringify(node.key)} from ${JSON.stringify(sourceName)}${sourceCommit ? ` (${sourceCommit})` : ''}`,
+		commitMessage: `Published ${standalone ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(sourceName)}${sourceCommit ? ` (${sourceCommit})` : ''}`,
 		dependencyEdges: node.dependencies,
 		dependencyPublications,
 		gitOptions: repository.gitOptions,
