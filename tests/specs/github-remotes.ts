@@ -1,7 +1,10 @@
 import { describe, test, expect } from 'manten';
-import { getGitHubInstallSpecifier, getGitHubRepositoryName } from '../../src/utils/git-url.ts';
+import { getGitHubInstallSpecifier, getGitHubRepositoryName, isHostedGitRemote } from '../../src/utils/git-url.ts';
 
 describe('GitHub remotes', () => {
+	test('recognizes authenticated GitHub URLs as hosted', () => {
+		expect(isHostedGitRemote('https://token@github.com/o/r.git')).toBe(true);
+	});
 	test('normalizes supported remote URLs', () => {
 		for (const remoteUrl of [
 			'git@github.com:owner/repository.git',

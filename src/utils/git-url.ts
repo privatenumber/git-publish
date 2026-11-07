@@ -113,7 +113,14 @@ export const getGitHubInstallSpecifier = (remoteUrl: string, revision: string) =
 export const isHostedGitRemote = (value: string) => {
 	const parsed = parseGitUrl(value);
 	const host = parsed.scpHost ?? parsed.host;
-	return Boolean(githubRepositoryName(parsed) || host === 'gitlab.com' || host === 'bitbucket.org');
+	const github = parsed.kind === 'https'
+		? githubRepositoryName({
+			...parsed,
+			user: '',
+			password: '',
+		})
+		: githubRepositoryName(parsed);
+	return Boolean(github || host === 'gitlab.com' || host === 'bitbucket.org');
 };
 
 export const redactRemote = (value: string) => value
