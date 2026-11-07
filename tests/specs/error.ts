@@ -1,6 +1,16 @@
 import spawn from 'nano-spawn';
 import { expect, test } from 'manten';
 import { getErrorDetails } from '../../src/utils/error.ts';
+import { redactRemote } from '../../src/utils/redact-remote.ts';
+
+test('redacts username tokens while preserving SSH usernames', () => {
+	for (const scheme of ['http', 'https', 'git', 'git+https']) {
+		expect(redactRemote(`${scheme}://ghp_secret@github.com/o/r.git`))
+			.toBe(`${scheme}://[redacted]@github.com/o/r.git`);
+	}
+	expect(redactRemote('ssh://git@host/r.git')).toBe('ssh://git@host/r.git');
+	expect(redactRemote('ssh://git:secret@host/r.git')).toBe('ssh://[redacted]@host/r.git');
+});
 
 test('formats nested cleanup and subprocess diagnostics', async () => {
 	let subprocessError: unknown;
