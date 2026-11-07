@@ -57,6 +57,12 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		version: packageMeta.version,
 		strictFlags: true,
 		parameters: ['[packages...]'],
+		commands: {
+			skills: {
+				description: 'Print the bundled agent skill, or install it with --install <directory>',
+				loader: () => import('./commands/skills.ts'),
+			},
+		},
 		flags: {
 			branch: {
 				type: String,
@@ -69,9 +75,12 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				alias: 'r',
 				placeholder: '<remote name or Git URL>',
 				description: 'The Git remote or URL to push to.',
-				default: () => {
-					usedDefaultRemote = true;
-					return 'origin';
+				default: {
+					value: () => {
+						usedDefaultRemote = true;
+						return 'origin';
+					},
+					description: 'origin',
 				},
 			},
 			fresh: {
@@ -99,6 +108,10 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			description: packageMeta.description,
 		},
 	});
+	if (argv.command) {
+		await argv.runCommand();
+		return;
+	}
 	await assertCleanTree();
 
 	const cwd = process.cwd();

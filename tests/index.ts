@@ -1,6 +1,7 @@
 import { describe } from 'manten';
 
 describe('git-publish', () => {
+	import('./specs/skills.ts');
 	import('./specs/workspace-discovery.ts');
 	import('./specs/workspace-publication.ts');
 	import('./specs/package-publication.ts');

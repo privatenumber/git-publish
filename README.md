@@ -113,8 +113,25 @@ npx git-publish --remote git@github.com:owner/public-repo.git --branch test-pkg
 | `-o, --fresh`           | Create a fresh single-commit branch. Force-pushes to remote   |
 | `-d, --dry`             | Simulate the process. Does not commit or push                 |
 | `-f, --force`           | Publish a private workspace root or standalone package        |
+| `--json <path>`         | Write publication details and install sets to a JSON file      |
 | `-h, --help`            | Show CLI help                                                 |
 | `--version`             | Show CLI version                                              |
+
+### Agent skill
+
+git-publish ships an [agent skill](https://agentskills.io) that teaches coding agents how to publish with git-publish and install published packages. In a project that depends on git-publish, [pnpm agent skills](https://pnpm.io/agent-skills) can link it after approval.
+
+When you run git-publish with `npx`, `pnpm dlx`, or a global install, use the `skills` command instead:
+
+```sh
+# Print the skill
+npx git-publish skills
+
+# Install it into an agent skills directory
+npx git-publish skills --install ~/.agents/skills
+```
+
+`skills` is a subcommand, so select a workspace package named `skills` by its path, such as `./packages/skills`.
 
 ## FAQ
 
