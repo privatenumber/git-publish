@@ -22,6 +22,7 @@ export type WorkspacePeer = {
 	from: string;
 	key: string;
 	specification: string;
+	optional: boolean;
 	target?: string;
 };
 
@@ -271,6 +272,7 @@ export const createPublishGraph = (
 				continue;
 			}
 			const isWorkspaceProtocol = specification.startsWith('workspace:');
+			const optional = current.packageJson.peerDependenciesMeta?.[key]?.optional === true;
 			let target: string | undefined;
 			if (isWorkspaceProtocol) {
 				target = tryResolveTarget(current, key, specification);
@@ -286,6 +288,7 @@ export const createPublishGraph = (
 						from: current.name,
 						key,
 						specification,
+						optional,
 						target: key,
 					});
 				}
@@ -295,6 +298,7 @@ export const createPublishGraph = (
 				from: current.name,
 				key,
 				specification,
+				optional,
 				target,
 			});
 		}

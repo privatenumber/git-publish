@@ -15,12 +15,11 @@ export const createWorkspaceResult = (
 		target: edge.target,
 		optional: edge.field === 'optionalDependencies',
 	}))]));
-	const packages = new Map(plan.nodes.map(node => [node.key, node.package.packageJson]));
 	for (const peer of plan.peers) {
 		if (peer.target) {
 			edges.get(peer.from)!.push({
 				target: peer.target,
-				optional: packages.get(peer.from)?.peerDependenciesMeta?.[peer.key]?.optional === true,
+				optional: peer.optional,
 			});
 		}
 	}
@@ -60,6 +59,26 @@ export const createWorkspaceResult = (
 		}
 		return [root, Object.fromEntries(entries)];
 	}));
+	const installNames = Object.fromEntries(plan.roots.map((root) => {
+		const required = new Set(installSets[root]!.required);
+		const names = new Map([...required].map(name => [name, new Set<string>()]));
+		names.get(root)!.add(root);
+		for (const node of plan.nodes) {
+			if (required.has(node.key)) {
+				for (const edge of node.dependencies) {
+					if (edge.field !== 'optionalDependencies' && required.has(edge.target)) {
+						names.get(edge.target)!.add(edge.key);
+					}
+				}
+			}
+		}
+		for (const peer of plan.peers) {
+			if (peer.target && required.has(peer.from) && required.has(peer.target) && !peer.optional) {
+				names.get(peer.target)!.add(peer.key);
+			}
+		}
+		return [root, Object.fromEntries([...names].map(([name, entries]) => [name, [...entries]]))];
+	}));
 	return {
 		source: {
 			ref,
@@ -78,6 +97,10 @@ export const createWorkspaceResult = (
 		}),
 		installSets,
 		aliases,
+		presentation: {
+			publishAll: plan.publishAll,
+			installNames,
+		},
 	};
 };
 
@@ -85,46 +108,28 @@ export type WorkspaceResult = ReturnType<typeof createWorkspaceResult>;
 
 export const formatWorkspaceResult = (
 	result: WorkspaceResult,
-	plan: WorkspacePublicationPlan,
 	packageManager: PackageManager,
 	fetchUrl: string,
 ) => {
-	if (plan.publishAll && plan.roots.length > 3) {
+	if (result.presentation.publishAll && Object.keys(result.installSets).length > 3) {
 		return `${terminalColumns([
 			['Package', 'Branch', 'Commit', 'Status', 'Role'],
 			...result.packages.map(item => [item.name, item.branch, item.commit.slice(0, 7), item.reused ? 'unchanged' : 'updated', item.role]),
 		], { stdoutColumns: Number.POSITIVE_INFINITY })}\nUse --json <path> for install sets.`;
 	}
 	const packages = new Map(result.packages.map(item => [item.name, item]));
-	const manifests = new Map(plan.nodes.map(node => [node.key, node.package.packageJson]));
-	return plan.roots.map((root) => {
+	const roots = Object.keys(result.installSets);
+	return roots.map((root) => {
 		const { required: names, optional } = result.installSets[root]!;
 		const packageCount = names.length + optional.length;
-		const required = new Set(names);
-		const installNames = new Map(names.map(name => [name, new Set<string>()]));
-		installNames.get(root)!.add(root);
-		for (const node of plan.nodes) {
-			if (required.has(node.key)) {
-				for (const edge of node.dependencies) {
-					if (edge.field !== 'optionalDependencies' && required.has(edge.target)) {
-						installNames.get(edge.target)!.add(edge.key);
-					}
-				}
-			}
-		}
-		for (const peer of plan.peers) {
-			if (peer.target && required.has(peer.from) && required.has(peer.target)
-				&& !manifests.get(peer.from)!.peerDependenciesMeta?.[peer.key]?.optional) {
-				installNames.get(peer.target)!.add(peer.key);
-			}
-		}
+		const installNames = result.presentation.installNames[root]!;
 		const argumentsList = names.flatMap((name) => {
 			const item = packages.get(name)!;
 			const specifier = packageCount === 1
 				? (getGitHubInstallSpecifier(fetchUrl, item.branch)
 					?? toInstallSpecifier(fetchUrl, item.branch))
 				: item.installSpecifier;
-			return [...installNames.get(name)!].map(installName => shellQuote(
+			return installNames[name]!.map(installName => shellQuote(
 				packageManager === 'yarn' || installName !== name ? `${installName}@${specifier}` : specifier,
 			));
 		});
@@ -139,7 +144,7 @@ export const formatWorkspaceResult = (
 		} else if (packageCount > 1 && packageManager === 'pnpm') {
 			notes = 'pnpm 11+: set blockExoticSubdeps: false in pnpm-workspace.yaml';
 		}
-		const title = plan.roots.length === 1 && packageCount === 1 ? 'command' : root;
+		const title = roots.length === 1 && packageCount === 1 ? 'command' : root;
 		const optionalNote = optional.length > 0
 			? `\n  Optional workspace dependencies ${optional.join(', ')} install transitively (npm 12 needs --allow-git=all for them)`
 			: '';

@@ -149,7 +149,7 @@ describe('Publication graph', () => {
 			optional: ['core'],
 		});
 		const app = nodes.find(node => node.key === 'app')!;
-		app.package.packageJson.peerDependenciesMeta!.alias!.optional = false;
+		graph.peers[0]!.optional = false;
 		app.dependencies.push({
 			key: 'runtime',
 			field: 'dependencies',
@@ -163,7 +163,7 @@ describe('Publication graph', () => {
 			},
 		});
 		for (const manager of ['npm', 'pnpm', 'yarn', 'bun'] as const) {
-			const output = formatWorkspaceResult(requiredResult, plan, manager, 'https://example.test/repo');
+			const output = formatWorkspaceResult(requiredResult, manager, 'https://example.test/repo');
 			expect(output).toContain('runtime@git+https://example.test/repo#abc');
 			expect(output).toContain('alias@git+https://example.test/repo#abc');
 			expect(output).not.toContain('core@git+https://example.test/repo#abc');
@@ -173,7 +173,7 @@ describe('Publication graph', () => {
 			field: 'dependencies',
 			target: 'core',
 		});
-		const output = formatWorkspaceResult(requiredResult, plan, 'yarn', 'https://example.test/repo');
+		const output = formatWorkspaceResult(createWorkspaceResult(plan, preparations, 'main', 'abc'), 'yarn', 'https://example.test/repo');
 		expect(output).toContain('core@git+https://example.test/repo#abc');
 	});
 
@@ -385,6 +385,7 @@ describe('Publication graph', () => {
 			from: '@test/app',
 			key: '@test/core',
 			specification: '^1.0.0',
+			optional: false,
 			target: '@test/core',
 		}]);
 	});
@@ -410,6 +411,7 @@ describe('Publication graph', () => {
 			from: '@test/app',
 			key: '@test/alias',
 			specification: 'workspace:@test/core@*',
+			optional: false,
 			target: '@test/core',
 		}]);
 	});
@@ -435,6 +437,7 @@ describe('Publication graph', () => {
 			from: '@test/app',
 			key: '@test/core',
 			specification: 'workspace:../core',
+			optional: false,
 			target: '@test/core',
 		}]);
 	});
@@ -456,6 +459,7 @@ describe('Publication graph', () => {
 			from: '@test/app',
 			key: '@test/ghost',
 			specification: 'workspace:*',
+			optional: false,
 			target: undefined,
 		}]);
 	});
