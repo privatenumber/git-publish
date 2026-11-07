@@ -132,6 +132,9 @@ export const createPublishGraph = (
 	const roots = typeof selection === 'string' ? [selection] : selection;
 	const rootNames = new Set(roots);
 	const byName = new Map<string, WorkspacePackage[]>();
+	const byDirectory = new Map(workspace.packages.map(candidate => (
+		[path.resolve(candidate.dir), candidate.name]
+	)));
 	for (const candidate of workspace.packages) {
 		const group = byName.get(candidate.name);
 		if (group) {
@@ -185,10 +188,14 @@ export const createPublishGraph = (
 		}
 	};
 	const resolvePlainTarget = (
+		from: WorkspacePackage,
 		key: string,
 		specification: string,
 		peer = false,
 	): string | undefined => {
+		if (specification.startsWith('file:') || specification.startsWith('link:')) {
+			return byDirectory.get(path.resolve(from.dir, specification.slice(specification.indexOf(':') + 1)));
+		}
 		const candidate = byName.get(key)?.[0];
 		const version = candidate?.packageJson.version;
 		if (
@@ -243,7 +250,7 @@ export const createPublishGraph = (
 				}
 				const target = specification.startsWith('workspace:')
 					? resolveTarget(current, key, specification)
-					: resolvePlainTarget(key, specification);
+					: resolvePlainTarget(current, key, specification);
 				if (!target) {
 					continue;
 				}
@@ -271,7 +278,7 @@ export const createPublishGraph = (
 					validateWorkspaceRange(current, key, specification, target);
 				}
 			} else {
-				target = resolvePlainTarget(key, specification, true);
+				target = resolvePlainTarget(current, key, specification, true);
 			}
 			if (target === undefined && !isWorkspaceProtocol) {
 				if (byName.has(key)) {

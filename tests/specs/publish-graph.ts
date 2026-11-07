@@ -28,6 +28,25 @@ const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 };
 
 describe('Publication graph', () => {
+	test('resolves file and link sibling paths as internal runtime and peer edges', async () => {
+		const workspace = await discoverTestWorkspace({
+			app: {
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { alias: 'file:../core' },
+				peerDependencies: { other: 'link:../core' },
+			},
+			core: {
+				name: 'core',
+				version: '1.0.0',
+			},
+		});
+		for (const manager of ['npm', 'pnpm', 'yarn', 'bun'] as const) {
+			const graph = createPublishGraph(workspace, 'app', manager);
+			expect(graph.nodes.find(node => node.key === 'app')!.dependencies[0]?.target).toBe('core');
+			expect(graph.peers[0]?.target).toBe('core');
+		}
+	});
 	test('includes prereleases for star and empty ranges but not x', () => {
 		expect(['', '*', 'x', 'X'].map(range => satisfiesWorkspaceRange('1.0.0-beta.3', range)))
 			.toStrictEqual([true, true, false, false]);

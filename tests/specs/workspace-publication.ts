@@ -14,6 +14,36 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('publishes and pins an npm sibling file dependency', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: 'file:../core' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=file-sibling']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect('exitCode' in result).toBe(false);
+		const coreCommit = await remote.git('rev-parse', ['npm/file-sibling-core']);
+		const manifest = JSON.parse(await remote.git('show', ['npm/file-sibling-app:package.json']));
+		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${coreCommit}`);
+	});
+
 	test('never publishes or prints remote URL credentials', async () => {
 		await using credentialRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('credentials', 'https://user:secret@example.test/repo.git');
