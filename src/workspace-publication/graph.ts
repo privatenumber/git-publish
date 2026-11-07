@@ -1,5 +1,4 @@
 import path from 'node:path';
-import type { PackageManager } from '../utils/detect-package-manager.ts';
 import type { Workspace, WorkspacePackage } from './discover.ts';
 import { satisfiesWorkspaceRange } from './satisfies-range.ts';
 
@@ -126,11 +125,10 @@ export const findWorkspacePackageDirectory = (
 
 export const createPublishGraph = (
 	workspace: Workspace,
-	selection: string | string[],
-	packageManager: PackageManager = 'npm',
-	transparentWorkspaces = true,
+	roots: string[],
+	{ policy }: { policy: { plainRanges: boolean;
+		plainPeers: boolean; }; },
 ): PublishGraph => {
-	const roots = typeof selection === 'string' ? [selection] : selection;
 	const rootNames = new Set(roots);
 	const byName = new Map<string, WorkspacePackage[]>();
 	const byDirectory = new Map(workspace.packages.map(candidate => (
@@ -200,8 +198,7 @@ export const createPublishGraph = (
 		const candidate = byName.get(key)?.[0];
 		const version = candidate?.packageJson.version;
 		if (
-			(packageManager !== 'yarn' || transparentWorkspaces)
-			&& (peer || packageManager !== 'pnpm')
+			(peer ? policy.plainPeers : policy.plainRanges)
 			&& version && satisfiesWorkspaceRange(version, specification)
 		) {
 			return key;
@@ -222,6 +219,21 @@ export const createPublishGraph = (
 		if (!version || !satisfiesWorkspaceRange(version, reference.range)) {
 			throw new Error(`Package ${JSON.stringify(from.name)} requires ${JSON.stringify(key)} in workspace range ${JSON.stringify(reference.range)}, but ${JSON.stringify(target)} has version ${JSON.stringify(version)}.`);
 		}
+	};
+
+	const resolveEdge = (
+		from: WorkspacePackage, key: string, specification: string, peer: boolean,
+	) => {
+		if (!specification.startsWith('workspace:')) {
+			return resolvePlainTarget(from, key, specification, peer);
+		}
+		const target = peer
+			? tryResolveTarget(from, key, specification)
+			: resolveTarget(from, key, specification);
+		if (target) {
+			validateWorkspaceRange(from, key, specification, target);
+		}
+		return target;
 	};
 
 	const nodes = new Map<string, PublishGraphNode>();
@@ -249,14 +261,9 @@ export const createPublishGraph = (
 				if (typeof specification !== 'string') {
 					continue;
 				}
-				const target = specification.startsWith('workspace:')
-					? resolveTarget(current, key, specification)
-					: resolvePlainTarget(current, key, specification);
+				const target = resolveEdge(current, key, specification, false);
 				if (!target) {
 					continue;
-				}
-				if (specification.startsWith('workspace:')) {
-					validateWorkspaceRange(current, key, specification, target);
 				}
 				dependencies.push({
 					key,
@@ -273,15 +280,7 @@ export const createPublishGraph = (
 			}
 			const isWorkspaceProtocol = specification.startsWith('workspace:');
 			const optional = current.packageJson.peerDependenciesMeta?.[key]?.optional === true;
-			let target: string | undefined;
-			if (isWorkspaceProtocol) {
-				target = tryResolveTarget(current, key, specification);
-				if (target) {
-					validateWorkspaceRange(current, key, specification, target);
-				}
-			} else {
-				target = resolvePlainTarget(current, key, specification, true);
-			}
+			const target = resolveEdge(current, key, specification, true);
 			if (target === undefined && !isWorkspaceProtocol) {
 				if (byName.has(key)) {
 					pendingPeers.push({

@@ -157,10 +157,15 @@ export const planWorkspacePublication = async ({
 	const yarnSettings = yaml.load(yarnConfig) as
 		| { enableTransparentWorkspaces?: boolean }
 		| undefined;
+	const transparentWorkspaces = yarnSettings?.enableTransparentWorkspaces !== false;
+	const policy = {
+		plainRanges: packageManager !== 'pnpm' && (packageManager !== 'yarn' || transparentWorkspaces),
+		plainPeers: packageManager !== 'yarn' || transparentWorkspaces,
+	};
 	const graph = createPublishGraph({
 		...workspace,
 		packages: candidates,
-	}, [...roots], packageManager, yarnSettings?.enableTransparentWorkspaces !== false);
+	}, [...roots], { policy });
 	if (publicRoot && graph.nodes.length === 1 && graph.peers.length === 0) {
 		return undefined;
 	}
