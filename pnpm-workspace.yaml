@@ -1,2 +1,25 @@
 packages:
   - tests/monorepo-fixture
+
+allowBuilds:
+  esbuild: false
+  unrs-resolver: false
+  yarn: false
+
+permissions:
+  clean-pkg-json:
+    skills: true
+  cleye:
+    skills: true
+  fs-fixture:
+    skills: true
+  lintroll:
+    skills: true
+  manten:
+    skills: true
+  tasuku:
+    skills: true
+
+skills:
+  dirs:
+    - .agents/skills

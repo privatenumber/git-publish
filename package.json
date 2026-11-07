@@ -23,14 +23,13 @@
 	],
 	"type": "module",
 	"bin": "dist/index.js",
-	"packageManager": "pnpm@10.29.3",
+	"packageManager": "pnpm@12.18.0",
 	"scripts": {
 		"build": "pkgroll --minify --clean-dist --export-condition=node",
 		"lint": "lintroll --cache",
 		"type-check": "tsc",
 		"test": "node tests/index.ts",
-		"prepack": "pnpm build && clean-pkg-json",
-		"prepare": "skills-npm"
+		"prepack": "pnpm build && clean-pkg-json"
 	},
 	"engines": {
 		"node": ">=22"
@@ -64,7 +63,6 @@
 		"nano-spawn": "^2.1.0",
 		"pkgroll": "^2.27.1",
 		"semver": "^7.8.6",
-		"skills-npm": "^1.2.0",
 		"terminal-columns": "^2.0.0",
 		"terminal-link": "^5.0.0",
 		"typescript": "^6.0.3",

@@ -28,5 +28,5 @@ node_modules/
 # Cache
 .eslintcache
 
-# Agent skills from npm packages (managed by skills-npm)
-**/skills/npm-*
+# Agent skills linked from dependencies (pnpm writes its own .gitignore inside)
+/.agents/skills/
