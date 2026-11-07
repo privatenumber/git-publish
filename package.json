@@ -23,6 +23,9 @@
 	"type": "module",
 	"bin": "dist/index.js",
 	"packageManager": "pnpm@10.29.3",
+	"engines": {
+		"node": ">=22"
+	},
 	"scripts": {
 		"build": "pkgroll --minify --clean-dist --export-condition=node",
 		"lint": "lintroll --cache",
