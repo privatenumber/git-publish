@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { discoverWorkspacePackages } from '../../src/workspace-publication/discover.ts';
-import { satisfiesPackedPeer } from '../../src/workspace-publication/satisfies-range.ts';
+import { satisfiesPackedPeer, satisfiesWorkspaceRange } from '../../src/workspace-publication/satisfies-range.ts';
 import { planWorkspacePublication } from '../../src/workspace-publication/plan.ts';
 import { createWorkspaceResult, formatWorkspaceAliasWarnings } from '../../src/workspace-publication/output.ts';
 import type { PackagePreparation } from '../../src/package-publication/prepare.ts';
@@ -28,6 +28,10 @@ const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 };
 
 describe('Publication graph', () => {
+	test('includes prereleases for star and empty ranges but not x', () => {
+		expect(['', '*', 'x', 'X'].map(range => satisfiesWorkspaceRange('1.0.0-beta.3', range)))
+			.toStrictEqual([true, true, false, false]);
+	});
 	test('uses the optional edge when both dependency fields contain the same key', async () => {
 		const workspace = await discoverTestWorkspace({
 			app: {
