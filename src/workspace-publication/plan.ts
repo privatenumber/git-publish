@@ -1,6 +1,8 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import spawn from 'nano-spawn';
 import micromatch from 'micromatch';
+import yaml from 'js-yaml';
 import { renderPackageBranch } from '../package-publication/branch.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getStdout } from '../utils/get-stdout.ts';
@@ -88,10 +90,21 @@ export const planWorkspacePublication = async ({
 	if (roots.size === 0) {
 		throw new Error('No non-private workspace packages found to publish.');
 	}
+	const yarnConfig = packageManager === 'yarn'
+		? await fs.readFile(path.join(workspace.rootDirectory, '.yarnrc.yml'), 'utf8').catch((error: NodeJS.ErrnoException) => {
+			if (error.code === 'ENOENT') {
+				return '';
+			}
+			throw error;
+		})
+		: '';
+	const yarnSettings = yaml.load(yarnConfig) as
+		| { enableTransparentWorkspaces?: boolean }
+		| undefined;
 	const graph = createPublishGraph({
 		...workspace,
 		packages: candidates,
-	}, [...roots], packageManager);
+	}, [...roots], packageManager, yarnSettings?.enableTransparentWorkspaces !== false);
 	if (publicRoot && graph.nodes.length === 1 && graph.peers.length === 0) {
 		return undefined;
 	}

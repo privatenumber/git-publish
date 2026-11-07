@@ -2,6 +2,7 @@ import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { discoverWorkspacePackages } from '../../src/workspace-publication/discover.ts';
 import { satisfiesPackedPeer } from '../../src/workspace-publication/satisfies-range.ts';
+import { planWorkspacePublication } from '../../src/workspace-publication/plan.ts';
 import { createWorkspaceResult, formatWorkspaceAliasWarnings } from '../../src/workspace-publication/output.ts';
 import type { PackagePreparation } from '../../src/package-publication/prepare.ts';
 import {
@@ -27,6 +28,38 @@ const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 };
 
 describe('Publication graph', () => {
+	test('reads Yarn transparent workspace configuration at the workspace root', async () => {
+		await using fixture = await createFixture({
+			'package.json': JSON.stringify({
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'yarn.lock': '',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		});
+		const options = {
+			cwd: fixture.path,
+			gitRootPath: fixture.path,
+			sourceName: 'main',
+			sourceCommitId: undefined,
+			packageManager: 'yarn' as const,
+			force: false,
+			selection: ['app'],
+		};
+		expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['core', 'app']);
+		await fixture.writeFile('.yarnrc.yml', 'enableTransparentWorkspaces: false\n');
+		expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['app']);
+		await fixture.writeFile('.yarnrc.yml', 'enableTransparentWorkspaces: true\n');
+		expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['core', 'app']);
+	});
 	test('reports aliased peer edges in each install set', async () => {
 		const workspace = await discoverTestWorkspace({
 			app: {

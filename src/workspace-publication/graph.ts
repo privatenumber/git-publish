@@ -127,6 +127,7 @@ export const createPublishGraph = (
 	workspace: Workspace,
 	selection: string | string[],
 	packageManager: PackageManager = 'npm',
+	transparentWorkspaces = true,
 ): PublishGraph => {
 	const roots = typeof selection === 'string' ? [selection] : selection;
 	const rootNames = new Set(roots);
@@ -190,7 +191,11 @@ export const createPublishGraph = (
 	): string | undefined => {
 		const candidate = byName.get(key)?.[0];
 		const version = candidate?.packageJson.version;
-		if ((peer || packageManager !== 'pnpm') && version && satisfiesWorkspaceRange(version, specification)) {
+		if (
+			(packageManager !== 'yarn' || transparentWorkspaces)
+			&& (peer || packageManager !== 'pnpm')
+			&& version && satisfiesWorkspaceRange(version, specification)
+		) {
 			return key;
 		}
 		return undefined;
