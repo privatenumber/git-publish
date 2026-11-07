@@ -268,7 +268,7 @@ Use the repository's documented build command to generate output for the selecte
 
 If packages need custom preparation, add or adjust their `prepack` scripts in your fork's `package.json` files. Each package can use its own command. Commit the manifest and source changes before running `git-publish`: it requires a clean tracked working tree and packs from the committed source. Gitignored build output does not need to be committed.
 
-Package hooks run in an isolated checkout that is cleaned between packages. If one package's build needs another package's generated files, build those dependencies in your source checkout first; do not rely on output from an earlier package's pack hook being retained for the next package.
+Package hooks run in an isolated checkout that is cleaned between packages. Only the current package's ignored output matching its `files` field is copied from the source checkout. A hook that needs a sibling's generated output must build it in the hook or use committed output.
 
 #### Installing with pnpm
 
