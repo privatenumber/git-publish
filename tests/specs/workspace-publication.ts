@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {
-	describe, test, expect, onFinish,
+	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
@@ -376,6 +376,7 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 			}),
 			'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
 			'yarn.lock': '',
+			'.gitignore': 'node_modules',
 			'packages/app/package.json': JSON.stringify({
 				name: 'app',
 				version: '1.0.0',
@@ -386,10 +387,13 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 				version: '1.0.0',
 			}),
 		}, ['--initial-branch=pnpm-no-lock']);
+		// Packing resolves workspace: specifiers from installed dependencies
+		await spawn('pnpm', ['install', '--lockfile=false'], { cwd: fixture.path });
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial commit']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
 		const result = await gitPublish(fixture.getPath('packages/app'));
+		onTestFail(() => console.log(result));
 		expect('exitCode' in result).toBe(false);
 		expect(result.stdout).toContain('pnpm add');
 		const commit = await remote.git('rev-parse', ['npm/pnpm-no-lock-core']);
