@@ -10,19 +10,21 @@ const parseRepository = (value: string, directory: string) => {
 	}
 	if (url?.hostname) {
 		const pathname = url.pathname.replace(/\/+$/, '').replace(/\.git$/, '');
+		const user = url.protocol === 'ssh:' && !hosted.has(url.hostname.toLowerCase()) ? `${url.username}@` : '';
 		return {
-			identity: `${url.host.toLowerCase()}/${pathname.replace(/^\//, '')}`,
+			identity: `${user}${url.host.toLowerCase()}/${pathname.replace(/^\//, '')}`,
 			host: url.hostname.toLowerCase(),
 			pathname,
 		};
 	}
-	const scp = /^(?:[^@/:]+@)?([^/:]+):(.+)$/.exec(value);
+	const scp = /^(?:([^@/:]+)@)?([^/:]+):(.+)$/.exec(value);
 	if (scp) {
-		const host = scp[1]!.toLowerCase();
-		const rawPath = scp[2]!.replace(/\/+$/, '').replace(/\.git$/, '');
-		const pathname = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+		const host = scp[2]!.toLowerCase();
+		const rawPath = scp[3]!.replace(/\/+$/, '').replace(/\.git$/, '');
+		const pathname = rawPath.startsWith('/') ? rawPath : `${hosted.has(host) ? '/' : '/~/'}${rawPath}`;
+		const user = hosted.has(host) ? '' : `${scp[1] ?? ''}@`;
 		return {
-			identity: `${host}/${pathname.slice(1)}`,
+			identity: `${user}${host}/${pathname.slice(1)}`,
 			host,
 			pathname,
 		};

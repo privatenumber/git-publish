@@ -10,6 +10,12 @@ import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Remote transport', async () => {
 	test('selects install and history URLs by destination identity', () => {
+		expect(getPublicationUrls('git@host:repo.git', ['ssh://git@host/~/repo'], '/repo').historyUrl)
+			.toBe('git@host:repo.git');
+		expect(getPublicationUrls('git@host:repo.git', ['git@host:/repo.git'], '/repo').historyUrl)
+			.toBe('git@host:/repo.git');
+		expect(getPublicationUrls('a@host:repo.git', ['b@host:repo.git'], '/repo').historyUrl)
+			.toBe('b@host:repo.git');
 		expect(getPublicationUrls('https://GitHub.com/owner/repo.git', ['git@github.com:owner/repo'], '/repo'))
 			.toStrictEqual({
 				installUrl: 'https://GitHub.com/owner/repo.git',
