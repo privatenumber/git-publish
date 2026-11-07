@@ -198,7 +198,9 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			);
 			if (
 				!isHostedGitRemote(remoteUrl)
-				&& Object.values(result.installSets).some(set => set.length > 1)
+				&& Object.values(result.installSets).some(set => (
+					set.required.length + set.optional.length > 1
+				))
 			) {
 				console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
 			}
@@ -313,7 +315,10 @@ Pre-bundle these dependencies before publishing.`);
 						reused: preparation.reusedExistingCommit,
 					}],
 					installSets: {
-						[preparation.publication.packageName]: [preparation.publication.packageName],
+						[preparation.publication.packageName]: {
+							required: [preparation.publication.packageName],
+							optional: [],
+						},
 					},
 					aliases: { [preparation.publication.packageName]: {} },
 				}, null, 2)}\n`);

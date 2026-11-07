@@ -11,30 +11,43 @@ export const createWorkspaceResult = (
 	ref: string,
 	commit: string | undefined,
 ) => {
-	const edges = new Map(plan.nodes.map(node => (
-		[node.key, node.dependencies.map(edge => edge.target)]
-	)));
+	const edges = new Map(plan.nodes.map(node => [node.key, node.dependencies.map(edge => ({
+		target: edge.target,
+		optional: edge.field === 'optionalDependencies',
+	}))]));
 	for (const peer of plan.peers) {
 		if (peer.target) {
-			edges.get(peer.from)!.push(peer.target);
+			edges.get(peer.from)!.push({
+				target: peer.target,
+				optional: false,
+			});
 		}
 	}
 	const installSets = Object.fromEntries(plan.roots.map((root) => {
-		const visited = new Set<string>();
-		const pending = [root];
-		while (pending.length > 0) {
-			const current = pending.pop()!;
-			if (!visited.has(current)) {
-				visited.add(current);
-				pending.push(...edges.get(current)!);
+		const walk = (includeOptional: boolean) => {
+			const visited = new Set<string>();
+			const pending = [root];
+			while (pending.length > 0) {
+				const current = pending.pop()!;
+				if (!visited.has(current)) {
+					visited.add(current);
+					pending.push(...edges.get(current)!
+						.filter(edge => includeOptional || !edge.optional)
+						.map(edge => edge.target));
+				}
 			}
-		}
-		const others = plan.nodes.map(node => node.key)
-			.filter(name => name !== root && visited.has(name));
-		return [root, [root, ...others]];
+			return visited;
+		};
+		const all = walk(true);
+		const required = walk(false);
+		const orderedNames = plan.nodes.map(node => node.key);
+		return [root, {
+			required: [root, ...orderedNames.filter(name => name !== root && required.has(name))],
+			optional: orderedNames.filter(name => all.has(name) && !required.has(name)),
+		}];
 	}));
 	const aliases = Object.fromEntries(plan.roots.map((root) => {
-		const names = new Set(installSets[root]!);
+		const names = new Set([...installSets[root]!.required, ...installSets[root]!.optional]);
 		const entries = plan.nodes.filter(node => names.has(node.key)).flatMap(node => (
 			node.dependencies.filter(edge => edge.key !== edge.target)
 				.map(edge => [edge.key, edge.target])
@@ -78,16 +91,17 @@ export const formatWorkspaceResult = (
 	}
 	const packages = new Map(result.packages.map(item => [item.name, item]));
 	return plan.roots.map((root) => {
-		const names = result.installSets[root]!;
+		const { required: names, optional } = result.installSets[root]!;
+		const packageCount = names.length + optional.length;
 		const argumentsList = names.map((name) => {
 			const item = packages.get(name)!;
-			const specifier = names.length === 1
+			const specifier = packageCount === 1
 				? (getGitHubInstallSpecifier(fetchUrl, item.branch)
 					?? toInstallSpecifier(fetchUrl, item.branch))
 				: item.installSpecifier;
 			return shellQuote(packageManager === 'yarn' ? `${name}@${specifier}` : specifier);
 		});
-		const command = names.length === 1 && packageManager !== 'yarn'
+		const command = packageCount === 1 && packageManager !== 'yarn'
 			? `${packageManager} i`
 			: (packageManager === 'npm' ? 'npm install' : `${packageManager} add`);
 		let notes = '';
@@ -95,10 +109,13 @@ export const formatWorkspaceResult = (
 			notes = 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml';
 		} else if (packageManager === 'npm') {
 			notes = 'npm 12+: add --allow-git=root';
-		} else if (names.length > 1 && packageManager === 'pnpm') {
+		} else if (packageCount > 1 && packageManager === 'pnpm') {
 			notes = 'pnpm 11+: set blockExoticSubdeps: false in pnpm-workspace.yaml';
 		}
-		const title = plan.roots.length === 1 && names.length === 1 ? 'command' : root;
-		return `→ Install ${title}\n  ${command} ${argumentsList.join(' ')}${notes ? `\n  ${notes}` : ''}`;
+		const title = plan.roots.length === 1 && packageCount === 1 ? 'command' : root;
+		const optionalNote = optional.length > 0
+			? `\n  Optional workspace dependencies ${optional.join(', ')} install transitively (npm 12 needs --allow-git=all for them)`
+			: '';
+		return `→ Install ${title}\n  ${command} ${argumentsList.join(' ')}${notes ? `\n  ${notes}` : ''}${optionalNote}`;
 	}).join('\n\n');
 };

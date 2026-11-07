@@ -206,7 +206,7 @@ Standalone packages keep the default `npm/<gitRef>` branch. An explicit `--branc
 
 Internal peers retain their packed ranges. Publication fails before pushing if a packed peer range does not match its target's packed version. Unresolved `workspace:` peers are reported so consumers can provide them.
 
-For each selected package, the install command includes its runtime and peer closure as root dependencies. The commit-pinned Git URLs match those in the packed manifests. A single-package install uses the moving branch reference instead.
+For each selected package, the install command includes required runtime and peer packages as root dependencies. Packages reachable only through optional dependencies install transitively. The commit-pinned Git URLs match those in the packed manifests. A single-package install uses the moving branch reference instead.
 
 - npm 12+: add `--allow-git=root` to the command for any Git install.
 - pnpm 11+: set `blockExoticSubdeps: false` in the consumer's `pnpm-workspace.yaml` for a multi-package install set.
@@ -233,9 +233,12 @@ Use `--json <path>` to write publication details after a successful push. At the
         }
     ],
     "installSets": {
-        "@acme/core": [
-            "@acme/core"
-        ]
+        "@acme/core": {
+            "required": [
+                "@acme/core"
+            ],
+            "optional": []
+        }
     },
     "aliases": {
         "@acme/core": {}
@@ -243,7 +246,7 @@ Use `--json <path>` to write publication details after a successful push. At the
 }
 ```
 
-Each package's `role` is `root`, `dependency`, or `peer`. `reused` is true when the existing publication commit was unchanged. `source.commit` is the full commit ID, or `null` when the source has no commit. Install-set values are package names; look up their commit-pinned specifiers in `packages`.
+Each package's `role` is `root`, `dependency`, or `peer`. `reused` is true when the existing publication commit was unchanged. `source.commit` is the full commit ID, or `null` when the source has no commit. Each install set lists required and optional package names; look up their commit-pinned specifiers in `packages`.
 
 `aliases` maps each root to its internal dependency aliases and target package names. npm 12 requires `--allow-git=all` when an install set contains an alias.
 

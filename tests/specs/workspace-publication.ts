@@ -509,15 +509,22 @@ exec '${gitPath}' "$@"
 				installSpecifier: string;
 				role: string;
 				reused: boolean; }[];
-			installSets: Record<string, string[]>;
+			installSets: Record<string, { required: string[];
+				optional: string[]; }>;
 		}>('sets.json');
 		expect(data.source).toStrictEqual({
 			ref: 'sets',
 			commit: await fixture.git('rev-parse', ['HEAD']),
 		});
 		expect(data.installSets).toStrictEqual({
-			a: ['a', 'core'],
-			b: ['b', 'core'],
+			a: {
+				required: ['a', 'core'],
+				optional: [],
+			},
+			b: {
+				required: ['b', 'core'],
+				optional: [],
+			},
 		});
 		const core = data.packages.find(item => item.name === 'core')!;
 		expect(core.role).toBe('dependency');
@@ -556,6 +563,60 @@ exec '${gitPath}' "$@"
 		expect(result.stderr).toContain('npm 12 needs --allow-git=all for alias "alias"');
 		const json = await output.readJson<{ aliases: Record<string, Record<string, string>> }>('result.json');
 		expect(json.aliases).toStrictEqual({ app: { alias: 'core' } });
+	});
+
+	test('keeps optional-only packages out of root install arguments', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+				optionalDependencies: { optional: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+				dependencies: { leaf: '^1.0.0' },
+			}),
+			'packages/optional/package.json': JSON.stringify({
+				name: 'optional',
+				version: '1.0.0',
+				os: ['!darwin'],
+				dependencies: { leaf: '^1.0.0' },
+			}),
+			'packages/leaf/package.json': JSON.stringify({
+				name: 'leaf',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=optional']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await using output = await createFixture();
+		const result = await gitPublish(fixture.getPath('packages/app'), ['--json', output.getPath('result.json')]);
+		expect('exitCode' in result).toBe(false);
+		const json = await output.readJson<{
+			installSets: Record<string, { required: string[];
+				optional: string[]; }>;
+			packages: { name: string;
+				installSpecifier: string; }[];
+		}>('result.json');
+		expect(json.installSets.app).toStrictEqual({
+			required: ['app', 'leaf', 'core'],
+			optional: ['optional'],
+		});
+		const optional = json.packages.find(item => item.name === 'optional')!;
+		expect(result.stdout).not.toContain(optional.installSpecifier);
+		expect(result.stdout).toContain('Optional workspace dependencies optional install transitively');
+		const manifest = JSON.parse(await remote.git('show', ['npm/optional-app:package.json']));
+		expect(manifest.optionalDependencies.optional).toBe(optional.installSpecifier);
 	});
 
 	for (const manager of ['pnpm', 'yarn', 'bun'] as const) {
@@ -643,7 +704,12 @@ exec '${npm}' "$@"
 				role: 'root',
 				reused: false,
 			}],
-			installSets: { standalone: ['standalone'] },
+			installSets: {
+				standalone: {
+					required: ['standalone'],
+					optional: [],
+				},
+			},
 			aliases: { standalone: {} },
 		});
 	});
