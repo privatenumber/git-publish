@@ -235,6 +235,9 @@ export const createPublishGraph = (
 		for (const field of ['dependencies', 'optionalDependencies'] as const) {
 			const entries = current.packageJson[field] ?? {};
 			for (const [key, specification] of Object.entries(entries)) {
+				if (field === 'dependencies' && Object.hasOwn(current.packageJson.optionalDependencies ?? {}, key)) {
+					continue;
+				}
 				if (typeof specification !== 'string') {
 					continue;
 				}

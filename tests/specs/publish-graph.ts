@@ -28,6 +28,28 @@ const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 };
 
 describe('Publication graph', () => {
+	test('uses the optional edge when both dependency fields contain the same key', async () => {
+		const workspace = await discoverTestWorkspace({
+			app: {
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+				optionalDependencies: { core: '^1.0.0' },
+			},
+			core: {
+				name: 'core',
+				version: '1.0.0',
+			},
+		});
+		const graph = createPublishGraph(workspace, 'app');
+		expect(graph.nodes.find(node => node.key === 'app')!.dependencies).toStrictEqual([
+			{
+				key: 'core',
+				field: 'optionalDependencies',
+				target: 'core',
+			},
+		]);
+	});
 	test('reads Yarn transparent workspace configuration at the workspace root', async () => {
 		await using fixture = await createFixture({
 			'package.json': JSON.stringify({
@@ -98,7 +120,10 @@ describe('Publication graph', () => {
 			peers: graph.peers,
 		}, preparations, 'main', 'abc');
 		expect(result.aliases).toStrictEqual({ app: { alias: 'core' } });
-		expect(result.installSets.app).toStrictEqual({ required: ['app'], optional: ['core'] });
+		expect(result.installSets.app).toStrictEqual({
+			required: ['app'],
+			optional: ['core'],
+		});
 		expect(formatWorkspaceAliasWarnings(result)).toStrictEqual([
 			'Warning: npm 12 needs --allow-git=all for alias "alias" of "core".',
 		]);
