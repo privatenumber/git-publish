@@ -367,6 +367,36 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 		expect(manifest.dependencies.core).toBe(`git+file://${noLockRemote.path}#${commit}`);
 	});
 
+	test('detects a pnpm workspace without a lockfile ahead of stale Yarn locks', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+			}),
+			'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+			'yarn.lock': '',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: 'workspace:*' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=pnpm-no-lock']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		expect('exitCode' in result).toBe(false);
+		expect(result.stdout).toContain('pnpm add');
+		const commit = await remote.git('rev-parse', ['npm/pnpm-no-lock-core']);
+		const manifest = JSON.parse(await remote.git('show', ['npm/pnpm-no-lock-app:package.json']));
+		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+	});
+
 	test('publishes a public workspace root as a standalone package', async () => {
 		await using rootRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
