@@ -60,8 +60,11 @@ export const validatePeerRanges = (
 			continue;
 		}
 		const range = preparations.get(peer.from)!.peerDependencies[peer.key];
+		if (range === undefined) {
+			continue;
+		}
 		const { version } = preparations.get(peer.target)!;
-		if (range === undefined || !version || !satisfiesPackedPeer(range, peer.target, version)) {
+		if (!version || !satisfiesPackedPeer(range, peer.target, version)) {
 			throw new Error(`Package ${stringify(peer.from)} requires peer ${stringify(peer.target)} in range ${stringify(range)}, but its packed version is ${stringify(version)}.`);
 		}
 	}

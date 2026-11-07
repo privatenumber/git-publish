@@ -1226,6 +1226,28 @@ exec '${npm}' "$@"
 		});
 	}
 
+	test('allows a pack hook to remove an internal peer', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('removed-peer', remote.path, {
+			peerSpecification: 'workspace:*',
+		});
+		await using commands = await createFixture({
+			npm: `#!/bin/sh
+if [ "$1" = pack ] && [ -f package.json ]; then
+  "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.peerDependencies) { delete p.peerDependencies["@test/core"]; fs.writeFileSync("package.json", JSON.stringify(p)); }'
+fi
+exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+`,
+		});
+		await fs.chmod(commands.getPath('npm'), 0o755);
+		const result = await gitPublish(fixture.getPath('packages/adapter'), [], {
+			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+		});
+		expect('exitCode' in result).toBe(false);
+		const manifest = JSON.parse(await remote.git('show', ['npm/removed-peer-@test/adapter:package.json']));
+		expect(manifest.peerDependencies?.['@test/core']).toBeUndefined();
+	});
+
 	test('rejects a packed internal peer range mismatch before pushing', async () => {
 		await using peerRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('peer-mismatch', peerRemote.path, {
