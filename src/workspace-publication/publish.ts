@@ -11,9 +11,9 @@ import { planPackagePublicationPush, pushPackagePublications } from '../package-
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
+import { validatePeerRanges } from '../package-publication/validate.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 import { processWorkspacePackage } from './process-package.ts';
-import { satisfiesPackedPeer } from './satisfies-range.ts';
 
 export const publishWorkspaceClosure = async ({
 	plan,
@@ -72,6 +72,7 @@ export const publishWorkspaceClosure = async ({
 					preparations,
 					setStatus,
 					standalone: plan.standalone,
+					peers: plan.peers.filter(peer => peer.from === node.key),
 				});
 				preparations.set(node.key, preparation);
 				if (plan.standalone) {
@@ -119,19 +120,7 @@ export const publishWorkspaceClosure = async ({
 				async taskApi => processPackage(index, taskApi),
 			)),
 		));
-		for (const peer of plan.peers) {
-			if (!peer.target) {
-				continue;
-			}
-			const range = preparations.get(peer.from)!.peerDependencies[peer.key];
-			const { version } = preparations.get(peer.target)!;
-			if (range !== undefined && /^(?:file|link):/.test(range)) {
-				throw new Error(`Package ${JSON.stringify(peer.from)} declares peer ${JSON.stringify(peer.key)} as ${JSON.stringify(range)}, which consumers cannot resolve. Use a workspace: specifier or a version range.`);
-			}
-			if (range === undefined || !version || !satisfiesPackedPeer(range, peer.target, version)) {
-				throw new Error(`Package ${JSON.stringify(peer.from)} requires peer ${JSON.stringify(peer.target)} in range ${JSON.stringify(range)}, but its packed version is ${JSON.stringify(version)}.`);
-			}
-		}
+		validatePeerRanges(plan, preparations);
 		const packageCount = plan.nodes.length;
 		await task(
 			`Pushing ${packageCount} ${packageCount === 1 ? 'package' : 'packages'}${packageCount === 1 ? '' : ' together'}`,

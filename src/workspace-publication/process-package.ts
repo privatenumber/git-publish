@@ -9,6 +9,7 @@ import type { PublishRemote } from '../publish-repository/remote.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { packPackage } from '../utils/pack-package.ts';
 import type { WorkspacePublicationNode } from './plan.ts';
+import type { WorkspacePeer } from './graph.ts';
 
 export const processWorkspacePackage = async ({
 	index,
@@ -24,6 +25,7 @@ export const processWorkspacePackage = async ({
 	preparations,
 	setStatus,
 	standalone,
+	peers,
 }: {
 	index: number;
 	localBranch: string;
@@ -38,6 +40,7 @@ export const processWorkspacePackage = async ({
 	preparations: ReadonlyMap<string, PackagePreparation>;
 	setStatus: (status?: string) => void;
 	standalone: boolean | undefined;
+	peers: WorkspacePeer[];
 }): Promise<PackagePreparation> => {
 	setStatus('Preparing isolated checkout');
 	const packWorktreeOptions = {
@@ -75,6 +78,7 @@ export const processWorkspacePackage = async ({
 		commitMessage: `Published ${standalone ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(sourceName)}${sourceCommit ? ` (${sourceCommit})` : ''}`,
 		dependencyEdges: node.dependencies,
 		dependencyPublications,
+		peers,
 		gitOptions: repository.gitOptions,
 	});
 };

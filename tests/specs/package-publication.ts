@@ -7,8 +7,9 @@ import { describe, expect, test } from 'manten';
 import { createFixture } from 'fs-fixture';
 import tarFs from 'tar-fs';
 import {
-	preparePackagePublication, toInstallSpecifier, validatePackedWorkspaceDependencies,
+	preparePackagePublication, toInstallSpecifier,
 } from '../../src/package-publication/prepare.ts';
+import { validatePackedWorkspaceDependencies } from '../../src/package-publication/validate.ts';
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
