@@ -23,9 +23,6 @@
 	"type": "module",
 	"bin": "dist/index.js",
 	"packageManager": "pnpm@10.29.3",
-	"engines": {
-		"node": ">=22"
-	},
 	"scripts": {
 		"build": "pkgroll --minify --clean-dist --export-condition=node",
 		"lint": "lintroll --cache",
@@ -33,6 +30,9 @@
 		"test": "node tests/index.ts",
 		"prepack": "pnpm build && clean-pkg-json",
 		"prepare": "skills-npm"
+	},
+	"engines": {
+		"node": ">=22"
 	},
 	"dependencies": {
 		"@manypkg/get-packages": "^3.1.0",
