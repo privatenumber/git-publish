@@ -33,6 +33,7 @@ export type PublishGraph = {
 type WorkspaceReference =
 	| {
 		kind: 'version';
+		range: string;
 	}
 	| {
 		kind: 'alias';
@@ -43,9 +44,6 @@ type WorkspaceReference =
 		path: string;
 	};
 
-// Only structural malformation is rejected here. Range content is deferred to
-// the package manager: any non-empty range resolves by name, and real version
-// mismatches surface at pack and install time.
 const parseWorkspaceSpecification = (specification: string): WorkspaceReference | undefined => {
 	if (!specification.startsWith('workspace:')) {
 		return undefined;
@@ -77,6 +75,7 @@ const parseWorkspaceSpecification = (specification: string): WorkspaceReference 
 	}
 	return {
 		kind: 'version',
+		range: body,
 	};
 };
 
@@ -194,6 +193,16 @@ export const createPublishGraph = (
 		}
 		return undefined;
 	};
+	const validateWorkspaceRange = (from: WorkspacePackage, key: string, specification: string, target: string) => {
+		const reference = parseWorkspaceSpecification(specification);
+		if (reference?.kind !== 'version' || ['*', '^', '~'].includes(reference.range)) {
+			return;
+		}
+		const version = byName.get(target)![0]!.packageJson.version;
+		if (!version || !satisfiesWorkspaceRange(version, reference.range)) {
+			throw new Error(`Package ${JSON.stringify(from.name)} requires ${JSON.stringify(key)} in workspace range ${JSON.stringify(reference.range)}, but ${JSON.stringify(target)} has version ${JSON.stringify(version)}.`);
+		}
+	};
 
 	const nodes = new Map<string, PublishGraphNode>();
 	const peers: WorkspacePeer[] = [];
@@ -223,6 +232,9 @@ export const createPublishGraph = (
 				if (!target) {
 					continue;
 				}
+				if (specification.startsWith('workspace:')) {
+					validateWorkspaceRange(current, key, specification, target);
+				}
 				dependencies.push({
 					key,
 					field,
@@ -240,6 +252,9 @@ export const createPublishGraph = (
 			let target: string | undefined;
 			if (isWorkspaceProtocol) {
 				target = tryResolveTarget(current, key, specification);
+				if (target) {
+					validateWorkspaceRange(current, key, specification, target);
+				}
 			} else {
 				target = resolvePlainTarget(key, specification, true);
 			}

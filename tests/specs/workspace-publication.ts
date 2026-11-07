@@ -795,6 +795,17 @@ exec '${npm}' "$@"
 		expect(gitPublishProcess.stderr).not.toContain('Pre-bundle these dependencies');
 	});
 
+	test('rejects mismatched explicit workspace ranges before packing', async () => {
+		await using fixture = await createChainWorkspace('range-mismatch', remoteFixture.path, {
+			adapterSpecification: 'workspace:^2.0.0',
+		});
+		const result = await gitPublish(fixture.getPath('packages/adapter'), ['--dry']);
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		for (const text of ['@test/adapter', '@test/broker', '^2.0.0', '0.0.0']) {
+			expect(result.stderr).toContain(text);
+		}
+	});
+
 	test('publishes internal peers without rewriting the peer range', async () => {
 		const branchName = 'test-workspace-peer-diagnostic';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
