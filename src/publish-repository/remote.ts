@@ -17,7 +17,7 @@ export const getPublishRemote = async (
 ): Promise<PublishRemote> => {
 	const options = { cwd: repositoryPath };
 	let configuredName: string | undefined = remote;
-	const fetchUrl = await getStdout(spawn('git', ['config', '--get', `remote.${remote}.url`], options)).catch(() => {
+	const urlOutput = await getStdout(spawn('git', ['config', '--get-all', `remote.${remote}.url`], options)).catch(() => {
 		configuredName = undefined;
 		if (usesDefaultRemote) {
 			throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
@@ -25,8 +25,13 @@ export const getPublishRemote = async (
 
 		return remote;
 	});
+	const urls = urlOutput.split('\n');
+	const fetchUrl = urls[0]!;
 	const pushUrlOutput = configuredName
 		? await getStdout(spawn('git', ['config', '--get-all', `remote.${remote}.pushurl`], options)).catch(async () => {
+			if (urls.length > 1) {
+				return urlOutput;
+			}
 			const [expandedFetch, expandedPush] = await Promise.all([
 				getStdout(spawn('git', ['remote', 'get-url', remote], options)),
 				getStdout(spawn('git', ['remote', 'get-url', '--push', remote], options)),

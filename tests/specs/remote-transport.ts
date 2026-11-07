@@ -58,6 +58,15 @@ describe('Remote transport', async () => {
 		expect(remote.historyUrl).toBe('https://example.test/fork/repo.git');
 	});
 
+	test('uses the first fetch URL and all configured URLs for pushes', async () => {
+		await using fixture = await createGitFixture();
+		await fixture.git('remote', ['add', 'origin', 'https://example.test/a.git']);
+		await fixture.git('config', ['--add', 'remote.origin.url', 'https://example.test/b.git']);
+		const remote = await getPublishRemote(fixture.path, 'origin', true);
+		expect(remote.historyUrl).toBe('https://example.test/a.git');
+		expect(remote.pushUrls).toStrictEqual(['https://example.test/a.git', 'https://example.test/b.git']);
+	});
+
 	test('loads standalone history from the push destination', async () => {
 		await using upstream = await createGitFixture(undefined, ['--bare']);
 		await using destination = await createGitFixture(undefined, ['--bare']);
