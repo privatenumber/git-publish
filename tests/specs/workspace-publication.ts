@@ -953,7 +953,7 @@ exec '${npm}' "$@"
 				private: true,
 			}),
 			'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
-			'pnpm-lock.yaml': '',
+			'.gitignore': 'node_modules',
 			'packages/app/package.json': JSON.stringify({
 				name: 'app',
 				version: '1.0.0',
@@ -964,6 +964,8 @@ exec '${npm}' "$@"
 				version: '1.0.0',
 			}),
 		}, ['--initial-branch=alias-peer']);
+		// pnpm resolves an aliased workspace specifier at pack time only from installed dependencies
+		await spawn('pnpm', ['install'], { cwd: fixture.path });
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial commit']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
