@@ -1,6 +1,7 @@
 import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
+import { isLocalGitUrl } from '../utils/git-url.ts';
 import { getPublicationUrls } from './destination.ts';
 
 export type PublishRemote = {
@@ -50,10 +51,6 @@ export const getPublishRemote = async (
 		configuredName,
 	};
 };
-
-export const isLocalGitUrl = (url: string) => url.startsWith('file://')
-	|| /^[a-z]:/i.test(url)
-	|| (!/^[a-z][a-z\d+.-]*:\/\//i.test(url) && !/^[^/:]+:/.test(url));
 
 export const getGitServerCommand = (url: string, command: string) => (isLocalGitUrl(url)
 	? `env -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_GLOBAL ${command}`

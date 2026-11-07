@@ -1,6 +1,5 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import semver from 'semver';
 import type { PackageJson } from '@npmcli/package-json';
@@ -9,7 +8,7 @@ import { getStdout } from '../utils/get-stdout.ts';
 import { gitStatusTracked } from '../utils/git.ts';
 import { readJson } from '../utils/read-json.ts';
 import { findUnpublishedFilesFieldEntries } from '../utils/unpublished-files-field.ts';
-import { isLocalGitUrl } from '../publish-repository/remote.ts';
+import { toPackageManagerGitUrl } from '../utils/git-url.ts';
 
 const { stringify } = JSON;
 
@@ -33,38 +32,6 @@ export type PackagePublicationDependency = {
 	key: string;
 	field: 'dependencies' | 'optionalDependencies';
 	target: string;
-};
-
-const toPackageManagerGitUrl = (url: string) => {
-	const parsed = URL.parse(url.replace(/^git\+/, ''));
-	if (parsed?.protocol === 'ssh:') {
-		parsed.password = '';
-		parsed.search = '';
-		return `git+${parsed.href}`;
-	}
-	if (parsed && ['http:', 'https:', 'git:'].includes(parsed.protocol)) {
-		parsed.username = '';
-		parsed.password = '';
-		parsed.search = '';
-		return `git+${parsed.href}`;
-	}
-	if (url.startsWith('git+')) {
-		return url;
-	}
-	if (/^(?:file|git|https?|ssh):\/\//.test(url)) {
-		return `git+${url}`;
-	}
-	if (isLocalGitUrl(url)) {
-		const windows = /^[a-z]:[\\/]/i.test(url);
-		return `git+${pathToFileURL(windows ? url : path.resolve(url), { windows }).href}`;
-	}
-	const scpUrl = /^(?<user>[^@/:]+@)?(?<host>[^/:]+):(?<path>.+)$/.exec(url)?.groups;
-	if (scpUrl) {
-		const hosted = ['github.com', 'gitlab.com', 'bitbucket.org'].includes(scpUrl.host!);
-		const pathname = scpUrl.path!.startsWith('/') ? scpUrl.path : `${hosted ? '/' : '/~/'}${scpUrl.path}`;
-		return `git+ssh://${scpUrl.user ?? ''}${scpUrl.host}${pathname}`;
-	}
-	return `git+${pathToFileURL(path.resolve(url)).href}`;
 };
 
 export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPackageManagerGitUrl(fetchUrl)}#${commit}`;

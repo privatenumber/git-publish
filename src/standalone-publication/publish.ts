@@ -13,7 +13,7 @@ import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { packPackage } from '../utils/pack-package.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
-import { redactRemote } from '../utils/redact-remote.ts';
+import { redactRemote } from '../utils/git-url.ts';
 
 const { stringify } = JSON;
 

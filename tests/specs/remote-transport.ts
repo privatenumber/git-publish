@@ -28,6 +28,8 @@ describe('Remote transport', async () => {
 		expect(result.stdout).toContain('push rejected by test hook');
 	});
 	test('selects install and history URLs by destination identity', () => {
+		expect(getPublicationUrls('https://alice@host/repo.git', ['https://bob@host/repo.git'], '/repo').historyUrl)
+			.toBe('https://alice@host/repo.git');
 		expect(getPublicationUrls('git@host:repo.git', ['ssh://git@host/~/repo'], '/repo').historyUrl)
 			.toBe('git@host:repo.git');
 		expect(getPublicationUrls('git@host:repo.git', ['git@host:/repo.git'], '/repo').historyUrl)

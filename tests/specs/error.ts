@@ -1,7 +1,7 @@
 import spawn from 'nano-spawn';
 import { expect, test } from 'manten';
 import { getErrorDetails } from '../../src/utils/error.ts';
-import { redactRemote } from '../../src/utils/redact-remote.ts';
+import { redactRemote } from '../../src/utils/git-url.ts';
 
 test('redacts username tokens while preserving SSH usernames', () => {
 	expect(redactRemote('ssh://git@host/repo.git?access_token=secret'))

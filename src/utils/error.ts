@@ -1,6 +1,6 @@
 import type { Writable } from 'node:stream';
 import { SubprocessError } from 'nano-spawn';
-import { redactRemote } from './redact-remote.ts';
+import { redactRemote } from './git-url.ts';
 
 export const getErrorDetails = (error: unknown): string => {
 	if (error instanceof AggregateError) {

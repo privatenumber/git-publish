@@ -1,7 +1,7 @@
 import { terminalColumns } from 'terminal-columns';
 import { toInstallSpecifier, type PackagePreparation } from '../package-publication/prepare.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
-import { getGitHubInstallSpecifier } from '../utils/github.ts';
+import { getGitHubInstallSpecifier } from '../utils/git-url.ts';
 import { shellQuote } from '../utils/shell-quote.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 

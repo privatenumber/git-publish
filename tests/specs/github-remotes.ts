@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'manten';
-import { getGitHubInstallSpecifier, getGitHubRepositoryName } from '../../src/utils/github.ts';
+import { getGitHubInstallSpecifier, getGitHubRepositoryName } from '../../src/utils/git-url.ts';
 
 describe('GitHub remotes', () => {
 	test('normalizes supported remote URLs', () => {
