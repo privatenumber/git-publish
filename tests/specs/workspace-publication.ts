@@ -193,6 +193,26 @@ exec '${gitPath}' "$@"
 		expect(calls.trim().split('\n')).toStrictEqual(['ls-remote', 'fetch']);
 	});
 
+	test('does not restore dependencies removed before packing', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('removed-dependency', remote.path);
+		await using commands = await createFixture({
+			npm: `#!/bin/sh
+if [ "$1" = pack ] && [ -f package.json ]; then
+  "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.name === "@test/adapter") { delete p.dependencies["@test/broker"]; fs.writeFileSync("package.json", JSON.stringify(p)); }'
+fi
+exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+`,
+		});
+		await fs.chmod(commands.getPath('npm'), 0o755);
+		const result = await gitPublish(fixture.getPath('packages/adapter'), [], {
+			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+		});
+		expect('exitCode' in result).toBe(false);
+		const manifest = JSON.parse(await remote.git('show', ['npm/removed-dependency-@test/adapter:package.json']));
+		expect(manifest.dependencies?.['@test/broker']).toBeUndefined();
+	});
+
 	test('publishes and reloads a workspace closure from the push destination', async () => {
 		await using upstream = await createGitFixture(undefined, ['--bare']);
 		await using destination = await createGitFixture(undefined, ['--bare']);

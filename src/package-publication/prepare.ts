@@ -99,10 +99,10 @@ export const preparePackagePublication = async ({
 	const manifest = await readJson(manifestPath) as PackageJson;
 	const original = stringify(manifest);
 	for (const edge of dependencyEdges) {
-		const dependency = dependencyPublications.get(edge.target)!;
-		const field = manifest[edge.field] ?? {};
-		field[edge.key] = dependency.installSpecifier;
-		manifest[edge.field] = field;
+		const field = manifest[edge.field];
+		if (field && Object.hasOwn(field, edge.key)) {
+			field[edge.key] = dependencyPublications.get(edge.target)!.installSpecifier;
+		}
 	}
 	const sourceManifest = await readJson(sourceManifestPath) as PackageJson;
 	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
