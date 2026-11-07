@@ -98,6 +98,9 @@ export const publishWorkspaceClosure = async ({
 			}
 			const range = preparations.get(peer.from)!.peerDependencies[peer.key];
 			const { version } = preparations.get(peer.target)!;
+			if (range !== undefined && /^(?:file|link):/.test(range)) {
+				throw new Error(`Package ${JSON.stringify(peer.from)} declares peer ${JSON.stringify(peer.key)} as ${JSON.stringify(range)}, which consumers cannot resolve. Use a workspace: specifier or a version range.`);
+			}
 			if (range === undefined || !version || !satisfiesPackedPeer(range, peer.target, version)) {
 				throw new Error(`Package ${JSON.stringify(peer.from)} requires peer ${JSON.stringify(peer.target)} in range ${JSON.stringify(range)}, but its packed version is ${JSON.stringify(version)}.`);
 			}

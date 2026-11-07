@@ -44,6 +44,35 @@ describe('Workspace publication', async () => {
 		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${coreCommit}`);
 	});
 
+	test('rejects sibling file: peers that consumers cannot resolve', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				peerDependencies: { core: 'file:../core' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=file-peer']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		onTestFail(() => console.log(result));
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain('which consumers cannot resolve');
+		expect(await remote.git('for-each-ref')).toBe('');
+	});
+
 	test('never publishes or prints remote URL credentials', async () => {
 		await using credentialRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('credentials', 'https://user:secret@example.test/repo.git');
