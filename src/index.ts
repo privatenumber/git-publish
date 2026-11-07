@@ -57,6 +57,12 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		version: packageMeta.version,
 		strictFlags: true,
 		parameters: ['[packages...]'],
+		commands: {
+			skills: {
+				description: 'Print the bundled agent skill, or install it with --install <directory>',
+				loader: () => import('./commands/skills.ts'),
+			},
+		},
 		flags: {
 			branch: {
 				type: String,
@@ -102,6 +108,10 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			description: packageMeta.description,
 		},
 	});
+	if (argv.command) {
+		await argv.runCommand();
+		return;
+	}
 	await assertCleanTree();
 
 	const cwd = process.cwd();
