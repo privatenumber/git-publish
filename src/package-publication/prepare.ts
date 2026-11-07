@@ -98,7 +98,7 @@ export const preparePackagePublication = async ({
 		manifest[edge.field] = field;
 	}
 	const sourceManifest = await readJson(sourceManifestPath) as PackageJson;
-	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies', 'devDependencies'] as const) {
+	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
 		const packed = manifest[field];
 		if (packed) {
 			const ordered: Record<string, string> = {};
@@ -119,6 +119,7 @@ export const preparePackagePublication = async ({
 		}
 	}
 	delete manifest.workspaces;
+	delete manifest.devDependencies;
 	if (stringify(manifest) !== original) {
 		await fs.writeFile(manifestPath, stringify(manifest, null, 2));
 	}

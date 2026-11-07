@@ -87,10 +87,10 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 			dependencies: ['z', 'b'],
 			optionalDependencies: ['z', 'x'],
 			peerDependencies: ['z', 'x'],
-			devDependencies: ['z', 'x'],
 		})) {
 			expect(Object.keys(manifest[field])).toStrictEqual(keys);
 		}
+		expect(manifest.devDependencies).toBeUndefined();
 		const second = await gitPublish(packagePath, [], environment);
 		expect('exitCode' in second).toBe(false);
 		expect(await Promise.all(branches.map(branch => orderedRemote.git('rev-parse', [branch])))).toStrictEqual(commits);
