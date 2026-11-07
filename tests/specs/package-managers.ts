@@ -14,6 +14,48 @@ describe('Package managers', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	describe('bun', () => {
+		test('pack hooks can access dependency binaries', async () => {
+			const branchName = 'test-bun-pack-hook-dependency';
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'test-bun-pack-hook-dependency',
+					version: '1.0.0',
+					files: ['build-output.txt'],
+					scripts: {
+						prepack: 'fixture-build',
+					},
+					devDependencies: {
+						'fixture-build': 'file:./fixture-build',
+					},
+				}, null, 2),
+				'.gitignore': 'node_modules',
+				'fixture-build': {
+					'package.json': JSON.stringify({
+						name: 'fixture-build',
+						version: '1.0.0',
+						bin: 'index.js',
+					}, null, 2),
+					'index.js': `#!/usr/bin/env node
+require('node:fs').writeFileSync('build-output.txt', 'built');
+`,
+				},
+			}, [`--initial-branch=${branchName}`]);
+
+			await spawn('bun', ['install'], { cwd: fixture.path });
+			const { git } = fixture;
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+			onTestFail(() => console.log(gitPublishProcess));
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(await remoteGit('show', [`npm/${branchName}:build-output.txt`])).toBe('built');
+		});
+	});
+
 	describe('Install command', () => {
 		for (const [packageManager, lockfile, command, packagePrefix] of [
 			['npm', 'package-lock.json', 'npm i', ''],
@@ -50,14 +92,17 @@ exec npm "$@"
 				await git('add', ['package.json', lockfile]);
 				await git('commit', ['-m', 'Initial commit']);
 				await git('remote', ['add', 'origin', remoteUrl]);
-				await git('config', ['remote.origin.pushurl', remoteFixture.path]);
+				await git('config', [`url.${remoteFixture.path}.insteadOf`, remoteUrl]);
 
 				const result = await gitPublish(fixture.path, ['--fresh'], {
 					PATH: `${commandsFixture.path}${path.delimiter}${process.env.PATH}`,
 				});
 				onTestFail(() => console.log(result));
 				expect('exitCode' in result).toBe(false);
-				expect(result.stdout).toContain(`${command} '${packagePrefix}${remoteUrl}#npm/${branchName}'`);
+				expect(result.stdout).toContain(`${command} '${packagePrefix}owner/repository#npm/${branchName}'`);
+				expect(result.stdout.includes('npm 12+: add --allow-git=root')).toBe(packageManager === 'npm');
+				expect(result.stdout.includes('approvedGitRepositories')).toBe(packageManager === 'yarn');
+				expect(result.stdout).not.toContain('blockExoticSubdeps');
 			});
 		}
 	});

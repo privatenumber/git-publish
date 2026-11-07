@@ -10,7 +10,7 @@ export const detectPackageManager = async (
 		cwd,
 		stopAt,
 	};
-	if (await findUp('pnpm-lock.yaml', config)) {
+	if (await findUp('pnpm-lock.yaml', config) || await findUp('pnpm-workspace.yaml', config)) {
 		return 'pnpm';
 	}
 

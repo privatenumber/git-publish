@@ -2,9 +2,13 @@ import { describe } from 'manten';
 
 describe('git-publish', () => {
 	import('./specs/workspace-discovery.ts');
-	import('./specs/run-graph.ts');
+	import('./specs/workspace-publication.ts');
+	import('./specs/package-publication.ts');
+	import('./specs/branch-template.ts');
+	import('./specs/standalone-branch-template.ts');
 	import('./specs/publish-graph.ts');
 	import('./specs/github-remotes.ts');
+	import('./specs/error.ts');
 	import('./specs/git-config.ts');
 	import('./specs/validation-errors.ts');
 	import('./specs/remote-transport.ts');
