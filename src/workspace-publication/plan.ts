@@ -163,7 +163,7 @@ export const planWorkspacePublication = async ({
 		: !['false', '0'].includes(yarnEnvironment.toLowerCase());
 	const policy = {
 		plainRanges: packageManager !== 'pnpm' && (packageManager !== 'yarn' || transparentWorkspaces),
-		plainPeers: packageManager !== 'yarn' || transparentWorkspaces,
+		plainPeers: true,
 	};
 	const graph = createPublishGraph({
 		...workspace,

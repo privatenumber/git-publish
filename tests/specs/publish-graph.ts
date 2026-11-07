@@ -149,6 +149,35 @@ describe('Publication graph', () => {
 		});
 		expect(JSON.parse(stdout)).toStrictEqual(['core', 'app']);
 	});
+	test('resolves plain Yarn peers when transparent workspaces are disabled', async () => {
+		await using fixture = await createFixture({
+			'package.json': JSON.stringify({
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'yarn.lock': '',
+			'.yarnrc.yml': 'enableTransparentWorkspaces: false\n',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				peerDependencies: { core: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		});
+		const plan = await planWorkspacePublication({
+			cwd: fixture.path,
+			gitRootPath: fixture.path,
+			sourceName: 'main',
+			sourceCommitId: undefined,
+			packageManager: 'yarn',
+			force: false,
+			selection: ['app'],
+		});
+		expect(plan!.nodes.map(node => node.key)).toStrictEqual(['app', 'core']);
+	});
 	test('reports aliased peer edges in each install set', async () => {
 		const workspace = await discoverTestWorkspace({
 			app: {
