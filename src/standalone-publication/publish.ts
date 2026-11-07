@@ -160,20 +160,25 @@ export const publishStandalonePackage = async ({
 			prepare.clear();
 		}
 
-		const push = task(`Pushing branch ${stringify(publishBranch)} to remote ${stringify(redactRemote(remoteName))}`, async ({ setStatus, setWarning }) => {
+		const push = task(`Pushing branch ${stringify(publishBranch)} to remote ${stringify(redactRemote(remoteName))}`, async ({ setStatus, setWarning, streamPreview }) => {
 			if (dry) {
 				setWarning('');
 				return;
 			}
 			for (const [index, pushRemoteName] of repository!.pushRemoteNames.entries()) {
 				setStatus(`${index + 1} of ${repository!.pushRemoteNames.length}`);
-				await spawn('git', [
-					'push',
-					...(fresh ? ['--force'] : []),
-					'--no-verify',
-					pushRemoteName,
+				try {
+					await spawn('git', [
+						'push',
+						...(fresh ? ['--force'] : []),
+						'--no-verify',
+						pushRemoteName,
 						`HEAD:${publishBranch}`,
-				], repository!.gitOptions);
+					], repository!.gitOptions);
+				} catch (error) {
+					writeSubprocessErrorOutput(streamPreview, error);
+					throw error;
+				}
 			}
 		});
 		await push;

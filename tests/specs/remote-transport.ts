@@ -9,6 +9,24 @@ import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Remote transport', async () => {
+	test('prints the rejection reason for a standalone push', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		const hook = remote.getPath('hooks/pre-receive');
+		await fs.writeFile(hook, '#!/bin/sh\necho "push rejected by test hook" >&2\nexit 1\n');
+		await fs.chmod(hook, 0o755);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.path);
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.stdout).toContain('push rejected by test hook');
+	});
 	test('selects install and history URLs by destination identity', () => {
 		expect(getPublicationUrls('git@host:repo.git', ['ssh://git@host/~/repo'], '/repo').historyUrl)
 			.toBe('git@host:repo.git');
