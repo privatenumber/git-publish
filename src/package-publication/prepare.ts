@@ -69,6 +69,16 @@ const toPackageManagerGitUrl = (url: string) => {
 
 export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPackageManagerGitUrl(fetchUrl)}#${commit}`;
 
+export const validatePackedWorkspaceDependencies = (packageName: string, manifest: PackageJson) => {
+	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+		for (const [key, value] of Object.entries(manifest[field] ?? {})) {
+			if (value?.startsWith('workspace:')) {
+				throw new Error(`Package ${stringify(packageName)} has unresolved ${field} ${stringify(key)}: ${stringify(value)}.`);
+			}
+		}
+	}
+};
+
 export const preparePackagePublication = async ({
 	packageName,
 	sourceManifestPath,
@@ -114,6 +124,7 @@ export const preparePackagePublication = async ({
 			field[edge.key] = dependencyPublications.get(edge.target)!.installSpecifier;
 		}
 	}
+	validatePackedWorkspaceDependencies(packageName, manifest);
 	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
 		const packed = manifest[field];
 		if (packed) {

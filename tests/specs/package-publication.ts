@@ -6,10 +6,19 @@ import { pipeline } from 'node:stream/promises';
 import { describe, expect, test } from 'manten';
 import { createFixture } from 'fs-fixture';
 import tarFs from 'tar-fs';
-import { preparePackagePublication, toInstallSpecifier } from '../../src/package-publication/prepare.ts';
+import {
+	preparePackagePublication, toInstallSpecifier, validatePackedWorkspaceDependencies,
+} from '../../src/package-publication/prepare.ts';
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	test('rejects unresolved workspace specifications in packed dependency fields', () => {
+		for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+			expect(() => validatePackedWorkspaceDependencies('app', { [field]: { core: 'workspace:*' } }))
+				.toThrow(`Package "app" has unresolved ${field} "core": "workspace:*".`);
+		}
+		validatePackedWorkspaceDependencies('app', { dependencies: { core: '^1.0.0' } });
+	});
 	test('omits query strings from HTTP and Git install URLs', () => {
 		for (const scheme of ['http', 'https', 'git', 'git+https']) {
 			expect(toInstallSpecifier(`${scheme}://host/repo.git?access_token=secret`, 'abc'))

@@ -204,7 +204,7 @@ For one package, a literal branch remains exact. For example, `git-publish --bra
 
 Standalone packages keep the default `npm/<gitRef>` branch. An explicit `--branch` can use the same placeholders or remain a literal branch name.
 
-Internal peers retain their packed ranges. Publication fails before pushing if a packed peer range does not match its target's packed version. Unresolved `workspace:` peers are reported so consumers can provide them.
+Internal peers retain their packed ranges. Publication fails before pushing if a packed peer range does not match its target's packed version, or if a packed dependency or peer still uses `workspace:`.
 
 For each selected package, the install command includes required runtime and peer packages as root dependencies. Packages reachable only through optional dependencies install transitively. The commit-pinned Git URLs match those in the packed manifests. A single-package install uses the moving branch reference instead.
 
