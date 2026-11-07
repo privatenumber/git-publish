@@ -38,6 +38,7 @@ type WorkspaceReference =
 	| {
 		kind: 'alias';
 		name: string;
+		range: string;
 	}
 	| {
 		kind: 'path';
@@ -68,6 +69,7 @@ const parseWorkspaceSpecification = (specification: string): WorkspaceReference 
 		return {
 			kind: 'alias',
 			name,
+			range,
 		};
 	}
 	if (body.startsWith('@')) {
@@ -200,7 +202,7 @@ export const createPublishGraph = (
 		target: string,
 	) => {
 		const reference = parseWorkspaceSpecification(specification);
-		if (reference?.kind !== 'version' || ['*', '^', '~'].includes(reference.range)) {
+		if (!reference || reference.kind === 'path' || ['*', '^', '~'].includes(reference.range)) {
 			return;
 		}
 		const { version } = byName.get(target)![0]!.packageJson;

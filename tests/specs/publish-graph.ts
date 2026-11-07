@@ -65,6 +65,21 @@ describe('Publication graph', () => {
 			'Warning: npm 12 needs --allow-git=all for alias "alias" of "core".',
 		]);
 	});
+
+	test('rejects an aliased workspace range that does not match its target', async () => {
+		const workspace = await discoverTestWorkspace({
+			app: {
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { alias: 'workspace:core@^2.0.0' },
+			},
+			core: {
+				name: 'core',
+				version: '1.0.0',
+			},
+		});
+		expect(() => createPublishGraph(workspace, 'app')).toThrow('^2.0.0');
+	});
 	test('validates packed peer ranges, including pnpm aliases', () => {
 		expect(satisfiesPackedPeer('^1.0.0', 'core', '1.2.0')).toBe(true);
 		expect(satisfiesPackedPeer('npm:core@*', 'core', '1.0.0')).toBe(true);
