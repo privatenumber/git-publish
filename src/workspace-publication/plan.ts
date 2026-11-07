@@ -164,8 +164,8 @@ export const planWorkspacePublication = async ({
 	let pnpmLinkWorkspacePackages = false;
 	if (packageManager === 'pnpm') {
 		const workspaceConfig = (yaml.load(await fs.readFile(path.join(workspace.rootDirectory, 'pnpm-workspace.yaml'), 'utf8')) ?? {}) as {
-			linkWorkspacePackages?: boolean;
-			'link-workspace-packages'?: boolean;
+			linkWorkspacePackages?: boolean | string;
+			'link-workspace-packages'?: boolean | string;
 		};
 		const npmrc = await fs.readFile(path.join(workspace.rootDirectory, '.npmrc'), 'utf8').catch((error: NodeJS.ErrnoException) => {
 			if (error.code === 'ENOENT') {
@@ -173,9 +173,12 @@ export const planWorkspacePublication = async ({
 			}
 			throw error;
 		});
-		pnpmLinkWorkspacePackages = workspaceConfig.linkWorkspacePackages === true
-			|| workspaceConfig['link-workspace-packages'] === true
-			|| /^\s*link-workspace-packages\s*=\s*true\s*$/m.test(npmrc);
+		const configured = process.env.PNPM_CONFIG_LINK_WORKSPACE_PACKAGES
+			?? process.env.npm_config_link_workspace_packages
+			?? workspaceConfig.linkWorkspacePackages
+			?? workspaceConfig['link-workspace-packages']
+			?? /^\s*link-workspace-packages\s*=\s*(\S+)\s*$/m.exec(npmrc)?.[1];
+		pnpmLinkWorkspacePackages = configured === true || configured === 'true' || configured === 'deep';
 	}
 	const policy = {
 		plainRanges: (packageManager !== 'pnpm' || pnpmLinkWorkspacePackages)

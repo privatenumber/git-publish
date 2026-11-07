@@ -201,13 +201,30 @@ describe('Publication graph', () => {
 			force: false,
 			selection: ['app'],
 		};
-		for (const config of ['linkWorkspacePackages: true', 'link-workspace-packages: true']) {
+		for (const config of ['linkWorkspacePackages: true',
+			'link-workspace-packages: true',
+			'linkWorkspacePackages: deep',
+			'link-workspace-packages: deep']) {
 			await fixture.writeFile('pnpm-workspace.yaml', `packages:\n  - packages/*\n${config}\n`);
 			expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['core', 'app']);
 		}
 		await fixture.writeFile('pnpm-workspace.yaml', 'packages:\n  - packages/*\n');
 		await fixture.writeFile('.npmrc', 'link-workspace-packages=true\n');
 		expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['core', 'app']);
+		await fixture.writeFile('.npmrc', 'link-workspace-packages=deep\n');
+		expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['core', 'app']);
+		await fixture.writeFile('pnpm-workspace.yaml', 'packages:\n  - packages/*\nlinkWorkspacePackages: false\n');
+		const script = `import { planWorkspacePublication } from ${JSON.stringify(new URL('../../src/workspace-publication/plan.ts', import.meta.url).href)};
+		const plan = await planWorkspacePublication(${JSON.stringify(options)});
+		console.log(JSON.stringify(plan.nodes.map(node => node.key)));`;
+		for (const key of ['PNPM_CONFIG_LINK_WORKSPACE_PACKAGES', 'npm_config_link_workspace_packages']) {
+			for (const value of ['true', 'deep', 'false']) {
+				const { stdout } = await spawn(process.execPath, ['--input-type=module', '-e', script], {
+					env: { [key]: value },
+				});
+				expect(JSON.parse(stdout)).toStrictEqual(value === 'false' ? ['app'] : ['core', 'app']);
+			}
+		}
 	});
 	test('reports aliased peer edges in each install set', async () => {
 		const workspace = await discoverTestWorkspace({
