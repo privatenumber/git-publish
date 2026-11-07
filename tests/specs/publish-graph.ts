@@ -180,6 +180,53 @@ describe('Publication graph', () => {
 		expect(output).toContain('core@git+https://example.test/repo#abc');
 	});
 
+	test('installs the required closure of an optional peer', async () => {
+		const workspace = await discoverTestWorkspace({
+			app: {
+				name: 'app',
+				version: '1.0.0',
+				peerDependencies: { adapter: 'workspace:*' },
+				peerDependenciesMeta: { adapter: { optional: true } },
+			},
+			adapter: {
+				name: 'adapter',
+				version: '1.0.0',
+				peerDependencies: { core: 'workspace:*' },
+			},
+			core: {
+				name: 'core',
+				version: '1.0.0',
+			},
+		});
+		const graph = createPublishGraph(workspace, 'app');
+		const nodes = graph.nodes.map(node => ({
+			...node,
+			branch: `npm/${node.key}`,
+		}));
+		const preparations = new Map<string, PackagePreparation>(nodes.map(node => [node.key, {
+			publication: {
+				packageName: node.key,
+				branch: node.branch,
+				commit: node.key,
+				installSpecifier: `git+https://example.test/repo#${node.key}`,
+			},
+			files: [],
+			unpublishedFilesFieldEntries: [],
+			reusedExistingCommit: false,
+			version: '1.0.0',
+			peerDependencies: {},
+		}]));
+		const result = createWorkspaceResult({
+			roots: ['app'],
+			publishAll: false,
+			nodes,
+			peers: graph.peers,
+		}, preparations, 'main', 'abc');
+		const output = formatWorkspaceResult(result, 'npm', 'https://example.test/repo');
+		expect(output).toContain("Optional peers adapter: install with npm install 'git+https://example.test/repo#adapter' 'git+https://example.test/repo#core'");
+		expect(output).not.toContain('Optional workspace dependencies core install transitively');
+	});
+
 	test('rejects an aliased workspace range that does not match its target', async () => {
 		const workspace = await discoverTestWorkspace({
 			app: {
