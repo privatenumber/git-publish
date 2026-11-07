@@ -382,15 +382,18 @@ describe('Publication graph', () => {
 			version: '1.0.0',
 			peerDependencies: {},
 		}]));
-		const result = createWorkspaceResult({
-			roots: ['app'],
-			publishAll: false,
-			nodes,
-			peers: graph.peers,
-		}, preparations, 'main', 'abc');
-		const output = formatWorkspaceResult(result, 'npm', 'https://example.test/repo');
-		expect(output).toContain('Optional workspace dependencies b install transitively');
-		expect(output).toContain("Optional peers c: install with npm install 'git+https://example.test/repo#c'");
+		for (const optional of [false, true]) {
+			graph.peers[0]!.optional = optional;
+			const result = createWorkspaceResult({
+				roots: ['app'],
+				publishAll: false,
+				nodes,
+				peers: graph.peers,
+			}, preparations, 'main', 'abc');
+			const output = formatWorkspaceResult(result, 'npm', 'https://example.test/repo');
+			expect(output).toContain('Optional workspace dependencies b install transitively');
+			expect(output).toContain("Optional peers c: install with npm install 'git+https://example.test/repo#c'");
+		}
 	});
 
 	test('rejects an aliased workspace range that does not match its target', async () => {

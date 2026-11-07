@@ -59,7 +59,9 @@ export const createWorkspaceResult = (
 	const results = plan.roots.map((root) => {
 		const required = reachable([root], isRequired);
 		const all = reachable([root], () => true);
-		const installed = reachable([root], edge => edge.kind !== 'optionalPeer');
+		const installed = reachable([root], edge => (
+			edge.kind !== 'optionalPeer' && (edge.kind !== 'peer' || required.has(edge.from))
+		));
 		const requiredNames = [
 			root,
 			...orderedNames.filter(name => name !== root && required.has(name)),
@@ -73,7 +75,8 @@ export const createWorkspaceResult = (
 			}
 		}
 		const peers = edges.filter(edge => (
-			edge.kind === 'optionalPeer' && installed.has(edge.from) && !installed.has(edge.target)
+			(edge.kind === 'optionalPeer' || (edge.kind === 'peer' && !required.has(edge.from)))
+				&& installed.has(edge.from) && !installed.has(edge.target)
 		));
 		const peerClosure = reachable(peers.map(peer => peer.target), edge => (
 			isRequired(edge) && !installed.has(edge.target)
