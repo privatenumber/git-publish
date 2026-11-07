@@ -24,7 +24,7 @@ import { assertAtomicPackagePublicationDestination } from './package-publication
 import { planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
 import {
-	createWorkspaceResult, formatWorkspaceResult, formatWorkspaceAliasWarnings,
+	createWorkspaceResult, formatWorkspaceResult,
 } from './workspace-publication/output.ts';
 import { publishStandalonePackage } from './standalone-publication/publish.ts';
 import { toInstallSpecifier } from './package-publication/prepare.ts';
@@ -208,9 +208,6 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			}
 			if (argv.flags.json) {
 				await fs.writeFile(argv.flags.json, `${stringify(result, null, 2)}\n`);
-			}
-			for (const warning of formatWorkspaceAliasWarnings(result)) {
-				console.warn(warning);
 			}
 			console.log(`\n${formatWorkspaceResult(result, closurePlan, packageManager, remoteUrl)}`);
 		}

@@ -670,7 +670,7 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 		await using output = await createFixture();
 		const result = await gitPublish(fixture.getPath('packages/app'), ['--json', output.getPath('result.json')]);
 		expect('exitCode' in result).toBe(false);
-		expect(result.stderr).toContain('npm 12 needs --allow-git=all for alias "alias"');
+		expect(result.stderr).not.toContain('npm 12 needs --allow-git=all for alias "alias"');
 		const json = await output.readJson<{ aliases: Record<string, Record<string, string>> }>('result.json');
 		expect(json.aliases).toStrictEqual({ app: { alias: 'core' } });
 	});

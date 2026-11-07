@@ -3,7 +3,7 @@ import { createFixture } from 'fs-fixture';
 import { discoverWorkspacePackages } from '../../src/workspace-publication/discover.ts';
 import { satisfiesPackedPeer, satisfiesWorkspaceRange } from '../../src/workspace-publication/satisfies-range.ts';
 import { planWorkspacePublication } from '../../src/workspace-publication/plan.ts';
-import { createWorkspaceResult, formatWorkspaceAliasWarnings } from '../../src/workspace-publication/output.ts';
+import { createWorkspaceResult, formatWorkspaceResult } from '../../src/workspace-publication/output.ts';
 import type { PackagePreparation } from '../../src/package-publication/prepare.ts';
 import {
 	createPublishGraph,
@@ -136,20 +136,45 @@ describe('Publication graph', () => {
 			version: '1.0.0',
 			peerDependencies: {},
 		}]));
-		const result = createWorkspaceResult({
+		const plan = {
 			roots: ['app'],
 			publishAll: false,
 			nodes,
 			peers: graph.peers,
-		}, preparations, 'main', 'abc');
+		};
+		const result = createWorkspaceResult(plan, preparations, 'main', 'abc');
 		expect(result.aliases).toStrictEqual({ app: { alias: 'core' } });
 		expect(result.installSets.app).toStrictEqual({
 			required: ['app'],
 			optional: ['core'],
 		});
-		expect(formatWorkspaceAliasWarnings(result)).toStrictEqual([
-			'Warning: npm 12 needs --allow-git=all for alias "alias" of "core".',
-		]);
+		const app = nodes.find(node => node.key === 'app')!;
+		app.package.packageJson.peerDependenciesMeta!.alias!.optional = false;
+		app.dependencies.push({
+			key: 'runtime',
+			field: 'dependencies',
+			target: 'core',
+		});
+		const requiredResult = createWorkspaceResult(plan, preparations, 'main', 'abc');
+		expect(requiredResult.aliases).toStrictEqual({
+			app: {
+				runtime: 'core',
+				alias: 'core',
+			},
+		});
+		for (const manager of ['npm', 'pnpm', 'yarn', 'bun'] as const) {
+			const output = formatWorkspaceResult(requiredResult, plan, manager, 'https://example.test/repo');
+			expect(output).toContain('runtime@git+https://example.test/repo#abc');
+			expect(output).toContain('alias@git+https://example.test/repo#abc');
+			expect(output).not.toContain('core@git+https://example.test/repo#abc');
+		}
+		app.dependencies.push({
+			key: 'core',
+			field: 'dependencies',
+			target: 'core',
+		});
+		const output = formatWorkspaceResult(requiredResult, plan, 'yarn', 'https://example.test/repo');
+		expect(output).toContain('core@git+https://example.test/repo#abc');
 	});
 
 	test('rejects an aliased workspace range that does not match its target', async () => {

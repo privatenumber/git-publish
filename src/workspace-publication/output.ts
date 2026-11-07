@@ -83,16 +83,6 @@ export const createWorkspaceResult = (
 
 export type WorkspaceResult = ReturnType<typeof createWorkspaceResult>;
 
-export const formatWorkspaceAliasWarnings = (result: WorkspaceResult): string[] => {
-	const aliases = new Set(Object.values(result.aliases).flatMap(entries => (
-		Object.entries(entries).map(([alias, target]) => `${alias}\0${target}`)
-	)));
-	return [...aliases].map((entry) => {
-		const [alias, target] = entry.split('\0');
-		return `Warning: npm 12 needs --allow-git=all for alias ${JSON.stringify(alias)} of ${JSON.stringify(target)}.`;
-	});
-};
-
 export const formatWorkspaceResult = (
 	result: WorkspaceResult,
 	plan: WorkspacePublicationPlan,
@@ -106,16 +96,37 @@ export const formatWorkspaceResult = (
 		], { stdoutColumns: Number.POSITIVE_INFINITY })}\nUse --json <path> for install sets.`;
 	}
 	const packages = new Map(result.packages.map(item => [item.name, item]));
+	const manifests = new Map(plan.nodes.map(node => [node.key, node.package.packageJson]));
 	return plan.roots.map((root) => {
 		const { required: names, optional } = result.installSets[root]!;
 		const packageCount = names.length + optional.length;
-		const argumentsList = names.map((name) => {
+		const required = new Set(names);
+		const installNames = new Map(names.map(name => [name, new Set<string>()]));
+		installNames.get(root)!.add(root);
+		for (const node of plan.nodes) {
+			if (required.has(node.key)) {
+				for (const edge of node.dependencies) {
+					if (edge.field !== 'optionalDependencies' && required.has(edge.target)) {
+						installNames.get(edge.target)!.add(edge.key);
+					}
+				}
+			}
+		}
+		for (const peer of plan.peers) {
+			if (peer.target && required.has(peer.from) && required.has(peer.target)
+				&& !manifests.get(peer.from)!.peerDependenciesMeta?.[peer.key]?.optional) {
+				installNames.get(peer.target)!.add(peer.key);
+			}
+		}
+		const argumentsList = names.flatMap((name) => {
 			const item = packages.get(name)!;
 			const specifier = packageCount === 1
 				? (getGitHubInstallSpecifier(fetchUrl, item.branch)
 					?? toInstallSpecifier(fetchUrl, item.branch))
 				: item.installSpecifier;
-			return shellQuote(packageManager === 'yarn' ? `${name}@${specifier}` : specifier);
+			return [...installNames.get(name)!].map(installName => shellQuote(
+				packageManager === 'yarn' || installName !== name ? `${installName}@${specifier}` : specifier,
+			));
 		});
 		const command = packageCount === 1 && packageManager !== 'yarn'
 			? `${packageManager} i`
