@@ -106,6 +106,7 @@ describe('Package publication', () => {
 			'@test/optional': 'git+file:///remote.git#optional-commit',
 		});
 		expect(manifest.scripts).toStrictEqual({
+			build: 'node build.js',
 			preinstall: 'node preinstall.js',
 			install: 'node install.js',
 			postinstall: 'node postinstall.js',
