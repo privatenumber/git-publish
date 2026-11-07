@@ -69,9 +69,12 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				alias: 'r',
 				placeholder: '<remote name or Git URL>',
 				description: 'The Git remote or URL to push to.',
-				default: () => {
-					usedDefaultRemote = true;
-					return 'origin';
+				default: {
+					value: () => {
+						usedDefaultRemote = true;
+						return 'origin';
+					},
+					description: 'origin',
 				},
 			},
 			fresh: {
