@@ -341,6 +341,58 @@ describe('Publication graph', () => {
 		expect(output).not.toContain('Optional workspace dependencies core install transitively');
 	});
 
+	test('reports optional peers of optional dependencies', async () => {
+		const workspace = await discoverTestWorkspace({
+			app: {
+				name: 'app',
+				version: '1.0.0',
+				optionalDependencies: { b: 'workspace:*' },
+			},
+			b: {
+				name: 'b',
+				version: '1.0.0',
+				peerDependencies: { c: 'workspace:*' },
+				peerDependenciesMeta: { c: { optional: true } },
+			},
+			c: {
+				name: 'c',
+				version: '1.0.0',
+			},
+		});
+		const graph = createPublishGraph(workspace, ['app'], {
+			policy: {
+				plainRanges: true,
+				plainPeers: true,
+			},
+		});
+		const nodes = graph.nodes.map(node => ({
+			...node,
+			branch: `npm/${node.key}`,
+		}));
+		const preparations = new Map<string, PackagePreparation>(nodes.map(node => [node.key, {
+			publication: {
+				packageName: node.key,
+				branch: node.branch,
+				commit: node.key,
+				installSpecifier: `git+https://example.test/repo#${node.key}`,
+			},
+			files: [],
+			unpublishedFilesFieldEntries: [],
+			reusedExistingCommit: false,
+			version: '1.0.0',
+			peerDependencies: {},
+		}]));
+		const result = createWorkspaceResult({
+			roots: ['app'],
+			publishAll: false,
+			nodes,
+			peers: graph.peers,
+		}, preparations, 'main', 'abc');
+		const output = formatWorkspaceResult(result, 'npm', 'https://example.test/repo');
+		expect(output).toContain('Optional workspace dependencies b install transitively');
+		expect(output).toContain("Optional peers c: install with npm install 'git+https://example.test/repo#c'");
+	});
+
 	test('rejects an aliased workspace range that does not match its target', async () => {
 		const workspace = await discoverTestWorkspace({
 			app: {

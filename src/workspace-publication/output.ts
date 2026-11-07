@@ -11,129 +11,122 @@ export const createWorkspaceResult = (
 	ref: string,
 	commit: string | undefined,
 ) => {
-	const edges = new Map(plan.nodes.map(node => [node.key, node.dependencies.map(edge => ({
-		key: edge.key,
-		target: edge.target,
-		optional: edge.field === 'optionalDependencies',
-	}))]));
-	for (const peer of plan.peers) {
-		if (peer.target) {
-			edges.get(peer.from)!.push({
+	type Edge = {
+		from: string;
+		key: string;
+		target: string;
+		kind: 'dependency' | 'optional' | 'peer' | 'optionalPeer';
+	};
+	const edges: Edge[] = [
+		...plan.nodes.flatMap(node => node.dependencies.map(edge => ({
+			from: node.key,
+			key: edge.key,
+			target: edge.target,
+			kind: edge.field === 'dependencies' ? 'dependency' as const : 'optional' as const,
+		}))),
+		...plan.peers.flatMap(peer => (peer.target
+			? [{
+				from: peer.from,
 				key: peer.key,
 				target: peer.target,
-				optional: peer.optional,
-			});
-		}
+				kind: peer.optional ? 'optionalPeer' as const : 'peer' as const,
+			}]
+			: [])),
+	];
+	const edgesBySource = new Map(plan.nodes.map(node => [node.key, [] as Edge[]]));
+	for (const edge of edges) {
+		edgesBySource.get(edge.from)!.push(edge);
 	}
-	const installSets = Object.fromEntries(plan.roots.map((root) => {
-		const walk = (includeOptional: boolean) => {
-			const visited = new Set<string>();
-			const pending = [root];
-			while (pending.length > 0) {
-				const current = pending.pop()!;
-				if (!visited.has(current)) {
-					visited.add(current);
-					pending.push(...edges.get(current)!
-						.filter(edge => includeOptional || !edge.optional)
-						.map(edge => edge.target));
-				}
-			}
-			return visited;
-		};
-		const all = walk(true);
-		const required = walk(false);
-		const orderedNames = plan.nodes.map(node => node.key);
-		return [root, {
-			required: [root, ...orderedNames.filter(name => name !== root && required.has(name))],
-			optional: orderedNames.filter(name => all.has(name) && !required.has(name)),
-		}];
-	}));
-	const aliases = Object.fromEntries(plan.roots.map((root) => {
-		const names = new Set([...installSets[root]!.required, ...installSets[root]!.optional]);
-		const entries = plan.nodes.filter(node => names.has(node.key)).flatMap(node => (
-			node.dependencies.filter(edge => edge.key !== edge.target)
-				.map(edge => [edge.key, edge.target])
-		));
-		for (const peer of plan.peers) {
-			if (names.has(peer.from) && peer.target && peer.key !== peer.target) {
-				entries.push([peer.key, peer.target]);
-			}
-		}
-		return [root, Object.fromEntries(entries)];
-	}));
-	const installNames = Object.fromEntries(plan.roots.map((root) => {
-		const required = new Set(installSets[root]!.required);
-		const names = new Map([...required].map(name => [name, new Set<string>()]));
-		names.get(root)!.add(root);
-		for (const node of plan.nodes) {
-			if (required.has(node.key)) {
-				for (const edge of node.dependencies) {
-					if (edge.field !== 'optionalDependencies' && required.has(edge.target)) {
-						names.get(edge.target)!.add(edge.key);
-					}
-				}
-			}
-		}
-		for (const peer of plan.peers) {
-			if (peer.target && required.has(peer.from) && required.has(peer.target) && !peer.optional) {
-				names.get(peer.target)!.add(peer.key);
-			}
-		}
-		return [root, Object.fromEntries([...names].map(([name, entries]) => [name, [...entries]]))];
-	}));
-	const automaticEdges = new Map(plan.nodes.map(node => (
-		[node.key, node.dependencies.map(edge => edge.target)]
-	)));
-	for (const peer of plan.peers) {
-		if (peer.target && !peer.optional) {
-			automaticEdges.get(peer.from)!.push(peer.target);
-		}
-	}
-	const optionalInstall = Object.fromEntries(plan.roots.map((root) => {
-		const installed = new Set<string>();
-		const pending = [root];
-		while (pending.length > 0) {
-			const name = pending.pop()!;
-			if (!installed.has(name)) {
-				installed.add(name);
-				pending.push(...automaticEdges.get(name)!);
-			}
-		}
-		const peers = plan.peers.filter(peer => (
-			peer.optional && peer.target && installed.has(peer.from) && !installed.has(peer.target)
-		));
-		const peerNames = new Map<string, Set<string>>();
-		const peerPending = peers.map((peer) => {
-			const names = peerNames.get(peer.target!) ?? new Set<string>();
-			names.add(peer.key);
-			peerNames.set(peer.target!, names);
-			return peer.target!;
-		});
+	const reachable = (starts: Iterable<string>, follows: (edge: Edge) => boolean) => {
 		const visited = new Set<string>();
-		while (peerPending.length > 0) {
-			const name = peerPending.pop()!;
-			if (visited.has(name)) {
+		const pending = [...starts];
+		while (pending.length > 0) {
+			const current = pending.pop()!;
+			if (visited.has(current)) {
 				continue;
 			}
-			visited.add(name);
-			for (const edge of edges.get(name)!) {
-				if (!edge.optional && !installed.has(edge.target)) {
-					const names = peerNames.get(edge.target) ?? new Set<string>();
-					names.add(edge.key);
-					peerNames.set(edge.target, names);
-					peerPending.push(edge.target);
+			visited.add(current);
+			for (const edge of edgesBySource.get(current)!) {
+				if (follows(edge)) {
+					pending.push(edge.target);
+				}
+			}
+		}
+		return visited;
+	};
+	const isRequired = (edge: Edge) => edge.kind === 'dependency' || edge.kind === 'peer';
+	const orderedNames = plan.nodes.map(node => node.key);
+	const results = plan.roots.map((root) => {
+		const required = reachable([root], isRequired);
+		const all = reachable([root], () => true);
+		const installed = reachable([root], edge => edge.kind !== 'optionalPeer');
+		const requiredNames = [
+			root,
+			...orderedNames.filter(name => name !== root && required.has(name)),
+		];
+		const optional = orderedNames.filter(name => all.has(name) && !required.has(name));
+		const names = new Map(requiredNames.map(name => [name, new Set<string>()]));
+		names.get(root)!.add(root);
+		for (const edge of edges) {
+			if (isRequired(edge) && required.has(edge.from) && required.has(edge.target)) {
+				names.get(edge.target)!.add(edge.key);
+			}
+		}
+		const peers = edges.filter(edge => (
+			edge.kind === 'optionalPeer' && installed.has(edge.from) && !installed.has(edge.target)
+		));
+		const peerClosure = reachable(peers.map(peer => peer.target), edge => (
+			isRequired(edge) && !installed.has(edge.target)
+		));
+		const peerNames = new Map<string, Set<string>>();
+		for (const peer of peers) {
+			const entries = peerNames.get(peer.target) ?? new Set<string>();
+			entries.add(peer.key);
+			peerNames.set(peer.target, entries);
+		}
+		for (const name of peerClosure) {
+			for (const edge of edgesBySource.get(name)!) {
+				if (isRequired(edge) && !installed.has(edge.target)) {
+					const entries = peerNames.get(edge.target) ?? new Set<string>();
+					entries.add(edge.key);
+					peerNames.set(edge.target, entries);
 				}
 			}
 		}
 		return [root, {
-			dependencies: installSets[root]!.optional.filter(name => installed.has(name)),
-			peers: peers.map(peer => ({
-				name: peer.key,
-				target: peer.target!,
-			})),
-			peerNames: Object.fromEntries([...peerNames].map(([name, entries]) => [name, [...entries]])),
-		}];
-	}));
+			installSet: {
+				required: requiredNames,
+				optional,
+			},
+			aliases: Object.fromEntries(edges.filter(edge => (
+				all.has(edge.from) && all.has(edge.target) && edge.key !== edge.target
+			)).map(edge => [edge.key, edge.target])),
+			installNames: Object.fromEntries([...names].map(([name, entries]) => (
+				[name, [...entries]]
+			))),
+			optionalInstall: {
+				dependencies: optional.filter(name => installed.has(name)),
+				peers: peers.map(peer => ({
+					name: peer.key,
+					target: peer.target,
+				})),
+				peerNames: Object.fromEntries([...peerNames].map(([name, entries]) => (
+					[name, [...entries]]
+				))),
+			},
+		}] as const;
+	});
+	const installSets = Object.fromEntries(results.map(([root, result]) => (
+		[root, result.installSet]
+	)));
+	const aliases = Object.fromEntries(results.map(([root, result]) => [root, result.aliases]));
+	const installNames = Object.fromEntries(results.map(([root, result]) => (
+		[root, result.installNames]
+	)));
+	const optionalInstall = Object.fromEntries(results.map(([root, result]) => (
+		[root, result.optionalInstall]
+	)));
+
 	return {
 		source: {
 			ref,
