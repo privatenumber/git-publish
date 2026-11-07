@@ -1,6 +1,8 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import spawn from 'nano-spawn';
 import yaml from 'js-yaml';
+import { createFixture } from 'fs-fixture';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
@@ -11,6 +13,153 @@ describe('Package managers', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
+
+	describe('bun', () => {
+		test('pack hooks can access dependency binaries', async () => {
+			const branchName = 'test-bun-pack-hook-dependency';
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'test-bun-pack-hook-dependency',
+					version: '1.0.0',
+					files: ['build-output.txt'],
+					scripts: {
+						prepack: 'fixture-build',
+					},
+					devDependencies: {
+						'fixture-build': 'file:./fixture-build',
+					},
+				}, null, 2),
+				'.gitignore': 'node_modules',
+				'fixture-build': {
+					'package.json': JSON.stringify({
+						name: 'fixture-build',
+						version: '1.0.0',
+						bin: 'index.js',
+					}, null, 2),
+					'index.js': `#!/usr/bin/env node
+require('node:fs').writeFileSync('build-output.txt', 'built');
+`,
+				},
+			}, [`--initial-branch=${branchName}`]);
+
+			await spawn('bun', ['install'], { cwd: fixture.path });
+			const { git } = fixture;
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const gitPublishProcess = await gitPublish(fixture.path);
+			onTestFail(() => console.log(gitPublishProcess));
+
+			expect('exitCode' in gitPublishProcess).toBe(false);
+			expect(await remoteGit('show', [`npm/${branchName}:build-output.txt`])).toBe('built');
+		});
+	});
+
+	describe('Install command', () => {
+		for (const [packageManager, lockfile, command, packagePrefix] of [
+			['npm', 'package-lock.json', 'npm i', ''],
+			['pnpm', 'pnpm-lock.yaml', 'pnpm i', ''],
+			['bun', 'bun.lock', 'bun i', ''],
+			['yarn', 'yarn.lock', 'yarn add', '@org/test-pkg@'],
+		] as const) {
+			test(`prints the ${packageManager} install command`, async () => {
+				const branchName = `test-${packageManager}-install-command`;
+				const remoteUrl = 'https://github.com/owner/repository.git';
+				await using fixture = await createGitFixture({
+					'package.json': JSON.stringify({
+						name: '@org/test-pkg',
+						version: '1.0.0',
+					}),
+					[lockfile]: '',
+				}, [`--initial-branch=${branchName}`]);
+
+				// Pack with npm so these output tests do not require every package manager.
+				// Yarn's pack flags differ from npm's, so it uses the bundled Yarn 1 binary.
+				await using commandsFixture = await createFixture();
+				if (packageManager === 'yarn') {
+					await commandsFixture.writeFile('yarn', `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-classic/bin/yarn.js')}" "$@"\n`);
+					await fs.chmod(commandsFixture.getPath('yarn'), 0o755);
+				} else if (packageManager !== 'npm') {
+					await commandsFixture.writeFile(packageManager, `#!/bin/sh
+if [ "$1" = pm ]; then exec npm pack --pack-destination "$4"; fi
+exec npm "$@"
+`);
+					await fs.chmod(commandsFixture.getPath(packageManager), 0o755);
+				}
+
+				const { git } = fixture;
+				await git('add', ['package.json', lockfile]);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteUrl]);
+				await git('config', [`url.${remoteFixture.path}.insteadOf`, remoteUrl]);
+
+				const result = await gitPublish(fixture.path, ['--fresh'], {
+					PATH: `${commandsFixture.path}${path.delimiter}${process.env.PATH}`,
+				});
+				onTestFail(() => console.log(result));
+				expect('exitCode' in result).toBe(false);
+				expect(result.stdout).toContain(`${command} '${packagePrefix}owner/repository#npm/${branchName}'`);
+				expect(result.stdout.includes('npm 12+: add --allow-git=root')).toBe(packageManager === 'npm');
+				expect(result.stdout.includes('approvedGitRepositories')).toBe(packageManager === 'yarn');
+				expect(result.stdout).not.toContain('blockExoticSubdeps');
+			});
+		}
+	});
+
+	describe('Yarn', () => {
+		for (const [release, binPath] of [
+			['1', 'node_modules/yarn-classic/bin/yarn.js'],
+			['4', 'node_modules/yarn-berry/bin/yarn.js'],
+		] as const) {
+			test(`packs with Yarn ${release}`, async () => {
+				const branchName = `test-yarn-${release}-pack`;
+				await using commandsFixture = await createFixture({
+					yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve(binPath)}" "$@"\n`,
+				});
+				await fs.chmod(commandsFixture.getPath('yarn'), 0o755);
+				const environment = {
+					PATH: `${commandsFixture.path}${path.delimiter}${process.env.PATH}`,
+					YARN_GLOBAL_FOLDER: commandsFixture.getPath('yarn-global'),
+					YARN_CACHE_FOLDER: commandsFixture.getPath('yarn-cache'),
+					YARN_ENABLE_TELEMETRY: '0',
+					// Yarn 4 enables immutable installs under CI; the fixture install creates the lockfile
+					YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
+				};
+
+				await using fixture = await createGitFixture({
+					'package.json': JSON.stringify({
+						name: 'test-yarn-pkg',
+						version: '1.0.0',
+						files: ['dist'],
+						scripts: {
+							prepack: 'node -e "fs.mkdirSync(\'dist\', { recursive: true }); fs.writeFileSync(\'dist/index.js\', \'built\')"',
+						},
+					}, null, 2),
+					'yarn.lock': '',
+					'.gitignore': 'dist',
+				}, [`--initial-branch=${branchName}`]);
+				await spawn('yarn', ['install'], {
+					cwd: fixture.path,
+					env: environment,
+				});
+
+				const { git } = fixture;
+				await git('add', ['.']);
+				await git('commit', ['-m', 'Initial commit']);
+				await git('remote', ['add', 'origin', remoteFixture.path]);
+
+				const result = await gitPublish(fixture.path, ['--fresh'], environment);
+				onTestFail(() => console.log(result));
+				expect('exitCode' in result).toBe(false);
+
+				const publishedBranch = `npm/${branchName}`;
+				const files = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
+				expect(files.split('\n')).toStrictEqual(['dist/index.js', 'package.json']);
+				expect(await remoteGit('show', [`${publishedBranch}:dist/index.js`])).toBe('built');
+			});
+		}
+	});
 
 	describe('pnpm', () => {
 		test('catalog protocol is resolved', async () => {
