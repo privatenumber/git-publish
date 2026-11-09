@@ -68,6 +68,26 @@ export const preparePackagePublication = async ({
 	const rewriteManifest = (content: Buffer) => {
 		manifest = JSON.parse(content.toString('utf8')) as PackageJson;
 		const original = stringify(manifest);
+		for (const { key, field } of [
+			...dependencyEdges,
+			...peers.map(peer => ({
+				key: peer.key,
+				field: 'peerDependencies' as const,
+			})),
+		]) {
+			if (Object.hasOwn(manifest[field] ?? {}, key)) {
+				continue;
+			}
+			if (field === 'optionalDependencies' && Object.hasOwn(manifest.dependencies ?? {}, key)) {
+				throw new Error(`Package ${stringify(packageName)} removes optionalDependencies ${stringify(key)} during packing while it remains in dependencies.`);
+			}
+			for (const other of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+				if (Object.hasOwn(manifest[other] ?? {}, key)
+					&& !Object.hasOwn(sourceManifest[other] ?? {}, key)) {
+					throw new Error(`Package ${stringify(packageName)} moves ${stringify(key)} from ${field} to ${other} during packing. Pack hooks may remove internal dependencies but not move them.`);
+				}
+			}
+		}
 		validatePackedManifest(packageName, manifest, sourceManifest, dependencyEdges, peers);
 		for (const edge of dependencyEdges) {
 			const field = manifest[edge.field];
@@ -109,6 +129,8 @@ export const preparePackagePublication = async ({
 	if (!manifest) {
 		throw new Error('Packed package is missing package.json');
 	}
+	const packedManifest = manifest;
+	const { peerDependencies, peerDependenciesMeta } = packedManifest;
 	const parentRevisions = parent
 		? await getStdout(spawn('git', ['rev-parse', parent, `${parent}^{tree}`], gitOptions))
 		: '';
@@ -154,20 +176,20 @@ export const preparePackagePublication = async ({
 		},
 		files,
 		unpublishedFilesFieldEntries: findUnpublishedFilesFieldEntries(
-			manifest.files,
+			packedManifest.files,
 			files.map(file => file.file),
 		),
 		reusedExistingCommit,
-		version: manifest.version,
-		peerDependencies: manifest.peerDependencies ?? {},
+		version: packedManifest.version,
+		peerDependencies: peerDependencies ?? {},
 		dependencies: dependencyEdges.filter(edge => (
-			Object.hasOwn(manifest![edge.field] ?? {}, edge.key)
+			Object.hasOwn(packedManifest[edge.field] ?? {}, edge.key)
 		)),
 		peers: peers.filter(peer => (
-			Object.hasOwn(manifest!.peerDependencies ?? {}, peer.key)
+			Object.hasOwn(peerDependencies ?? {}, peer.key)
 		)).map(peer => ({
 			...peer,
-			optional: manifest!.peerDependenciesMeta?.[peer.key]?.optional === true,
+			optional: peerDependenciesMeta?.[peer.key]?.optional === true,
 		})),
 	};
 };

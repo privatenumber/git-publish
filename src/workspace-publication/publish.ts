@@ -143,25 +143,27 @@ export const publishWorkspaceClosure = async ({
 				async taskApi => processPackage(index, taskApi),
 			)),
 		));
-		const effective = {
+		const packed = {
 			...plan,
 			nodes: plan.nodes.map(node => ({
 				...node,
 				dependencies: preparations.get(node.key)!.dependencies,
 			})),
-			peers: [...preparations.values()].flatMap(preparation => preparation.peers),
+			peers: plan.nodes.flatMap(node => preparations.get(node.key)!.peers),
 		};
-		const graph = createInstallGraph(effective);
-		const reachable = graph.reachable(effective.roots, () => true);
-		const dependencies = graph.reachable(effective.roots, edge => (
+		const graph = createInstallGraph(packed);
+		const reachable = graph.reachable(plan.roots, () => true);
+		const dependencies = graph.reachable(plan.roots, edge => (
 			edge.kind === 'dependency' || edge.kind === 'optional'
 		));
-		const roots = new Set(effective.roots);
-		effective.nodes = effective.nodes.filter(node => reachable.has(node.key)).map(node => ({
-			...node,
-			role: roots.has(node.key) ? 'root' : (dependencies.has(node.key) ? 'dependency' : 'peer'),
-		}));
-		effective.peers = effective.peers.filter(peer => reachable.has(peer.from));
+		const effective: WorkspacePublicationPlan = {
+			...packed,
+			nodes: packed.nodes.filter(node => reachable.has(node.key)).map(node => ({
+				...node,
+				role: plan.roots.includes(node.key) ? 'root' : (dependencies.has(node.key) ? 'dependency' : 'peer'),
+			})),
+			peers: packed.peers.filter(peer => reachable.has(peer.from)),
+		};
 		validatePeerRanges(effective, preparations);
 		const packageCount = effective.nodes.length;
 		await task(

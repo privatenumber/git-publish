@@ -65,6 +65,57 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 		});
 	}
 
+	for (const [label, source, mutation, from, to] of [
+		['removes an optional override', {
+			dependencies: { core: 'file:../core' },
+			optionalDependencies: { core: 'file:../core' },
+		}, 'delete p.optionalDependencies.core', 'optionalDependencies', 'dependencies'],
+		['moves runtime to peer', { dependencies: { core: 'file:../core' } }, 'delete p.dependencies.core; p.peerDependencies = { core: "^1.0.0" }', 'dependencies', 'peerDependencies'],
+		['moves peer to runtime', { peerDependencies: { core: '^1.0.0' } }, 'delete p.peerDependencies.core; p.dependencies = { core: "^1.0.0" }', 'peerDependencies', 'dependencies'],
+	] as const) {
+		test(`rejects pack hook that ${label}`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'package-lock.json': '{}',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					...source,
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=move']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await using commands = await createFixture({
+				npm: `#!/bin/sh
+if [ "$1" = pack ] && [ -f package.json ]; then
+  "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.name === "app") { ${mutation}; fs.writeFileSync("package.json", JSON.stringify(p)); }'
+fi
+exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+`,
+			});
+			await fs.chmod(commands.getPath('npm'), 0o755);
+			const result = await gitPublish(fixture.getPath('packages/app'), [], {
+				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+			});
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(true);
+			expect(result.output).toContain(label === 'removes an optional override'
+				? 'Package "app" removes optionalDependencies "core" during packing while it remains in dependencies.'
+				: `Package "app" moves "core" from ${from} to ${to} during packing. Pack hooks may remove internal dependencies but not move them.`);
+			expect(await remote.git('for-each-ref')).toBe('');
+		});
+	}
+
 	test('uses the standalone branch for a nested public workspace root', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
