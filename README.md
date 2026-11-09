@@ -1,7 +1,6 @@
 # git-publish
 
-Publish your npm package to a Git branch.
-Useful for testing packages in production-like environments before publishing to npm.
+Publish your npm package to a Git branch, then install it anywhere with one command. Test unreleased changes in a real project without publishing to npm.
 
 <br>
 
@@ -10,295 +9,69 @@ Useful for testing packages in production-like environments before publishing to
 	<a href="https://github.com/sponsors/privatenumber/sponsorships?tier_id=416984"><img width="412" src="https://raw.githubusercontent.com/privatenumber/sponsors/master/banners/assets/sponsor.webp"></a>
 </p>
 
-## Why?
+## Quick start
 
-To test a package without publishing to the npm registry. For example:
-
-- Testing a package before it's ready for npm
-- Contributing to a repo where you don't have publish access
-- Testing in a CI/CD or remote environment where `npm link` doesn't work
-- Avoiding symlink issues from `npm link`
-
-### Why not use `npm publish`?
-
-Publishing to npm just for testing has major downsides:
-
-- **Versioning overhead:** You must bump the version, even for throwaway builds.
-- **Permanent:** npm's [strict unpublish policy](https://docs.npmjs.com/policies/unpublish) makes removing test releases difficult.
-- **Hard to inspect:** npm doesn't make it easy to view the contents of a published package.
-- **Risky:** You could accidentally publish test code as a stable release.
-
-### Why not use `npm link`?
-
-- Skips [npm lifecycle scripts](https://docs.npmjs.com/cli/v11/using-npm/scripts#life-cycle-scripts)
-- Links the entire project (including source, tests, configs)
-- Doesn't install dependencies automatically
-
-### So why `git-publish`?
-
-- **No versioning required:** Uses Git branches instead of package versions.
-- **Easy cleanup:** Delete the branch when you're done.
-- **Browsable:** View and verify the published package on GitHub.
-- **Safe:** Keeps test builds out of npm.
-- **Realistic simulation:** Runs `prepare` and `prepack`, and includes only publishable files.
-
-## Usage
-
-### Publishing
-
-Publish your npm package to a Git branch:
+In your package's repository:
 
 ```sh
 npx git-publish
 ```
 
-This publishes the current package to the branch `npm/<current branch>` on the remote `origin`.
-
-Or install `git-publish` globally and run `git-publish`:
-
-```sh
-npm install -g git-publish
-```
-
-### Installing the published package
-
-After publishing, `git-publish` prints an install command for the published branch using the detected package manager:
+`git-publish` packs the package like `npm publish` does, commits the packed files to the branch `npm/<current branch>`, pushes it, and prints the install command:
 
 ```sh
 npm i 'owner/repo#npm/main'
 ```
 
-For Yarn, the command uses `add` and includes the package name, which modern Yarn requires for Git dependencies:
+Run that command in any project that should use the package. To skip `npx`, install `git-publish` globally with `npm install -g git-publish`.
+
+## What you can do
+
+**Try a fix in your app before it's released.** Publish your branch, install it in the app, and iterate. Publishing again adds a commit to the same branch.
+
+**Share a fork's changes** when you don't have publish access to the package:
 
 ```sh
-yarn add 'my-package@https://github.com/owner/repo.git#npm/main'
+npx git-publish --remote fork
 ```
 
-#### From a private repository
-
-Package managers fetch Git dependencies with Git, so the installing machine needs access to the repo. On GitHub, pnpm 12+ always fetches over HTTPS, even for `git+ssh://` specifiers, so the same lockfile works on every machine with access ([details](https://pnpm.io/package-sources#how-git-dependencies-are-resolved)).
-
-Configure Git once per machine:
-
-| | `gh auth setup-git` (recommended) | SSH URL rewrite |
-| --- | --- | --- |
-| Authenticates with | Your [GitHub CLI](https://cli.github.com) login, over HTTPS | Your SSH key |
-| Covers | Every repo your account can read | Only the owners you list |
-| Use when | You use the GitHub CLI. CI authenticates the same way, with an HTTPS token. | You prefer SSH keys, or use several GitHub accounts |
+**Publish a monorepo package with its workspace dependencies.** `git-publish` publishes the workspace packages it needs too, and prints one command that installs them together:
 
 ```sh
-gh auth setup-git
-
-# or
-git config --global url."git@github.com:owner/".insteadOf "https://github.com/owner/"
+cd packages/app
+npx git-publish
 ```
 
-Scope the rewrite to an owner. Rewriting all of `https://github.com/` also moves unrelated tools to SSH, which can break them.
-
-If the installing environment can't get access (e.g. a CI workflow in another repo), publish to a public repo with `--remote` instead:
+**Publish a whole monorepo** by running `git-publish` at the workspace root, or select packages by name, path, or glob:
 
 ```sh
-npx git-publish --remote git@github.com:owner/public-repo.git --branch test-pkg
+npx git-publish @acme/core './packages/plugins/*'
 ```
 
-> [!WARNING]
-> Minify or obfuscate private code before publishing to a public repo.
+**Post previews from CI.** `--json result.json` writes every published branch, commit, and install specifier, for example to comment on a pull request.
 
-### CLI Flags
+**Install from private repositories.** Installs work wherever Git can access the repository, such as a machine set up with `gh auth setup-git`.
 
-| Flag                    | Description                                                   |
-| ----------------------- | ------------------------------------------------------------- |
-| `-b, --branch <template>` | Target branch template. Supports `{gitRef}`, `{gitSha}`, and `{package}` |
-| `-r, --remote <remote>` | Git remote name or URL to push to (default: `origin`)         |
-| `-o, --fresh`           | Create a fresh single-commit branch. Force-pushes to remote   |
-| `-d, --dry`             | Simulate the process. Does not commit or push                 |
-| `-f, --force`           | Publish a private workspace root or standalone package        |
-| `--json <path>`         | Write publication details and install sets to a JSON file      |
-| `-h, --help`            | Show CLI help                                                 |
-| `--version`             | Show CLI version                                              |
+## Why not `npm publish` or `npm link`?
 
-### Agent skill
+- **`npm publish`** needs a version bump for every throwaway build, can't easily be undone under npm's [unpublish policy](https://docs.npmjs.com/policies/unpublish), and risks shipping test code as a release.
+- **`npm link`** skips [lifecycle scripts](https://docs.npmjs.com/cli/v11/using-npm/scripts#life-cycle-scripts), links the whole project instead of the publishable files, doesn't install dependencies, causes symlink issues, and doesn't work in CI or remote environments.
+- **`git-publish`** publishes exactly what `npm publish` would, with no versioning, to a branch you can browse on GitHub and delete when you're done.
 
-git-publish ships an [agent skill](https://agentskills.io) that teaches coding agents how to publish with git-publish and install published packages. In a project that depends on git-publish, [pnpm agent skills](https://pnpm.io/agent-skills) can link it after approval.
+## Agent skill
 
-When you run git-publish with `npx`, `pnpm dlx`, or a global install, use the `skills` command instead:
+`git-publish` ships an [agent skill](https://agentskills.io) that teaches coding agents to publish with git-publish and install published packages. In a project that depends on git-publish, [pnpm agent skills](https://pnpm.io/agent-skills) can link it after approval. With `npx`, `pnpm dlx`, or a global install, use the `skills` command:
 
 ```sh
-# Print the skill
-npx git-publish skills
-
-# Install it into an agent skills directory
 npx git-publish skills --install ~/.agents/skills
 ```
 
-`skills` is a subcommand, so select a workspace package named `skills` by its path, such as `./packages/skills`.
+## Documentation
 
-## FAQ
-
-### How do I include a build step?
-
-Add your build command to the [`prepack`](https://docs.npmjs.com/cli/v11/using-npm/scripts#life-cycle-scripts) script in `package.json`:
-
-```json5
-{
-    // ...
-
-    "scripts": {
-        "prepack": "npm run build",
-    },
-}
-```
-
-This mirrors the same behavior as `npm publish`.
-
-`git-publish` checks each positive `package.json` `"files"` entry from the packed package after lifecycle hooks run. If an entry matches no packed file or directory, it warns and still publishes. That usually means the build did not run, or the entry is wrong.
-
-You can also run the build before `git-publish`. Existing build output, including gitignored files such as `dist/`, is included when it matches the package's `files` field. See [Preparing monorepo packages](#preparing-monorepo-packages) for workspace builds and custom hooks in a fork.
-
-### What does `git-publish` do?
-
-1. Checks out or creates the publish branch
-2. Packs the package with your package manager (`npm pack`, `pnpm pack`, `yarn pack`, or `bun pm pack`), which runs `prepare` and `prepack` and includes only publishable files
-3. Removes `prepare`, `prepack`, and `postpack` scripts and the `workspaces` and `devDependencies` fields from the packed manifest, then commits the packed files. Install lifecycle scripts remain intact; `build` is removed only when no install hook remains.
-4. Pushes the branch to the Git remote
-5. Prints the command to install the package via Git
-
-Install URLs name the repository that receives the push.
-
-### Why preserve commit history on the publish branch?
-
-Lockfiles record the commit hash of a Git dependency, not the branch name. If that commit becomes unreachable from the branch history, it may be garbage-collected, breaking installs.
-
-To avoid this, `git-publish` preserves history by default.
-
-If you prefer a single clean commit and understand the risks, use the `--fresh` flag to force-push a one-commit branch.
-
-### Why not just commit the files manually?
-
-Manual commits often:
-
-- Miss important files (e.g., those not in `dist/`)
-- Include irrelevant files (e.g., tests, source, configs)
-- Skip npm lifecycle scripts
-
-`git-publish` avoids these pitfalls by packing with your package manager, like `npm publish` does.
-
-### Can I use this in a monorepo?
-
-Yes. Run `git-publish` inside a package directory to select that package; at the workspace root, it selects the root package if it is named and public, or every non-private member if the root is private or unnamed.
-
-You can select packages by name, directory, or a quoted glob of package directories:
-
-```sh
-git-publish @acme/core ./packages/adapter './packages/plugins/*'
-```
-
-`git-publish` publishes the selected packages and their internal runtime and peer dependencies. It recognizes `workspace:` references and `file:` or `link:` paths to workspace packages. A plain semver runtime range selects a workspace package when its version satisfies the range for npm and Bun, for Yarn unless transparent workspaces are disabled, and for pnpm when `linkWorkspacePackages` is enabled (`true` or `deep`). Plain peer ranges are also considered for workspace packages. Each package commit is created before one atomic push, so a failed branch update does not expose a partial dependency closure.
-
-`--branch` accepts a small branch template with these placeholders:
-
-- `{gitRef}`: The current branch, exact tag, or short commit fallback.
-- `{gitSha}`: The full source commit object ID.
-- `{package}`: The package name from `package.json`.
-
-Quote branch templates in the shell, for example `'preview/{package}'`.
-
-When `--branch` is omitted, workspace packages use the default template `npm/{gitRef}-{package}`. For a `core <- broker <- adapter` closure published from `feature/auth`, it creates:
-
-```text
-npm/feature/auth-@acme/core
-npm/feature/auth-@acme/broker
-npm/feature/auth-@acme/adapter
-```
-
-Pass a template to choose each workspace branch independently:
-
-```sh
-git-publish --branch 'preview/{package}'
-```
-
-For one package, a literal branch remains exact. For example, `git-publish --branch preview` publishes to `preview`. A multi-package workspace closure must render a unique branch for every package. Include `{package}` when a literal template would collide.
-
-Standalone packages keep the default `npm/<gitRef>` branch. An explicit `--branch` can use the same placeholders or remain a literal branch name.
-
-Internal peers retain their packed ranges. Publication fails before pushing if a packed peer range does not match its target's packed version, or if a packed dependency or peer still uses `workspace:`.
-
-Lifecycle hooks may remove internal dependencies from the packed manifest. Changing or adding internal dependencies during packing is not supported; publication fails when it detects such changes.
-
-For each selected package, the install command includes required runtime and peer packages as root dependencies. Packages reachable only through optional dependencies install transitively. The commit-pinned Git URLs match those in the packed manifests. A single-package install uses the moving branch reference instead.
-
-- npm 12+: add `--allow-git=root` to the command for any Git install. Optional transitive Git dependencies need `--allow-git=all`.
-- pnpm 11+: set `blockExoticSubdeps: false` in the consumer's `pnpm-workspace.yaml` for a multi-package install set.
-- Yarn 4: add the repository to `approvedGitRepositories` in the consumer's `.yarnrc.yml`.
-
-For non-hosted Git URLs, npm can ignore commit pins when the same package appears at different commits. `git-publish` warns when an install set contains multiple packages and the remote is not on GitHub, GitLab, or Bitbucket.
-
-Use `--json <path>` to write publication details after a successful push. At the workspace root, a default selection of more than three packages prints a summary table instead of install commands; use the JSON file to get each install set.
-
-```json
-{
-    "source": {
-        "ref": "main",
-        "commit": "<source commit>"
-    },
-    "packages": [
-        {
-            "name": "@acme/core",
-            "branch": "npm/main-@acme/core",
-            "commit": "<publish commit>",
-            "installSpecifier": "git+https://github.com/acme/repo.git#<publish commit>",
-            "role": "root",
-            "reused": false
-        }
-    ],
-    "installSets": {
-        "@acme/core": {
-            "required": [
-                "@acme/core"
-            ],
-            "optional": []
-        }
-    },
-    "aliases": {
-        "@acme/core": {}
-    }
-}
-```
-
-Each package's `role` is `root`, `dependency`, or `peer`. `reused` is true when the existing publication commit was unchanged. `source.commit` is the full commit ID, or `null` when the source has no commit. Each install set lists required and optional package names; look up their commit-pinned specifiers in `packages`.
-
-`aliases` maps each root to its internal runtime and peer aliases and target package names. Install commands include required aliases as root arguments.
-
-> [!IMPORTANT]
-> A multi-package publication requires one push URL. Git cannot atomically push one dependency closure to multiple destinations. A single package can be pushed to multiple destinations sequentially.
-
-#### Preparing monorepo packages
-
-Install the repository's dependencies before publishing so the package manager can resolve [`workspace:` references](https://pnpm.io/workspaces#workspace-protocol-workspace) and run package hooks. `git-publish` does not automatically run a script named `build`.
-
-If the repository has a workspace build command, run it before publishing. For example, in a pnpm monorepo with a root `build` script and a remote named `fork` pointing to your fork:
-
-```sh
-# From the repository root
-pnpm install
-pnpm build
-cd packages/my-lib
-git-publish --remote fork
-```
-
-Use the repository's documented build command to generate output for the selected package and all its required workspace dependencies. Each package's `files` field must include its build output.
-
-If packages need custom preparation, add or adjust their `prepack` scripts in your fork's `package.json` files. Each package can use its own command. Commit the manifest and source changes before running `git-publish`: it requires a clean tracked working tree and packs from the committed source. Gitignored build output does not need to be committed.
-
-Package hooks run in an isolated checkout that is cleaned between packages. Only the current package's ignored output matching its `files` field is copied from the source checkout. A hook that needs a sibling's generated output must build it in the hook or use committed output.
-
-#### Installing with pnpm
-
-pnpm can block a Git dependency declared by another Git dependency with [`blockExoticSubdeps`](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps). A consumer that installs a published workspace closure must opt in:
-
-```sh
-pnpm add --config.block-exotic-subdeps=false '<install-specifier>'
-```
+- [CLI](./docs/cli.md): flags, branch names and templates, `--fresh`, JSON output, and the `skills` command.
+- [Monorepos](./docs/monorepos.md): which packages a selection publishes, how internal dependencies are resolved, and how to prepare packages.
+- [Installing](./docs/installing.md): install commands, package manager settings, updating, and private repositories.
+- [How it works](./docs/how-it-works.md): what `git-publish` changes in the published package, build steps, and commit history.
 
 ## Sponsors
 

@@ -5,7 +5,7 @@ description: Publishing an npm package or monorepo workspace packages to a Git b
 
 # git-publish
 
-This skill covers publishing npm packages to Git branches with git-publish and installing them. Full documentation: https://github.com/privatenumber/git-publish#readme
+This skill covers publishing npm packages to Git branches with git-publish and installing them. Full documentation: https://github.com/privatenumber/git-publish/tree/develop/docs
 
 ## Publish
 
