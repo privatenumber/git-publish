@@ -14,6 +14,53 @@ import { validatePackedWorkspaceDependencies } from '../../src/package-publicati
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	for (const target of ['../sibling/index.js', '/outside/index.js', '.git/config']) {
+		test(`rejects unsafe packed symlink target ${target}`, async () => {
+			await using fixture = await createFixture();
+			await using repository = await createGitFixture();
+			const tarball = fixture.getPath('unsafe-link.tgz');
+			const pack = tar.pack();
+			pack.entry({
+				name: 'package/index.js',
+				type: 'symlink',
+				linkname: target,
+			});
+			pack.finalize();
+			await pipeline(pack, createGzip(), createWriteStream(tarball));
+			await expect(importTarball({
+				tarball,
+				ref: 'refs/git-publish/0',
+				parent: undefined,
+				message: 'test',
+				gitOptions: { cwd: repository.path },
+				rewriteManifest: content => content,
+			})).rejects.toThrow(`Invalid packed path: "index.js" -> ${JSON.stringify(target)}`);
+		});
+	}
+
+	test('imports an in-package relative symlink target', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('relative-link.tgz');
+		const pack = tar.pack();
+		pack.entry({
+			name: 'package/bin/cli',
+			type: 'symlink',
+			linkname: '../dist/cli.js',
+		});
+		pack.entry({ name: 'package/dist/cli.js' }, 'content');
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		await importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			parent: undefined,
+			message: 'test',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		});
+		expect(await repository.git('show', ['refs/git-publish/0:bin/cli'])).toBe('../dist/cli.js');
+	});
 	test('preserves original packed manifest bytes in a hard link', async () => {
 		await using fixture = await createFixture();
 		await using repository = await createGitFixture();

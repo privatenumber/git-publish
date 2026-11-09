@@ -13,6 +13,34 @@ describe('Publish history', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('preserves configured committer identity in publication commits', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=committer-identity']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('config', ['committer.name', 'Configured Committer']);
+		await fixture.git('config', ['committer.email', 'committer@example.invalid']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		expect('exitCode' in await gitPublish(fixture.path, [], {
+			GIT_CONFIG_GLOBAL: '/dev/null',
+			GIT_CONFIG_SYSTEM: '/dev/null',
+		})).toBe(false);
+		expect(await remoteGit('show', ['--format=%cn <%ce>', '--no-patch', 'npm/committer-identity']))
+			.toBe('Configured Committer <committer@example.invalid>');
+		expect('exitCode' in await gitPublish(fixture.path, ['--fresh'], {
+			GIT_CONFIG_GLOBAL: '/dev/null',
+			GIT_CONFIG_SYSTEM: '/dev/null',
+			GIT_COMMITTER_NAME: 'Environment Committer',
+			GIT_COMMITTER_EMAIL: 'environment@example.invalid',
+		})).toBe(false);
+		expect(await remoteGit('show', ['--format=%cn <%ce>', '--no-patch', 'npm/committer-identity']))
+			.toBe('Environment Committer <environment@example.invalid>');
+	});
+
 	test('signs publication commits when Git signing is enabled', async () => {
 		await using key = await createFixture();
 		await spawn('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', key.getPath('key')]);

@@ -100,6 +100,13 @@ export const importTarball = async ({
 				if (!name || (header.type !== 'file' && header.type !== 'symlink')) {
 					throw new Error(`Unsupported packed entry: ${JSON.stringify(name)} (${header.type})`);
 				}
+				if (header.type === 'symlink') {
+					const target = header.linkname ?? '';
+					const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(name), target));
+					if (path.posix.isAbsolute(target) || target.includes('\0') || resolved === '..' || resolved.startsWith('../') || resolved.split('/').some(part => part.toLowerCase() === '.git')) {
+						throw new Error(`Invalid packed path: ${JSON.stringify(name)} -> ${JSON.stringify(target)}`);
+					}
+				}
 				if (name === 'package.json') {
 					originalManifest = await buffer(entry);
 				}

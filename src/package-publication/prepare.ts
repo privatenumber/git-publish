@@ -126,6 +126,10 @@ export const preparePackagePublication = async ({
 			throw error;
 		});
 		commit = await getStdout(spawn('git', [
+			'-c',
+			'user.name=git-publish',
+			'-c',
+			'user.email=bot@git-publish',
 			'commit-tree',
 			newTree,
 			...(parent ? ['-p', parent] : []),
@@ -138,8 +142,6 @@ export const preparePackagePublication = async ({
 				...gitOptions.env,
 				GIT_AUTHOR_NAME: 'git-publish',
 				GIT_AUTHOR_EMAIL: 'bot@git-publish',
-				GIT_COMMITTER_NAME: 'git-publish',
-				GIT_COMMITTER_EMAIL: 'bot@git-publish',
 			},
 		}));
 	}
