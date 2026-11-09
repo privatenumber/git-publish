@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import fs from 'node:fs/promises';
 import {
 	describe, test, expect, onFinish, onTestFail,
@@ -833,7 +834,7 @@ exec '${npm}' "$@"
 		expect(('exitCode' in result) && result.exitCode).toBe(1);
 		expect(result.stderr).toContain('ENOENT');
 		expect(result.stdout).toContain('→ Install command');
-		expect(result.stdout).toContain(`npm i 'git+file://${remote.path}#npm/json-failure'`);
+		expect(result.stdout).toContain(`npm i 'git+${pathToFileURL(remote.path).href}#npm/json-failure'`);
 		expect(result.stderr).toContain('Publication succeeded');
 		expect(result.stderr).toContain(jsonPath);
 	});
