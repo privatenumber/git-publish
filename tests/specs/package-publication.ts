@@ -14,6 +14,36 @@ import { validatePackedWorkspaceDependencies } from '../../src/package-publicati
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	test('preserves original packed manifest bytes in a hard link', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('manifest-hardlink.tgz');
+		const original = '{"name":"original"}';
+		const pack = tar.pack();
+		pack.entry({
+			name: 'package/package.json',
+			mode: 0o755,
+		}, original);
+		pack.entry({
+			name: 'package/copy.json',
+			type: 'link',
+			linkname: 'package/package.json',
+		});
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		const files = await importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			parent: undefined,
+			message: 'test',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: () => Buffer.from('{"name":"rewritten"}'),
+		});
+		expect(await repository.git('show', ['refs/git-publish/0:package.json'])).toBe('{"name":"rewritten"}');
+		expect(await repository.git('show', ['refs/git-publish/0:copy.json'])).toBe(original);
+		expect(await repository.git('ls-tree', ['refs/git-publish/0', 'copy.json'])).toMatch(/^100755 blob /);
+		expect(files.find(file => file.file === 'copy.json')?.size).toBe(Buffer.byteLength(original));
+	});
 	test('rejects a packed package.json symbolic link', async () => {
 		await using fixture = await createFixture();
 		await using repository = await createGitFixture();
@@ -264,10 +294,13 @@ describe('Package publication', () => {
 		expect(preparation.files.find(file => file.file === 'package.json')?.size)
 			.toBe(Buffer.byteLength(await publishFixture.git('show', [`${preparation.publication.commit}:package.json`])));
 		expect(preparation.reusedExistingCommit).toBe(false);
+		expect(await publishFixture.git('cat-file', ['-t', preparation.publication.commit])).toBe('commit');
+		expect(await publishFixture.git('rev-parse', [`${preparation.publication.commit}^{tree}`]))
+			.toBe(await publishFixture.git('rev-parse', ['refs/git-publish/0^{tree}']));
 		expect(preparation.publication).toStrictEqual({
 			packageName: '@test/adapter',
 			branch: 'npm/adapter',
-			commit: await publishFixture.git('rev-parse', ['refs/git-publish/0']),
+			commit: preparation.publication.commit,
 			installSpecifier: `git+file://${path.resolve('/remote.git')}#${preparation.publication.commit}`,
 		});
 	});

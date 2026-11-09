@@ -57,7 +57,7 @@ export const createPublishRepository = async ({
 	try {
 		// The isolated client can hold credentials copied from the source remote.
 		await fs.chmod(temporaryDirectory, 0o700);
-		await spawn('git', ['clone', '--bare', '--origin', fetchRemoteName, '--shared', '--no-checkout', sourceRepositoryPath, publishRepositoryPath], { env: gitEnvironment });
+		await spawn('git', ['clone', '--origin', fetchRemoteName, '--shared', '--no-checkout', sourceRepositoryPath, publishRepositoryPath], { env: gitEnvironment });
 		await spawn('git', ['remote', 'set-url', fetchRemoteName, publishRemote.historyUrl], gitOptions);
 		for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
 			await spawn('git', ['remote', 'add', pushRemoteNames[index], pushUrl], gitOptions);

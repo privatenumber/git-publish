@@ -13,6 +13,62 @@ describe('Publish history', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('signs publication commits when Git signing is enabled', async () => {
+		await using key = await createFixture();
+		await spawn('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', key.getPath('key')]);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=signed-publication']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('config', ['gpg.format', 'ssh']);
+		await fixture.git('config', ['user.signingkey', key.getPath('key.pub')]);
+		await fixture.git('config', ['commit.gpgSign', 'true']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		expect('exitCode' in await gitPublish(fixture.path, [], {
+			GIT_CONFIG_GLOBAL: '/dev/null',
+			GIT_CONFIG_SYSTEM: '/dev/null',
+		})).toBe(false);
+		expect(await remoteGit('cat-file', ['-p', 'npm/signed-publication'])).toMatch(/^gpgsig /m);
+	});
+
+	test('leaves publication commits unsigned when Git signing is unset', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=unsigned-publication']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		expect('exitCode' in await gitPublish(fixture.path, [], {
+			GIT_CONFIG_GLOBAL: '/dev/null',
+			GIT_CONFIG_SYSTEM: '/dev/null',
+		})).toBe(false);
+		expect(await remoteGit('cat-file', ['-p', 'npm/unsigned-publication'])).not.toMatch(/^gpgsig /m);
+	});
+
+	test('publishes with safe.bareRepository set to explicit', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=explicit-bare']);
+		await using config = await createFixture();
+		const globalConfig = config.getPath('gitconfig');
+		await spawn('git', ['config', '--file', globalConfig, 'safe.bareRepository', 'explicit']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		expect('exitCode' in await gitPublish(fixture.path, [], { GIT_CONFIG_GLOBAL: globalConfig })).toBe(false);
+		expect(await remoteGit('rev-parse', ['npm/explicit-bare'])).toBeTruthy();
+	});
+
 	test('republishes when a source branch matches the old temporary branch name', async () => {
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({

@@ -61,6 +61,8 @@ export const importTarball = async ({
 		const extract = tar.extract();
 		const extraction = pipeline(createReadStream(tarball), gunzip(), extract);
 		const sizes = new Map<string, number>();
+		let originalManifest: Buffer | undefined;
+		let manifestMode = '100644';
 		// The await below observes failures; handle early rejection while the generator is suspended.
 		extraction.catch(() => {});
 		try {
@@ -76,11 +78,17 @@ export const importTarball = async ({
 				}
 				if (header.type === 'link') {
 					const source = packedPath(header.linkname ?? '');
-					const size = sizes.get(source);
+					const size = source === 'package.json' ? originalManifest?.length : sizes.get(source);
 					if (!name || size === undefined) {
 						throw new Error(`Invalid packed hard link: ${JSON.stringify(name)} -> ${JSON.stringify(source)}`);
 					}
-					yield `C ${quotePath(source)} ${quotePath(name)}\n`;
+					if (source === 'package.json') {
+						yield `M ${manifestMode} inline ${quotePath(name)}\ndata ${size}\n`;
+						yield originalManifest!;
+						yield '\n';
+					} else {
+						yield `C ${quotePath(source)} ${quotePath(name)}\n`;
+					}
 					entry.resume();
 					files.push({
 						file: name,
@@ -92,12 +100,18 @@ export const importTarball = async ({
 				if (!name || (header.type !== 'file' && header.type !== 'symlink')) {
 					throw new Error(`Unsupported packed entry: ${JSON.stringify(name)} (${header.type})`);
 				}
+				if (name === 'package.json') {
+					originalManifest = await buffer(entry);
+				}
 				const content = header.type === 'symlink'
 					? Buffer.from(header.linkname ?? '')
-					: (name === 'package.json' ? rewriteManifest(await buffer(entry)) : undefined);
+					: (name === 'package.json' ? rewriteManifest(originalManifest!) : undefined);
 				const size = content?.length ?? header.size ?? 0;
 				// eslint-disable-next-line no-bitwise -- Check the three executable permission bits.
 				const mode = header.type === 'symlink' ? '120000' : (((header.mode ?? 0) & 0o111) ? '100755' : '100644');
+				if (name === 'package.json') {
+					manifestMode = mode;
+				}
 				yield `M ${mode} inline ${quotePath(name)}\ndata ${size}\n`;
 				if (content) {
 					yield content;

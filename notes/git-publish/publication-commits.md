@@ -1,12 +1,14 @@
 # Publication commits
 
-**Decision.** Build publication commits with `git fast-import` directly from tarball entries. The published tree retains the packed file bytes, except for the intended `package.json` rewrite, regardless of Git ignore rules, attributes, clean filters, or commit hooks. Package lifecycle hooks can still change files before they are packed. Verified 2026-11-10 with Git 2.54.0.
+**Decision.** Build publication trees with `git fast-import` directly from tarball entries, then create commits with `git commit-tree`. The published tree retains the packed file bytes, except for the intended `package.json` rewrite, regardless of Git ignore rules, attributes, clean filters, or commit hooks. Package lifecycle hooks can still change files before they are packed. Verified 2026-11-10 with Git 2.54.0.
 
 ## Mechanism
 
-For each package, [`import-tarball.ts`](../../src/package-publication/import-tarball.ts) streams the gunzipped tar entries into one `git fast-import` process. The stream starts a commit on a temporary ref, includes the existing branch tip as its parent unless `--fresh` is used, and clears the tree with `deleteall`. Each regular file becomes an inline blob with mode `100644` or `100755` according to its executable bits; symlinks use mode `120000` and their target as the blob. A hard link copies a previously imported path with fast-import's `C` command, preserving its mode and size. Directories are skipped. Unsupported types and unsafe paths are rejected. Paths use Git's C-style quoting with three-digit octal escapes for special bytes.
+For each package, [`import-tarball.ts`](../../src/package-publication/import-tarball.ts) streams the gunzipped tar entries into one `git fast-import` process. The stream starts a temporary commit, includes the existing branch tip as its parent unless `--fresh` is used, and clears the tree with `deleteall`. Each regular file becomes an inline blob with mode `100644` or `100755` according to its executable bits; symlinks use mode `120000` and their target as the blob. A hard link copies a previously imported path with fast-import's `C` command, preserving its mode and size. If its target is `package.json`, the link instead gets the original packed manifest bytes as an inline blob, since the manifest itself may have been rewritten. A `package.json` that is itself a link is rejected. Directories are skipped. Unsupported types and unsafe paths are rejected. Paths use Git's C-style quoting with three-digit octal escapes for special bytes.
 
-Only `package.json` is buffered. [`prepare.ts`](../../src/package-publication/prepare.ts) validates it, pins workspace dependencies, orders fields, and strips preparation scripts and development-only fields. The file list and sizes reflect the emitted bytes. If the imported tree equals its parent's tree, the parent commit is reused instead. The isolated repository is a [bare clone](../../src/publish-repository/create.ts); the separate pack worktree remains for package lifecycle hooks. Fast-import does not run the user's `post-commit` hook for publication commits.
+Only `package.json` is buffered. [`prepare.ts`](../../src/package-publication/prepare.ts) validates it, pins workspace dependencies, orders fields, and strips preparation scripts and development-only fields. The file list and sizes reflect the emitted bytes. If the imported tree equals its parent's tree, the parent commit is reused. Otherwise, `git commit-tree` creates the publication commit from that tree, with the existing parent unless `--fresh` is used. When `commit.gpgSign` is true, git-publish passes `-S` to preserve commit signing. On Git 2.54.0 with SSH signing configured, `git -c commit.gpgSign=true commit-tree <tree> -m x` produced no `gpgsig` header; adding `-S` produced one. The test "signs publication commits when Git signing is enabled" verifies the published commit.
+
+The isolated repository is a [non-bare clone without checkout](../../src/publish-repository/create.ts), and the separate pack worktree remains for package lifecycle hooks. A bare clone fails ordinary Git commands when `safe.bareRepository=explicit`, while the non-bare clone supports that setting. Neither fast-import nor commit-tree runs the user's `post-commit` hook for publication commits.
 
 ## Why not stage the extracted files?
 
@@ -29,7 +31,7 @@ The comparison uses ten independent npm workspace packages with 2,000 small Java
 | develop | 30.37, 50.29, 28.24, 34.16, 21.52 | 32.92 s | 10.74 s |
 | fast-import | 15.40, 10.05, 15.22, 10.02, 10.15 | 12.17 s | 2.87 s |
 
-The wide spread limits the precision of this comparison. It measures end-to-end local publication, not the import step alone.
+The wide spread limits the precision of this comparison. It measures end-to-end local publication, not the import step alone. The fast-import measurement predates the addition of `commit-tree` and the non-bare clone, so it does not measure the current implementation.
 
 To reproduce, build each revision separately, then run the following Python script with the two absolute `dist/index.js` paths as arguments. It creates its fixture under the system temporary directory and leaves it there for inspection.
 

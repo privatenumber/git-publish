@@ -1,4 +1,4 @@
-import spawn, { type Options as SpawnOptions } from 'nano-spawn';
+import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import type { PackageJson } from '@npmcli/package-json';
 import { getStdout } from '../utils/get-stdout.ts';
 import { readJson } from '../utils/read-json.ts';
@@ -115,7 +115,34 @@ export const preparePackagePublication = async ({
 		parent ? getStdout(spawn('git', ['rev-parse', `${parent}^{tree}`], gitOptions)) : undefined,
 	]);
 	const reusedExistingCommit = parentTree !== undefined && newTree === parentTree;
-	const commit = reusedExistingCommit ? await getStdout(spawn('git', ['rev-parse', parent!], gitOptions)) : importedCommit;
+	let commit: string;
+	if (reusedExistingCommit) {
+		commit = await getStdout(spawn('git', ['rev-parse', parent!], gitOptions));
+	} else {
+		const signing = await getStdout(spawn('git', ['config', '--type=bool', '--get', 'commit.gpgSign'], gitOptions)).catch((error: unknown) => {
+			if (error instanceof SubprocessError && error.exitCode === 1) {
+				return 'false';
+			}
+			throw error;
+		});
+		commit = await getStdout(spawn('git', [
+			'commit-tree',
+			newTree,
+			...(parent ? ['-p', parent] : []),
+			...(signing === 'true' ? ['-S'] : []),
+			'-m',
+			commitMessage,
+		], {
+			...gitOptions,
+			env: {
+				...gitOptions.env,
+				GIT_AUTHOR_NAME: 'git-publish',
+				GIT_AUTHOR_EMAIL: 'bot@git-publish',
+				GIT_COMMITTER_NAME: 'git-publish',
+				GIT_COMMITTER_EMAIL: 'bot@git-publish',
+			},
+		}));
+	}
 	return {
 		publication: {
 			packageName,
