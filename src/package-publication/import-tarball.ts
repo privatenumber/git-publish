@@ -23,6 +23,50 @@ export type File = {
 	size: number;
 };
 
+type PackedEntry = {
+	mark: number;
+	mode: string;
+	size: number;
+	target?: string;
+};
+
+const validateSymlinks = (entries: ReadonlyMap<string, PackedEntry>) => {
+	for (const [name, entry] of entries) {
+		if (entry.target === undefined) {
+			continue;
+		}
+		const resolved = path.posix.dirname(name).split('/').filter(part => part !== '.');
+		const pending = entry.target.split('/').reverse();
+		let links = 0;
+		while (pending.length > 0) {
+			const part = pending.pop()!;
+			if (!part || part === '.') {
+				continue;
+			}
+			if (part === '..') {
+				if (resolved.length === 0) {
+					throw new Error(`Invalid packed path: ${JSON.stringify(name)} -> ${JSON.stringify(entry.target)}`);
+				}
+				resolved.pop();
+				continue;
+			}
+			if (part.toLowerCase() === '.git') {
+				throw new Error(`Invalid packed path: ${JSON.stringify(name)} -> ${JSON.stringify(entry.target)}`);
+			}
+			resolved.push(part);
+			const target = entries.get(resolved.join('/'))?.target;
+			if (target !== undefined) {
+				links += 1;
+				if (links > 40 || path.posix.isAbsolute(target)) {
+					throw new Error(`Invalid packed path: ${JSON.stringify(name)} -> ${JSON.stringify(entry.target)}`);
+				}
+				resolved.pop();
+				pending.push(...target.split('/').reverse());
+			}
+		}
+	}
+};
+
 export const importTarball = async ({
 	tarball, ref, parent, message, gitOptions, rewriteManifest,
 }: {
@@ -33,7 +77,7 @@ export const importTarball = async ({
 	gitOptions: Options;
 	rewriteManifest: (content: Buffer) => Buffer;
 }) => {
-	const files: File[] = [];
+	const entries = new Map<string, PackedEntry>();
 	const fastImport = spawn('git', ['fast-import', '--quiet'], {
 		...gitOptions,
 		stdin: 'pipe',
@@ -53,16 +97,11 @@ export const importTarball = async ({
 		}
 	});
 	const generate = async function* () {
-		const messageData = Buffer.from(`${message}\n`);
-		const now = Math.floor(Date.now() / 1000);
-		yield `commit ${ref}\nauthor git-publish <bot@git-publish> ${now} +0000\ncommitter git-publish <bot@git-publish> ${now} +0000\ndata ${messageData.length}\n`;
-		yield messageData;
-		yield `\n${parent ? `from ${parent}\n` : ''}deleteall\n`;
 		const extract = tar.extract();
 		const extraction = pipeline(createReadStream(tarball), gunzip(), extract);
-		const sizes = new Map<string, number>();
-		let originalManifest: Buffer | undefined;
-		let manifestMode = '100644';
+		let nextMark = 0;
+		let originalManifest: { mark: number;
+			size: number; } | undefined;
 		// The await below observes failures; handle early rejection while the generator is suspended.
 		extraction.catch(() => {});
 		try {
@@ -78,23 +117,18 @@ export const importTarball = async ({
 				}
 				if (header.type === 'link') {
 					const source = packedPath(header.linkname ?? '');
-					const size = source === 'package.json' ? originalManifest?.length : sizes.get(source);
-					if (!name || size === undefined) {
+					const linked = source === 'package.json' ? originalManifest : entries.get(source);
+					if (!name || !linked) {
 						throw new Error(`Invalid packed hard link: ${JSON.stringify(name)} -> ${JSON.stringify(source)}`);
 					}
-					if (source === 'package.json') {
-						yield `M ${manifestMode} inline ${quotePath(name)}\ndata ${size}\n`;
-						yield originalManifest!;
-						yield '\n';
-					} else {
-						yield `C ${quotePath(source)} ${quotePath(name)}\n`;
-					}
-					entry.resume();
-					files.push({
-						file: name,
-						size,
+					// eslint-disable-next-line no-bitwise -- Check the three executable permission bits.
+					const mode = ((header.mode ?? 0) & 0o111) ? '100755' : '100644';
+					entries.set(name, {
+						mark: linked.mark,
+						mode,
+						size: linked.size,
 					});
-					sizes.set(name, size);
+					entry.resume();
 					continue;
 				}
 				if (!name || (header.type !== 'file' && header.type !== 'symlink')) {
@@ -107,19 +141,26 @@ export const importTarball = async ({
 						throw new Error(`Invalid packed path: ${JSON.stringify(name)} -> ${JSON.stringify(target)}`);
 					}
 				}
-				if (name === 'package.json') {
-					originalManifest = await buffer(entry);
+				const manifest = name === 'package.json' ? await buffer(entry) : undefined;
+				if (manifest) {
+					nextMark += 1;
+					originalManifest = {
+						mark: nextMark,
+						size: manifest.length,
+					};
+					yield `blob\nmark :${originalManifest.mark}\ndata ${manifest.length}\n`;
+					yield manifest;
+					yield '\n';
 				}
 				const content = header.type === 'symlink'
 					? Buffer.from(header.linkname ?? '')
-					: (name === 'package.json' ? rewriteManifest(originalManifest!) : undefined);
+					: (manifest ? rewriteManifest(manifest) : undefined);
 				const size = content?.length ?? header.size ?? 0;
 				// eslint-disable-next-line no-bitwise -- Check the three executable permission bits.
 				const mode = header.type === 'symlink' ? '120000' : (((header.mode ?? 0) & 0o111) ? '100755' : '100644');
-				if (name === 'package.json') {
-					manifestMode = mode;
-				}
-				yield `M ${mode} inline ${quotePath(name)}\ndata ${size}\n`;
+				nextMark += 1;
+				const mark = nextMark;
+				yield `blob\nmark :${mark}\ndata ${size}\n`;
 				if (content) {
 					yield content;
 					if (header.type === 'symlink') {
@@ -131,17 +172,27 @@ export const importTarball = async ({
 					}
 				}
 				yield '\n';
-				files.push({
-					file: name,
+				entries.set(name, {
+					mark,
+					mode,
 					size,
+					target: header.type === 'symlink' ? (header.linkname ?? '') : undefined,
 				});
-				sizes.set(name, size);
 			}
 			await extraction;
 		} finally {
 			extract.destroy();
 			// Preserve any entry-processing error while waiting for extraction to stop.
 			await extraction.catch(() => {});
+		}
+		validateSymlinks(entries);
+		const messageData = Buffer.from(`${message}\n`);
+		const now = Math.floor(Date.now() / 1000);
+		yield `commit ${ref}\nauthor git-publish <bot@git-publish> ${now} +0000\ncommitter git-publish <bot@git-publish> ${now} +0000\ndata ${messageData.length}\n`;
+		yield messageData;
+		yield `\n${parent ? `from ${parent}\n` : ''}deleteall\n`;
+		for (const [name, entry] of [...entries].sort(([a], [b]) => (a < b ? -1 : (a > b ? 1 : 0)))) {
+			yield `M ${entry.mode} :${entry.mark} ${quotePath(name)}\n`;
 		}
 		yield '\n';
 	};
@@ -157,5 +208,8 @@ export const importTarball = async ({
 	if (imported.status === 'rejected') {
 		throw imported.reason;
 	}
-	return files.sort((a, b) => (a.file < b.file ? -1 : (a.file > b.file ? 1 : 0)));
+	return [...entries].map(([file, entry]) => ({
+		file,
+		size: entry.size,
+	})).sort((a, b) => (a.file < b.file ? -1 : (a.file > b.file ? 1 : 0)));
 };

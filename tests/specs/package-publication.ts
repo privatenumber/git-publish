@@ -14,6 +14,90 @@ import { validatePackedWorkspaceDependencies } from '../../src/package-publicati
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	test('rejects an escaping chain of packed symlinks', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('chain.tgz');
+		const pack = tar.pack();
+		pack.entry({
+			name: 'package/a',
+			type: 'symlink',
+			linkname: 'sub/link/../outside',
+		});
+		pack.entry({
+			name: 'package/sub/link',
+			type: 'symlink',
+			linkname: '..',
+		});
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		await expect(importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			parent: undefined,
+			message: 'test',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		})).rejects.toThrow('Invalid packed path');
+	});
+
+	test('rejects cyclic packed symlinks', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('cycle.tgz');
+		const pack = tar.pack();
+		pack.entry({
+			name: 'package/a',
+			type: 'symlink',
+			linkname: 'b',
+		});
+		pack.entry({
+			name: 'package/b',
+			type: 'symlink',
+			linkname: 'a',
+		});
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		await expect(importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			parent: undefined,
+			message: 'test',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		})).rejects.toThrow('Invalid packed path');
+	});
+
+	test('preserves the hard link entry executable mode', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('hardlink-mode.tgz');
+		const pack = tar.pack();
+		pack.entry({
+			name: 'package/source',
+			mode: 0o644,
+		}, 'content');
+		pack.entry({
+			name: 'package/bin',
+			type: 'link',
+			linkname: 'package/source',
+			mode: 0o755,
+		});
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		const files = await importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			parent: undefined,
+			message: 'test',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		});
+		expect(await repository.git('show', ['refs/git-publish/0:bin'])).toBe('content');
+		expect(await repository.git('ls-tree', ['refs/git-publish/0', 'bin'])).toMatch(/^100755 blob /);
+		expect(files.find(file => file.file === 'bin')?.size).toBe(7);
+	});
+
 	for (const target of ['../sibling/index.js', '/outside/index.js', '.git/config']) {
 		test(`rejects unsafe packed symlink target ${target}`, async () => {
 			await using fixture = await createFixture();
@@ -44,6 +128,11 @@ describe('Package publication', () => {
 		const tarball = fixture.getPath('relative-link.tgz');
 		const pack = tar.pack();
 		pack.entry({
+			name: 'package/current',
+			type: 'symlink',
+			linkname: 'bin/cli',
+		});
+		pack.entry({
 			name: 'package/bin/cli',
 			type: 'symlink',
 			linkname: '../dist/cli.js',
@@ -60,6 +149,7 @@ describe('Package publication', () => {
 			rewriteManifest: content => content,
 		});
 		expect(await repository.git('show', ['refs/git-publish/0:bin/cli'])).toBe('../dist/cli.js');
+		expect(await repository.git('show', ['refs/git-publish/0:current'])).toBe('bin/cli');
 	});
 	test('preserves original packed manifest bytes in a hard link', async () => {
 		await using fixture = await createFixture();
@@ -75,6 +165,7 @@ describe('Package publication', () => {
 			name: 'package/copy.json',
 			type: 'link',
 			linkname: 'package/package.json',
+			mode: 0o755,
 		});
 		pack.finalize();
 		await pipeline(pack, createGzip(), createWriteStream(tarball));
@@ -145,6 +236,7 @@ describe('Package publication', () => {
 			name: 'package/b"copy',
 			type: 'link',
 			linkname: 'package/a"source',
+			mode: 0o755,
 		});
 		pack.finalize();
 		await pipeline(pack, createGzip(), createWriteStream(tarball));
