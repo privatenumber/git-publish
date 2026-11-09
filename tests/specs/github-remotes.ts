@@ -1,5 +1,31 @@
+import { pathToFileURL } from 'node:url';
 import { describe, test, expect } from 'manten';
-import { getGitHubInstallSpecifier, getGitHubRepositoryName, isHostedGitRemote } from '../../src/utils/git-url.ts';
+import {
+	getGitHubInstallSpecifier, getGitHubRepositoryName, isHostedGitRemote, toPackageManagerGitUrl,
+} from '../../src/utils/git-url.ts';
+
+describe('package manager Git URLs', () => {
+	for (const [input, expected] of [
+		['ftp://user:secret@example.test/repo.git?token=secret', 'git+ftp://example.test/repo.git'],
+		['git+ftp://user:secret@example.test/repo.git?token=secret', 'git+ftp://example.test/repo.git'],
+		['s3://key:secret@bucket/repo.git?token=secret', 'git+s3://bucket/repo.git'],
+		['s3://key:secret@bucket:service/repo.git?token=secret', 'git+s3://bucket:service/repo.git'],
+		['git+s3://key:secret@bucket:service/repo.git?token=secret', 'git+s3://bucket:service/repo.git'],
+	]) {
+		test(`strips credentials from ${input.split(':')[0]} URLs to ${expected}`, () => {
+			expect(toPackageManagerGitUrl(input)).toBe(expected);
+		});
+	}
+
+	test('preserves existing transport behavior', () => {
+		expect(toPackageManagerGitUrl('https://user:secret@example.test/repo.git?token=secret')).toBe('git+https://example.test/repo.git');
+		expect(toPackageManagerGitUrl('ssh://git:secret@example.test/repo.git?token=secret')).toBe('git+ssh://git@example.test/repo.git');
+		expect(toPackageManagerGitUrl('git@example.test:repo.git')).toBe('git+ssh://git@example.test/~/repo.git');
+		expect(toPackageManagerGitUrl('.')).toBe(`git+${pathToFileURL(process.cwd()).href}`);
+		expect(toPackageManagerGitUrl('C://work/repo.git')).toBe(`git+${pathToFileURL('C://work/repo.git', { windows: true }).href}`);
+		expect(toPackageManagerGitUrl('file:///repo.git?token=secret')).toBe('git+file:///repo.git?token=secret');
+	});
+});
 
 describe('GitHub remotes', () => {
 	test('recognizes authenticated GitHub URLs as hosted', () => {

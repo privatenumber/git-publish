@@ -18,6 +18,29 @@ test('redacts username tokens while preserving SSH usernames', () => {
 	expect(redactRemote('ssh://git:secret@host/r.git')).toBe('ssh://[redacted]@host/r.git');
 });
 
+for (const [input, expected] of [
+	['s3://token@bucket/repo.git?token=secret', 's3://[redacted]@bucket/repo.git?[redacted]'],
+	['ftp://token@host/r', 'ftp://[redacted]@host/r'],
+	['helper://user:pass@host/r?token=secret', 'helper://[redacted]@host/r?[redacted]'],
+]) {
+	test(`redacts custom remote ${expected}`, () => {
+		expect(redactRemote(input)).toBe(expected);
+	});
+}
+
+test('preserves remotes without credentials and Windows paths', () => {
+	for (const input of [
+		'ssh://git@github.com/o/r.git',
+		'git@github.com:o/r.git',
+		'https://github.com/o/r.git',
+		'C://work/repo.git',
+		'C://user:pass@work/repo.git?token=secret',
+		'git+C://user:pass@work/repo.git?token=secret',
+	]) {
+		expect(redactRemote(input)).toBe(input);
+	}
+});
+
 test('formats nested cleanup and subprocess diagnostics', async () => {
 	let subprocessError: unknown;
 	try {

@@ -75,16 +75,34 @@ export const parseRepository = (value: string, directory: string) => {
 	};
 };
 
+const toUnparsedGitUrl = (value: string) => {
+	const authority = /^(?:git\+)?([a-z][a-z\d+.-]+):\/\/([^/?#]*)(\/[^?#]*)?(?:\?[^#]*)?(#.*)?$/i.exec(value);
+	if (!authority || authority[1].toLowerCase() === 'file') {
+		return;
+	}
+	const [, scheme, host, pathname = '', hash = ''] = authority;
+	const at = host.lastIndexOf('@');
+	const user = scheme.toLowerCase() === 'ssh' && at !== -1 ? `${host.slice(0, at).split(':')[0]}@` : '';
+	return `git+${scheme}://${user}${host.slice(at + 1)}${pathname}${hash}`;
+};
+
 export const toPackageManagerGitUrl = (value: string) => {
 	const parsed = parseGitUrl(value);
 	const { url, kind } = parsed;
-	if (url && ['ssh', 'http', 'https', 'git'].includes(kind)) {
+	if (value.startsWith('git+') && /^[a-z]:/i.test(value.slice(4))) {
+		return value;
+	}
+	if (url?.hostname && kind !== 'file') {
 		if (kind !== 'ssh') {
 			url.username = '';
 		}
 		url.password = '';
 		url.search = '';
 		return `git+${url.href}`;
+	}
+	const unparsedUrl = toUnparsedGitUrl(value);
+	if (unparsedUrl) {
+		return unparsedUrl;
 	}
 	if (value.startsWith('git+')) {
 		return value;
@@ -137,6 +155,11 @@ export const isHostedGitRemote = (value: string) => {
 };
 
 export const redactRemote = (value: string) => value
-	.replaceAll(/(\b(?:git\+)?(?:https?|git):\/\/)[^\s/@]+@/gi, '$1[redacted]@')
-	.replaceAll(/(\b(?:git\+)?[a-z][a-z\d+.-]*:\/\/)[^\s/:@]*:[^\s/@]*@/gi, '$1[redacted]@')
-	.replaceAll(/(\b(?:git\+)?(?:https?|git|ssh):\/\/[^\s?]+)\?\S*/gi, '$1?[redacted]');
+	.replaceAll(/(\b(?!git\+[a-z]:\/\/)(?:git\+)?([a-z][a-z\d+.-]+):\/\/)([^\s/?#]+)/gi, (match, prefix: string, scheme: string, authority: string) => {
+		const at = authority.lastIndexOf('@');
+		const user = authority.slice(0, at);
+		return at === -1 || (scheme.toLowerCase() === 'ssh' && !user.includes(':'))
+			? match
+			: `${prefix}[redacted]@${authority.slice(at + 1)}`;
+	})
+	.replaceAll(/(\b(?!git\+[a-z]:\/\/)(?:git\+)?[a-z][a-z\d+.-]+:\/\/[^\s?]+)\?\S*/gi, '$1?[redacted]');
