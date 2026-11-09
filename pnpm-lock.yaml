@@ -181,9 +181,6 @@ importers:
       micromatch:
         specifier: ^4.0.8
         version: 4.0.8
-      tar-fs:
-        specifier: ^3.1.2
-        version: 3.1.2
       tar-stream:
         specifier: ^3.1.8
         version: 3.1.8
@@ -251,6 +248,9 @@ importers:
       semver:
         specifier: ^7.8.6
         version: 7.8.6
+      tar-fs:
+        specifier: ^3.1.2
+        version: 3.1.2
       terminal-columns:
         specifier: ^2.0.0
         version: 2.0.0

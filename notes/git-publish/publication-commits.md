@@ -4,7 +4,7 @@
 
 ## Mechanism
 
-For each package, [`import-tarball.ts`](../../src/package-publication/import-tarball.ts) streams the gunzipped tar entries into one `git fast-import` process. The stream starts a commit on a temporary ref, includes the existing branch tip as its parent unless `--fresh` is used, and clears the tree with `deleteall`. Each regular file becomes an inline blob with mode `100644` or `100755` according to its executable bits; symlinks use mode `120000` and their target as the blob. Directories are skipped. Unsupported types and unsafe paths are rejected. Paths use Git's C-style quoting with three-digit octal escapes for special bytes.
+For each package, [`import-tarball.ts`](../../src/package-publication/import-tarball.ts) streams the gunzipped tar entries into one `git fast-import` process. The stream starts a commit on a temporary ref, includes the existing branch tip as its parent unless `--fresh` is used, and clears the tree with `deleteall`. Each regular file becomes an inline blob with mode `100644` or `100755` according to its executable bits; symlinks use mode `120000` and their target as the blob. A hard link copies a previously imported path with fast-import's `C` command, preserving its mode and size. Directories are skipped. Unsupported types and unsafe paths are rejected. Paths use Git's C-style quoting with three-digit octal escapes for special bytes.
 
 Only `package.json` is buffered. [`prepare.ts`](../../src/package-publication/prepare.ts) validates it, pins workspace dependencies, orders fields, and strips preparation scripts and development-only fields. The file list and sizes reflect the emitted bytes. If the imported tree equals its parent's tree, the parent commit is reused instead. The isolated repository is a [bare clone](../../src/publish-repository/create.ts); the separate pack worktree remains for package lifecycle hooks. Fast-import does not run the user's `post-commit` hook for publication commits.
 
@@ -69,4 +69,4 @@ for values in results:
 
 ## Revisit conditions
 
-Revisit the representation if a supported package format requires empty directories or entry types other than regular files and symlinks. Git trees do not represent empty directories. Re-evaluate the alternatives if Git adds an appropriate binary-safe batch interface that can consume tar entries without a filesystem checkout.
+Revisit the representation if a supported package format requires empty directories or entry types other than regular files, symlinks, and hard links. Git trees do not represent empty directories. Re-evaluate the alternatives if Git adds an appropriate binary-safe batch interface that can consume tar entries without a filesystem checkout.

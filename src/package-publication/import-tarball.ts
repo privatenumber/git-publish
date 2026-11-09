@@ -7,6 +7,17 @@ import spawn, { type Options } from 'nano-spawn';
 import gunzip from 'gunzip-maybe';
 import tar from 'tar-stream';
 
+const packedPath = (name: string) => {
+	const file = name.startsWith('package/') ? name.slice(8) : name;
+	if (path.posix.isAbsolute(file) || file.includes('\0') || file.split('/').some(part => part === '..' || part.toLowerCase() === '.git')) {
+		throw new Error(`Invalid packed path: ${JSON.stringify(file)}`);
+	}
+	return file;
+};
+
+// git-fast-import <path> accepts C-style quoted paths, including octal escapes.
+const quotePath = (name: string) => `"${[...Buffer.from(name)].map(byte => (byte >= 0x20 && byte < 0x7F && byte !== 34 && byte !== 92 ? String.fromCodePoint(byte) : `\\${byte.toString(8).padStart(3, '0')}`)).join('')}"`;
+
 export type File = {
 	file: string;
 	size: number;
@@ -27,13 +38,19 @@ export const importTarball = async ({
 		...gitOptions,
 		stdin: 'pipe',
 	});
+	const result = Promise.resolve(fastImport).then(
+		() => ({ error: undefined }),
+		(error: unknown) => ({ error }),
+	);
 	const { stdin: input } = await fastImport.nodeChildProcess;
 	if (!input) {
 		throw new Error('Git fast-import stdin is unavailable');
 	}
-	const processResult = Promise.resolve(fastImport).catch((error: unknown) => {
-		input.destroy(error as Error);
-		throw error;
+	const processResult = result.then(({ error }) => {
+		if (error !== undefined) {
+			input.destroy(error as Error);
+			throw error;
+		}
 	});
 	const generate = async function* () {
 		const messageData = Buffer.from(`${message}\n`);
@@ -43,17 +60,33 @@ export const importTarball = async ({
 		yield `\n${parent ? `from ${parent}\n` : ''}deleteall\n`;
 		const extract = tar.extract();
 		const extraction = pipeline(createReadStream(tarball), gunzip(), extract);
+		const sizes = new Map<string, number>();
 		// The await below observes failures; handle early rejection while the generator is suspended.
 		extraction.catch(() => {});
 		try {
 			for await (const entry of extract) {
 				const { header } = entry;
-				const name = header.name.startsWith('package/') ? header.name.slice(8) : header.name;
-				if (path.posix.isAbsolute(name) || path.win32.isAbsolute(name) || name.includes('\0') || name.split(/[\\/]/).some(part => part === '..' || part.toLowerCase() === '.git')) {
-					throw new Error(`Invalid packed path: ${JSON.stringify(name)}`);
-				}
+				const name = packedPath(header.name);
 				if (header.type === 'directory') {
 					entry.resume();
+					continue;
+				}
+				if (name === 'package.json' && header.type !== 'file') {
+					throw new Error('Packed package.json must be a regular file');
+				}
+				if (header.type === 'link') {
+					const source = packedPath(header.linkname ?? '');
+					const size = sizes.get(source);
+					if (!name || size === undefined) {
+						throw new Error(`Invalid packed hard link: ${JSON.stringify(name)} -> ${JSON.stringify(source)}`);
+					}
+					yield `C ${quotePath(source)} ${quotePath(name)}\n`;
+					entry.resume();
+					files.push({
+						file: name,
+						size,
+					});
+					sizes.set(name, size);
 					continue;
 				}
 				if (!name || (header.type !== 'file' && header.type !== 'symlink')) {
@@ -65,9 +98,7 @@ export const importTarball = async ({
 				const size = content?.length ?? header.size ?? 0;
 				// eslint-disable-next-line no-bitwise -- Check the three executable permission bits.
 				const mode = header.type === 'symlink' ? '120000' : (((header.mode ?? 0) & 0o111) ? '100755' : '100644');
-				// git-fast-import <path> accepts C-style quoted paths, including octal escapes.
-				const quoted = `"${[...Buffer.from(name)].map(byte => (byte >= 0x20 && byte < 0x7F && byte !== 34 && byte !== 92 ? String.fromCodePoint(byte) : `\\${byte.toString(8).padStart(3, '0')}`)).join('')}"`;
-				yield `M ${mode} inline ${quoted}\ndata ${size}\n`;
+				yield `M ${mode} inline ${quotePath(name)}\ndata ${size}\n`;
 				if (content) {
 					yield content;
 					if (header.type === 'symlink') {
@@ -83,6 +114,7 @@ export const importTarball = async ({
 					file: name,
 					size,
 				});
+				sizes.set(name, size);
 			}
 			await extraction;
 		} finally {

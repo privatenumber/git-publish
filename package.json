@@ -40,7 +40,6 @@
 		"fast-glob": "^3.3.3",
 		"gunzip-maybe": "^1.4.2",
 		"micromatch": "^4.0.8",
-		"tar-fs": "^3.1.2",
 		"tar-stream": "^3.1.8",
 		"tasuku": "3.0.0-beta.7"
 	},
@@ -65,6 +64,7 @@
 		"nano-spawn": "^2.1.0",
 		"pkgroll": "^2.27.1",
 		"semver": "^7.8.6",
+		"tar-fs": "^3.1.2",
 		"terminal-columns": "^2.0.0",
 		"terminal-link": "^5.0.0",
 		"typescript": "^6.0.3",

@@ -14,6 +14,82 @@ import { validatePackedWorkspaceDependencies } from '../../src/package-publicati
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	test('rejects a packed package.json symbolic link', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('manifest-link.tgz');
+		const pack = tar.pack();
+		pack.entry({
+			name: 'package/package.json',
+			type: 'symlink',
+			linkname: 'manifest.json',
+		});
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		await expect(importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			parent: undefined,
+			message: 'test',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		})).rejects.toThrow('Packed package.json must be a regular file');
+	});
+
+	test('imports a packed POSIX filename containing a backslash', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('backslash.tgz');
+		const pack = tar.pack();
+		pack.entry({ name: String.raw`package/C:\file.js` }, 'content');
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		await importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			parent: undefined,
+			message: 'test',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		});
+		expect(await repository.git('show', [String.raw`refs/git-publish/0:C:\file.js`])).toBe('content');
+	});
+
+	test('imports packed hard links with the source mode and size', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('hardlink.tgz');
+		const pack = tar.pack();
+		pack.entry({
+			name: 'package/a"source',
+			mode: 0o755,
+		}, 'content');
+		pack.entry({
+			name: 'package/b"copy',
+			type: 'link',
+			linkname: 'package/a"source',
+		});
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		const files = await importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			parent: undefined,
+			message: 'test',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		});
+		expect(await repository.git('show', ['refs/git-publish/0:b"copy'])).toBe('content');
+		expect(await repository.git('ls-tree', ['refs/git-publish/0', 'b"copy'])).toMatch(/^100755 blob /);
+		expect(files).toStrictEqual([{
+			file: 'a"source',
+			size: 7,
+		}, {
+			file: 'b"copy',
+			size: 7,
+		}]);
+	});
+
 	test('imports packed symbolic links as Git symbolic links', async () => {
 		await using fixture = await createFixture();
 		await using repository = await createGitFixture();

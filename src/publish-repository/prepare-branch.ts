@@ -5,7 +5,7 @@ export const loadPublishBranches = async (
 	repository: PublishRepository,
 	branches: {
 		publishBranch: string;
-		localBranch: string;
+		localRef: string;
 	}[],
 	fresh: boolean | undefined,
 ): Promise<Set<string>> => {
@@ -31,10 +31,10 @@ export const loadPublishBranches = async (
 	}
 	const references = new Set(output.split('\n').map(line => line.split('\t')[1]));
 	const refspecs: string[] = [];
-	for (const { publishBranch, localBranch } of branches) {
+	for (const { publishBranch, localRef } of branches) {
 		if (references.has(`refs/heads/${publishBranch}`)) {
 			existing.add(publishBranch);
-			refspecs.push(`refs/heads/${publishBranch}:refs/heads/${localBranch}`);
+			refspecs.push(`refs/heads/${publishBranch}:${localRef}`);
 		}
 	}
 	if (refspecs.length > 0) {
