@@ -833,6 +833,7 @@ exec '${npm}' "$@"
 		expect(('exitCode' in result) && result.exitCode).toBe(1);
 		expect(result.stderr).toContain('ENOENT');
 		expect(result.stdout).toContain('→ Install command');
+		expect(result.stdout).toContain(`npm i 'git+file://${remote.path}#npm/json-failure'`);
 		expect(result.stderr).toContain('Publication succeeded');
 		expect(result.stderr).toContain(jsonPath);
 	});
@@ -857,10 +858,33 @@ exec '${npm}' "$@"
 		const jsonStart = result.stdout.lastIndexOf('\n{\n  "source"');
 		expect(jsonStart).toBeGreaterThan(-1);
 		const json = JSON.parse(result.stdout.slice(jsonStart));
-		expect(Object.keys(json.installSets).sort()).toStrictEqual(['@test/adapter', '@test/broker', '@test/core', 'extra']);
+		expect(json.installSets).toStrictEqual({
+			'@test/adapter': {
+				required: ['@test/adapter', '@test/core', '@test/broker'],
+				optional: [],
+			},
+			'@test/broker': {
+				required: ['@test/broker', '@test/core'],
+				optional: [],
+			},
+			'@test/core': {
+				required: ['@test/core'],
+				optional: [],
+			},
+			extra: {
+				required: ['extra'],
+				optional: [],
+			},
+		});
 		expect(result.stderr).toContain('details follow on stdout');
+		expect(json.packages.map((item: { name: string }) => item.name).sort()).toStrictEqual(['@test/adapter', '@test/broker', '@test/core', 'extra']);
 		for (const name of ['@test/adapter', '@test/broker', '@test/core', 'extra']) {
-			expect(await remote.git('rev-parse', [`npm/json-all-failure-${name}`])).toMatch(/^[0-9a-f]{40}$/);
+			const branch = `npm/json-all-failure-${name}`;
+			const commit = await remote.git('rev-parse', [branch]);
+			const item = json.packages.find((entry: { name: string }) => entry.name === name);
+			expect(item.branch).toBe(branch);
+			expect(item.commit).toBe(commit);
+			expect(item.installSpecifier.endsWith(`#${commit}`)).toBe(true);
 		}
 	});
 
