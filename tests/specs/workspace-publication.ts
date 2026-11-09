@@ -815,6 +815,28 @@ exec '${npm}' "$@"
 		});
 	}
 
+	test('prints the install command when writing JSON fails after pushing', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=json-failure']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const jsonPath = fixture.getPath('missing/result.json');
+		const result = await gitPublish(fixture.path, ['--json', jsonPath]);
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect(await remote.git('for-each-ref')).toContain('npm/json-failure');
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.stderr).toContain('ENOENT');
+		expect(result.stdout).toContain('→ Install command');
+		expect(result.stderr).toContain('Publication succeeded');
+		expect(result.stderr).toContain(jsonPath);
+	});
+
 	test('writes standalone publication details as JSON', async () => {
 		await using standaloneRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({

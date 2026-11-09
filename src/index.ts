@@ -215,13 +215,19 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		))) {
 			console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
 		}
+		console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl)}`);
 		if (argv.flags.json) {
 			const { presentation: _presentation, ...jsonResult } = result;
-			await fs.writeFile(argv.flags.json, `${stringify(jsonResult, null, 2)}\n`);
+			try {
+				await fs.writeFile(argv.flags.json, `${stringify(jsonResult, null, 2)}\n`);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				console.error(`Publication succeeded, but could not write JSON file ${stringify(redactRemote(argv.flags.json))}: ${redactRemote(message)}`);
+				process.exitCode = 1;
+			}
 		}
-		console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl)}`);
 	}
 })().catch((error) => {
 	console.error('Error:', redactRemote(error.message));
-	process.exit(1);
+	process.exitCode = 1;
 });
