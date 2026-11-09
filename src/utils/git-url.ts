@@ -13,21 +13,25 @@ export const parseGitUrl = (value: string) => {
 	const windows = process.platform === 'win32' && /^[a-z]:[\\/]/i.test(value);
 	const drivePath = process.platform === 'win32' && /^[a-z]:/i.test(value);
 	const url = drivePath ? null : URL.parse(value.replace(/^git\+/, ''));
-	const scp = !drivePath && !url?.hostname && url?.protocol !== 'file:'
+	const helper = /^[a-z][a-z\d+.-]*::/i.test(value);
+	const urlSyntax = !drivePath && value.includes('://');
+	const scp = !drivePath && !helper && !urlSyntax && !url?.hostname && url?.protocol !== 'file:'
 		? /^(?:([^@/:]+)@)?([^/:]+):(.+)$/.exec(value)
 		: null;
 	const host = (url?.hostname || scp?.[2])?.toLowerCase();
 	let kind: GitUrlKind = 'local';
-	if (!windows && url?.protocol === 'file:') {
+	if (helper) {
+		kind = 'other';
+	} else if (!windows && url?.protocol === 'file:') {
 		kind = 'file';
-	} else if (url?.hostname) {
+	} else if (urlSyntax || url?.hostname) {
 		const protocols = {
 			'http:': 'http',
 			'https:': 'https',
 			'git:': 'git',
 			'ssh:': 'ssh',
 		} as const;
-		kind = protocols[url.protocol as keyof typeof protocols] ?? 'other';
+		kind = url?.hostname ? protocols[url.protocol as keyof typeof protocols] ?? 'other' : 'other';
 	} else if (scp) {
 		kind = 'scp';
 	}
@@ -47,9 +51,6 @@ export const parseGitUrl = (value: string) => {
 };
 
 export const isLocalGitUrl = (value: string) => {
-	if (/^[a-z][a-z\d+.-]*::/i.test(value)) {
-		return false;
-	}
 	const { kind } = parseGitUrl(value);
 	return kind === 'local' || kind === 'file';
 };
@@ -84,37 +85,40 @@ export const toPackageManagerGitUrl = (value: string, remoteName?: string) => {
 	const unsupported = () => {
 		throw new Error(`${remoteName === undefined ? 'The remote URL' : `Remote ${JSON.stringify(remoteName)}`} uses a URL that package managers cannot install from. Use an https, http, ssh, git, or file URL without a query or fragment.`);
 	};
-	if (/^(?:[^@/:]+@)?\[[^\]]+\]:/.test(value) || /^[a-z][a-z\d+.-]*::/i.test(value) || ((url || kind !== 'local') && /[\s?#]/.test(value))) {
-		return unsupported();
-	}
-	if (process.platform !== 'win32' && /^[a-z]:\/\//i.test(value)) {
-		return unsupported();
-	}
-	if (kind === 'file') {
-		return `git+${url!.href}`;
-	}
-	if (url?.hostname) {
-		if (!['ssh:', 'http:', 'https:', 'git:'].includes(url.protocol)) {
+	switch (kind) {
+		case 'file': {
+			if (/[\s?#]/.test(value)) {
+				return unsupported();
+			}
+			return `git+${url!.href}`;
+		}
+		case 'http':
+		case 'https':
+		case 'git':
+		case 'ssh': {
+			if (/[\s?#]/.test(value)) {
+				return unsupported();
+			}
+			if (kind !== 'ssh') {
+				url!.username = '';
+			}
+			url!.password = '';
+			return `${kind === 'git' ? '' : 'git+'}${url!.href}`;
+		}
+		case 'local': {
+			return `git+${pathToFileURL(parsed.windows ? value : path.resolve(value), { windows: parsed.windows }).href}`;
+		}
+		case 'scp': {
+			if (/[\s?#]/.test(value) || /^(?:[^@/:]+@)?\[[^\]]+\]:/.test(value)) {
+				return unsupported();
+			}
+			const pathname = scpPath(parsed.path, parsed.scpHost!);
+			return `git+ssh://${parsed.user ? `${parsed.user}@` : ''}${parsed.scpHost}${pathname}`;
+		}
+		default: {
 			return unsupported();
 		}
-		if (url.protocol !== 'ssh:') {
-			url.username = '';
-		}
-		url.password = '';
-		url.search = '';
-		return `${url.protocol === 'git:' ? '' : 'git+'}${url.href}`;
 	}
-	if (!parsed.windows && /^(?:git\+)?[a-z][a-z\d+.-]*:\/\//i.test(value)) {
-		return unsupported();
-	}
-	if (kind === 'local') {
-		return `git+${pathToFileURL(parsed.windows ? value : path.resolve(value), { windows: parsed.windows }).href}`;
-	}
-	if (kind === 'scp') {
-		const pathname = scpPath(parsed.path, parsed.scpHost!);
-		return `git+ssh://${parsed.user ? `${parsed.user}@` : ''}${parsed.scpHost}${pathname}`;
-	}
-	return unsupported();
 };
 
 const githubRepositoryName = (parsed: ReturnType<typeof parseGitUrl>) => {

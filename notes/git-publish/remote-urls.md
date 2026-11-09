@@ -29,7 +29,7 @@ Git can introduce credentials through its own configuration, such as an `instead
 
 Install URLs support HTTP, HTTPS, SSH, Git, and file transports. Other transports, including Git's `<transport>::<address>` helper syntax, are rejected before packing. SCP-like remotes and local paths are converted to SSH and file URLs respectively. On POSIX, single-letter `://` schemes are rejected and `x:repo.git` is SCP-like; on Windows, drive-letter paths stay local. [npm-package-arg 13.0.2](https://github.com/npm/npm-package-arg/blob/v13.0.2/lib/npa.js#L398-L426) also accepts rsync and FTP, but Git 2.54.0 (Apple Git-157) reports `fatal: git-over-rsync is no longer supported` for `git ls-remote rsync://example.test/repo.git`; FTP is deprecated and fetch-only. The fetch URL and every push URL are validated before destination selection, which can otherwise encode a query into a rewritten path or leave an unsafe push URL available to Git.
 
-Every URL of the selected remote must use a supported install transport, including push-only mirrors. Use a separate remote for a mirror that requires a helper transport. Remote values containing whitespace and SCP-like remotes with bracketed IPv6 hosts are rejected.
+Every URL of the selected remote must use a supported install transport, including push-only mirrors. Use a separate remote for a mirror that requires a helper transport. URL and SCP-like remotes containing whitespace, and SCP-like remotes with bracketed IPv6 hosts, are rejected. Local filesystem paths can contain whitespace.
 
 ## npm ignores commit pins for non-hosted Git URLs
 

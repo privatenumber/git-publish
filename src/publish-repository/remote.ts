@@ -17,8 +17,9 @@ export const getPublishRemote = async (
 	usesDefaultRemote: boolean,
 ): Promise<PublishRemote> => {
 	const options = { cwd: repositoryPath };
+	const getAll = (key: string) => spawn('git', ['config', '--null', '--get-all', key], options).then(({ stdout }) => stdout.split('\0').slice(0, -1));
 	let configuredName: string | undefined = remote;
-	const urls = await spawn('git', ['config', '--null', '--get-all', `remote.${remote}.url`], options).then(({ stdout }) => stdout.split('\0').slice(0, -1)).catch(() => {
+	const urls = await getAll(`remote.${remote}.url`).catch(() => {
 		configuredName = undefined;
 		if (usesDefaultRemote) {
 			throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
@@ -28,7 +29,7 @@ export const getPublishRemote = async (
 	});
 	const fetchUrl = urls[0]!;
 	const rawPushUrls = configuredName
-		? await spawn('git', ['config', '--null', '--get-all', `remote.${remote}.pushurl`], options).then(({ stdout }) => stdout.split('\0').slice(0, -1)).catch(async () => {
+		? await getAll(`remote.${remote}.pushurl`).catch(async () => {
 			if (urls.length > 1) {
 				return urls;
 			}
@@ -46,7 +47,6 @@ export const getPublishRemote = async (
 		toPackageManagerGitUrl(url, configuredName);
 	}
 	const publicationUrls = getPublicationUrls(fetchUrl, rawPushUrls, repositoryPath);
-	toPackageManagerGitUrl(publicationUrls.installUrl, configuredName);
 	const pushUrls = rawPushUrls.map(normalizeLocal);
 	return {
 		pushUrls,
