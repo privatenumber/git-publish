@@ -837,6 +837,33 @@ exec '${npm}' "$@"
 		expect(result.stderr).toContain(jsonPath);
 	});
 
+	test('prints JSON install sets when writing JSON fails for a publish-all workspace', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('json-all-failure', remote.path);
+		await fixture.mkdir('packages/extra');
+		await fixture.writeJson('packages/extra/package.json', {
+			name: 'extra',
+			version: '1.0.0',
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Add package']);
+		const jsonPath = fixture.getPath('missing/result.json');
+		const result = await gitPublish(fixture.path, ['--json', jsonPath]);
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.stderr).toContain('Publication succeeded');
+		expect(result.stderr).toContain('ENOENT');
+		expect(result.stdout).toContain('Use --json <path> for install sets');
+		const jsonStart = result.stdout.lastIndexOf('\n{\n  "source"');
+		expect(jsonStart).toBeGreaterThan(-1);
+		const json = JSON.parse(result.stdout.slice(jsonStart));
+		expect(Object.keys(json.installSets).sort()).toStrictEqual(['@test/adapter', '@test/broker', '@test/core', 'extra']);
+		expect(result.stderr).toContain('details follow on stdout');
+		for (const name of ['@test/adapter', '@test/broker', '@test/core', 'extra']) {
+			expect(await remote.git('rev-parse', [`npm/json-all-failure-${name}`])).toMatch(/^[0-9a-f]{40}$/);
+		}
+	});
+
 	test('writes standalone publication details as JSON', async () => {
 		await using standaloneRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({

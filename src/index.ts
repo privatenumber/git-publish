@@ -218,11 +218,13 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl)}`);
 		if (argv.flags.json) {
 			const { presentation: _presentation, ...jsonResult } = result;
+			const json = `${stringify(jsonResult, null, 2)}\n`;
 			try {
-				await fs.writeFile(argv.flags.json, `${stringify(jsonResult, null, 2)}\n`);
+				await fs.writeFile(argv.flags.json, json);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				console.error(`Publication succeeded, but could not write JSON file ${stringify(redactRemote(argv.flags.json))}: ${redactRemote(message)}`);
+				console.error(`Publication succeeded, but could not write JSON file ${stringify(redactRemote(argv.flags.json))}: ${redactRemote(message)}. Publication details follow on stdout.`);
+				process.stdout.write(json);
 				process.exitCode = 1;
 			}
 		}
