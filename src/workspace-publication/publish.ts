@@ -96,7 +96,6 @@ export const publishWorkspaceClosure = async ({
 					dependencyPublications,
 					peers: plan.peers.filter(peer => peer.from === node.key),
 					gitOptions: repository.gitOptions,
-					workspacePackageNames: plan.workspacePackageNames,
 				});
 				preparations.set(node.key, preparation);
 				if (plan.standalone) {

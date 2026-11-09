@@ -49,7 +49,6 @@ export const preparePackagePublication = async ({
 	dependencyPublications,
 	peers = [],
 	gitOptions,
-	workspacePackageNames,
 }: {
 	packageName: string;
 	sourceManifestPath: string;
@@ -63,7 +62,6 @@ export const preparePackagePublication = async ({
 	dependencyPublications: ReadonlyMap<string, PackagePublication>;
 	peers?: WorkspacePeer[];
 	gitOptions: SpawnOptions;
-	workspacePackageNames?: ReadonlySet<string>;
 }): Promise<PackagePreparation> => {
 	const sourceManifest = await readJson(sourceManifestPath) as PackageJson;
 	let manifest: PackageJson | undefined;
@@ -71,7 +69,7 @@ export const preparePackagePublication = async ({
 		manifest = JSON.parse(content.toString('utf8')) as PackageJson;
 		const original = stringify(manifest);
 		validatePackedManifest(
-			packageName, manifest, sourceManifest, dependencyEdges, peers, workspacePackageNames,
+			packageName, manifest, sourceManifest, dependencyEdges, peers,
 		);
 		for (const edge of dependencyEdges) {
 			const field = manifest[edge.field];

@@ -154,10 +154,84 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 			onTestFail(() => console.log(result.output));
 			expect('exitCode' in result).toBe(true);
 			const key = label.includes('alias') ? 'alias' : 'core';
-			expect(result.output).toContain(`Package "app" adds ${field} "${key}" during packing, which names workspace package "core".`);
+			expect(result.output).toContain(`Package "app" adds ${field} "${key}" during packing. Pack hooks may remove dependencies but not add them.`);
 			expect(await remote.git('for-each-ref')).toBe('');
 		});
 	}
+
+	for (const [label, source, mutation, message] of [
+		['adds file alias', {}, 'p.dependencies = { alias: "file:../core" }', 'adds dependencies "alias" during packing'],
+		['adds versionless npm alias', {}, 'p.dependencies = { alias: "npm:core" }', 'adds dependencies "alias" during packing'],
+		['adds external dependency', {}, 'p.dependencies = { external: "^1.0.0" }', 'adds dependencies "external" during packing'],
+		['changes external range', { dependencies: { core: '^2.0.0' } }, 'p.dependencies.core = "^1.0.0"', 'changes dependencies "core" during packing from "^2.0.0" to "^1.0.0"'],
+		['removes optional override', {
+			dependencies: { core: '^2.0.0' },
+			optionalDependencies: { core: '^1.0.0' },
+		}, 'delete p.optionalDependencies.core', 'removes optionalDependencies "core" during packing while it remains in dependencies'],
+	] as const) {
+		test(`rejects structural change: ${label}`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+				}),
+				'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+				'pnpm-lock.yaml': '',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					...source,
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=structural']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await using commands = await createFixture({
+				pnpm: `#!/bin/sh
+if [ "$1" = pack ] && [ -f package.json ]; then
+  "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.name === "app") { ${mutation}; fs.writeFileSync("package.json", JSON.stringify(p)); }'
+fi
+exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+`,
+			});
+			await fs.chmod(commands.getPath('pnpm'), 0o755);
+			const result = await gitPublish(fixture.getPath('packages/app'), [], {
+				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+			});
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(true);
+			expect(result.output).toContain(message);
+			expect(await remote.git('for-each-ref')).toBe('');
+		});
+	}
+
+	test('uses the standalone branch for a nested public workspace root', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'web/package.json': JSON.stringify({
+				name: 'web',
+				version: '1.0.0',
+				workspaces: ['packages/*'],
+			}),
+			'web/package-lock.json': '{}',
+			'web/packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=nested-root']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('web'));
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('branch', ['--list'])).toContain('npm/nested-root-web');
+	});
 
 	test('reclassifies a dependency reachable only as a peer after packing', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);

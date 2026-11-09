@@ -23,21 +23,30 @@ export const validatePackedManifest = (
 	sourceManifest: PackageJson,
 	dependencyEdges: PackagePublicationDependency[],
 	peers: WorkspacePeer[],
-	workspacePackageNames?: ReadonlySet<string>,
 ) => {
 	if (manifest.name !== packageName) {
 		throw new Error(`Package ${stringify(packageName)} has packed name ${stringify(manifest.name)}.`);
 	}
+	const planned = new Set([
+		...dependencyEdges.map(edge => `${edge.field}\0${edge.key}`),
+		...peers.map(peer => `peerDependencies\0${peer.key}`),
+	]);
 	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
-		for (const [key, specification] of Object.entries(manifest[field] ?? {})) {
-			if (Object.hasOwn(sourceManifest[field] ?? {}, key)) {
-				continue;
+		for (const [key, packed] of Object.entries(manifest[field] ?? {})) {
+			if (!Object.hasOwn(sourceManifest[field] ?? {}, key)) {
+				throw new Error(`Package ${stringify(packageName)} adds ${field} ${stringify(key)} during packing. Pack hooks may remove dependencies but not add them.`);
 			}
-			const alias = specification ? parseAliasedRange(specification) : undefined;
-			const target = workspacePackageNames?.has(key) ? key : alias?.target;
-			if (target && workspacePackageNames?.has(target)) {
-				throw new Error(`Package ${stringify(packageName)} adds ${field} ${stringify(key)} during packing, which names workspace package ${stringify(target)}. Pack hooks may remove internal dependencies but not add them.`);
+			const source = sourceManifest[field]?.[key];
+			if (packed !== source && !planned.has(`${field}\0${key}`)
+				&& !source?.startsWith('workspace:') && !source?.startsWith('catalog:')) {
+				throw new Error(`Package ${stringify(packageName)} changes ${field} ${stringify(key)} during packing from ${stringify(source)} to ${stringify(packed)}.`);
 			}
+		}
+	}
+	for (const key of Object.keys(sourceManifest.optionalDependencies ?? {})) {
+		if (!Object.hasOwn(manifest.optionalDependencies ?? {}, key)
+			&& Object.hasOwn(manifest.dependencies ?? {}, key)) {
+			throw new Error(`Package ${stringify(packageName)} removes optionalDependencies ${stringify(key)} during packing while it remains in dependencies.`);
 		}
 	}
 	for (const edge of dependencyEdges) {
