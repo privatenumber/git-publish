@@ -14,6 +14,54 @@ import { validatePackedWorkspaceDependencies } from '../../src/package-publicati
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	test('rejects case-colliding packed symlinks', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('case-collision.tgz');
+		const pack = tar.pack();
+		pack.entry({
+			name: 'package/sub/link',
+			type: 'symlink',
+			linkname: '..',
+		});
+		pack.entry({
+			name: 'package/SUB/LINK',
+			type: 'symlink',
+			linkname: 'safe',
+		});
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		await expect(importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		})).rejects.toThrow('Invalid packed path');
+	});
+	test('rejects a case-insensitive escaping symlink chain', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('case-chain.tgz');
+		const pack = tar.pack();
+		pack.entry({
+			name: 'package/a',
+			type: 'symlink',
+			linkname: 'SUB/link/../outside',
+		});
+		pack.entry({
+			name: 'package/sub/link',
+			type: 'symlink',
+			linkname: '..',
+		});
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		await expect(importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		})).rejects.toThrow('Invalid packed path');
+	});
 	test('rejects an escaping chain of packed symlinks', async () => {
 		await using fixture = await createFixture();
 		await using repository = await createGitFixture();
@@ -34,8 +82,6 @@ describe('Package publication', () => {
 		await expect(importTarball({
 			tarball,
 			ref: 'refs/git-publish/0',
-			parent: undefined,
-			message: 'test',
 			gitOptions: { cwd: repository.path },
 			rewriteManifest: content => content,
 		})).rejects.toThrow('Invalid packed path');
@@ -61,8 +107,6 @@ describe('Package publication', () => {
 		await expect(importTarball({
 			tarball,
 			ref: 'refs/git-publish/0',
-			parent: undefined,
-			message: 'test',
 			gitOptions: { cwd: repository.path },
 			rewriteManifest: content => content,
 		})).rejects.toThrow('Invalid packed path');
@@ -85,11 +129,9 @@ describe('Package publication', () => {
 		});
 		pack.finalize();
 		await pipeline(pack, createGzip(), createWriteStream(tarball));
-		const files = await importTarball({
+		const { files } = await importTarball({
 			tarball,
 			ref: 'refs/git-publish/0',
-			parent: undefined,
-			message: 'test',
 			gitOptions: { cwd: repository.path },
 			rewriteManifest: content => content,
 		});
@@ -98,7 +140,7 @@ describe('Package publication', () => {
 		expect(files.find(file => file.file === 'bin')?.size).toBe(7);
 	});
 
-	for (const target of ['../sibling/index.js', '/outside/index.js', '.git/config']) {
+	for (const target of ['../sibling/index.js', '/outside/index.js', '.git/config', String.raw`..\outside`, String.raw`C:\outside`, 'a:b']) {
 		test(`rejects unsafe packed symlink target ${target}`, async () => {
 			await using fixture = await createFixture();
 			await using repository = await createGitFixture();
@@ -114,8 +156,6 @@ describe('Package publication', () => {
 			await expect(importTarball({
 				tarball,
 				ref: 'refs/git-publish/0',
-				parent: undefined,
-				message: 'test',
 				gitOptions: { cwd: repository.path },
 				rewriteManifest: content => content,
 			})).rejects.toThrow(`Invalid packed path: "index.js" -> ${JSON.stringify(target)}`);
@@ -143,8 +183,6 @@ describe('Package publication', () => {
 		await importTarball({
 			tarball,
 			ref: 'refs/git-publish/0',
-			parent: undefined,
-			message: 'test',
 			gitOptions: { cwd: repository.path },
 			rewriteManifest: content => content,
 		});
@@ -169,11 +207,9 @@ describe('Package publication', () => {
 		});
 		pack.finalize();
 		await pipeline(pack, createGzip(), createWriteStream(tarball));
-		const files = await importTarball({
+		const { files } = await importTarball({
 			tarball,
 			ref: 'refs/git-publish/0',
-			parent: undefined,
-			message: 'test',
 			gitOptions: { cwd: repository.path },
 			rewriteManifest: () => Buffer.from('{"name":"rewritten"}'),
 		});
@@ -197,8 +233,6 @@ describe('Package publication', () => {
 		await expect(importTarball({
 			tarball,
 			ref: 'refs/git-publish/0',
-			parent: undefined,
-			message: 'test',
 			gitOptions: { cwd: repository.path },
 			rewriteManifest: content => content,
 		})).rejects.toThrow('Packed package.json must be a regular file');
@@ -215,8 +249,6 @@ describe('Package publication', () => {
 		await importTarball({
 			tarball,
 			ref: 'refs/git-publish/0',
-			parent: undefined,
-			message: 'test',
 			gitOptions: { cwd: repository.path },
 			rewriteManifest: content => content,
 		});
@@ -240,11 +272,9 @@ describe('Package publication', () => {
 		});
 		pack.finalize();
 		await pipeline(pack, createGzip(), createWriteStream(tarball));
-		const files = await importTarball({
+		const { files } = await importTarball({
 			tarball,
 			ref: 'refs/git-publish/0',
-			parent: undefined,
-			message: 'test',
 			gitOptions: { cwd: repository.path },
 			rewriteManifest: content => content,
 		});
@@ -271,11 +301,9 @@ describe('Package publication', () => {
 		});
 		pack.finalize();
 		await pipeline(pack, createGzip(), createWriteStream(tarball));
-		const files = await importTarball({
+		const { files } = await importTarball({
 			tarball,
 			ref: 'refs/git-publish/0',
-			parent: undefined,
-			message: 'test',
 			gitOptions: { cwd: repository.path },
 			rewriteManifest: content => content,
 		});
@@ -298,8 +326,6 @@ describe('Package publication', () => {
 		await expect(importTarball({
 			tarball,
 			ref: 'refs/git-publish/0',
-			parent: undefined,
-			message: 'test',
 			gitOptions: { cwd: repository.path },
 			rewriteManifest: content => content,
 		})).rejects.toThrow('Invalid packed path');

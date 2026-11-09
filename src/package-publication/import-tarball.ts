@@ -6,6 +6,7 @@ import path from 'node:path';
 import spawn, { type Options } from 'nano-spawn';
 import gunzip from 'gunzip-maybe';
 import tar from 'tar-stream';
+import { getStdout } from '../utils/get-stdout.ts';
 
 const packedPath = (name: string) => {
 	const file = name.startsWith('package/') ? name.slice(8) : name;
@@ -17,6 +18,9 @@ const packedPath = (name: string) => {
 
 // git-fast-import <path> accepts C-style quoted paths, including octal escapes.
 const quotePath = (name: string) => `"${[...Buffer.from(name)].map(byte => (byte >= 0x20 && byte < 0x7F && byte !== 34 && byte !== 92 ? String.fromCodePoint(byte) : `\\${byte.toString(8).padStart(3, '0')}`)).join('')}"`;
+
+// eslint-disable-next-line no-bitwise -- Check the three executable permission bits.
+const fileMode = (mode: number | undefined) => (((mode ?? 0) & 0o111) ? '100755' : '100644');
 
 export type File = {
 	file: string;
@@ -31,9 +35,23 @@ type PackedEntry = {
 };
 
 const validateSymlinks = (entries: ReadonlyMap<string, PackedEntry>) => {
+	const symlinks = new Map<string, string>();
+	for (const [name, entry] of entries) {
+		if (entry.target !== undefined) {
+			const key = name.toLowerCase();
+			if (symlinks.has(key)) {
+				throw new Error(`Invalid packed path: ${JSON.stringify(name)} -> ${JSON.stringify(entry.target)}`);
+			}
+			symlinks.set(key, entry.target);
+		}
+	}
 	for (const [name, entry] of entries) {
 		if (entry.target === undefined) {
 			continue;
+		}
+		const lexical = path.posix.normalize(path.posix.join(path.posix.dirname(name), entry.target));
+		if (path.posix.isAbsolute(entry.target) || /[\0\\:]/.test(entry.target) || lexical === '..' || lexical.startsWith('../') || lexical.split('/').some(part => part.toLowerCase() === '.git')) {
+			throw new Error(`Invalid packed path: ${JSON.stringify(name)} -> ${JSON.stringify(entry.target)}`);
 		}
 		const resolved = path.posix.dirname(name).split('/').filter(part => part !== '.');
 		const pending = entry.target.split('/').reverse();
@@ -54,7 +72,7 @@ const validateSymlinks = (entries: ReadonlyMap<string, PackedEntry>) => {
 				throw new Error(`Invalid packed path: ${JSON.stringify(name)} -> ${JSON.stringify(entry.target)}`);
 			}
 			resolved.push(part);
-			const target = entries.get(resolved.join('/'))?.target;
+			const target = symlinks.get(resolved.join('/').toLowerCase());
 			if (target !== undefined) {
 				links += 1;
 				if (links > 40 || path.posix.isAbsolute(target)) {
@@ -68,16 +86,15 @@ const validateSymlinks = (entries: ReadonlyMap<string, PackedEntry>) => {
 };
 
 export const importTarball = async ({
-	tarball, ref, parent, message, gitOptions, rewriteManifest,
+	tarball, ref, gitOptions, rewriteManifest,
 }: {
 	tarball: string;
 	ref: string;
-	parent: string | undefined;
-	message: string;
 	gitOptions: Options;
 	rewriteManifest: (content: Buffer) => Buffer;
 }) => {
 	const entries = new Map<string, PackedEntry>();
+	let sortedEntries: [string, PackedEntry][] = [];
 	const fastImport = spawn('git', ['fast-import', '--quiet'], {
 		...gitOptions,
 		stdin: 'pipe',
@@ -121,8 +138,7 @@ export const importTarball = async ({
 					if (!name || !linked) {
 						throw new Error(`Invalid packed hard link: ${JSON.stringify(name)} -> ${JSON.stringify(source)}`);
 					}
-					// eslint-disable-next-line no-bitwise -- Check the three executable permission bits.
-					const mode = ((header.mode ?? 0) & 0o111) ? '100755' : '100644';
+					const mode = fileMode(header.mode);
 					entries.set(name, {
 						mark: linked.mark,
 						mode,
@@ -133,13 +149,6 @@ export const importTarball = async ({
 				}
 				if (!name || (header.type !== 'file' && header.type !== 'symlink')) {
 					throw new Error(`Unsupported packed entry: ${JSON.stringify(name)} (${header.type})`);
-				}
-				if (header.type === 'symlink') {
-					const target = header.linkname ?? '';
-					const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(name), target));
-					if (path.posix.isAbsolute(target) || target.includes('\0') || resolved === '..' || resolved.startsWith('../') || resolved.split('/').some(part => part.toLowerCase() === '.git')) {
-						throw new Error(`Invalid packed path: ${JSON.stringify(name)} -> ${JSON.stringify(target)}`);
-					}
 				}
 				const manifest = name === 'package.json' ? await buffer(entry) : undefined;
 				if (manifest) {
@@ -156,8 +165,7 @@ export const importTarball = async ({
 					? Buffer.from(header.linkname ?? '')
 					: (manifest ? rewriteManifest(manifest) : undefined);
 				const size = content?.length ?? header.size ?? 0;
-				// eslint-disable-next-line no-bitwise -- Check the three executable permission bits.
-				const mode = header.type === 'symlink' ? '120000' : (((header.mode ?? 0) & 0o111) ? '100755' : '100644');
+				const mode = header.type === 'symlink' ? '120000' : fileMode(header.mode);
 				nextMark += 1;
 				const mark = nextMark;
 				yield `blob\nmark :${mark}\ndata ${size}\n`;
@@ -186,12 +194,9 @@ export const importTarball = async ({
 			await extraction.catch(() => {});
 		}
 		validateSymlinks(entries);
-		const messageData = Buffer.from(`${message}\n`);
-		const now = Math.floor(Date.now() / 1000);
-		yield `commit ${ref}\nauthor git-publish <bot@git-publish> ${now} +0000\ncommitter git-publish <bot@git-publish> ${now} +0000\ndata ${messageData.length}\n`;
-		yield messageData;
-		yield `\n${parent ? `from ${parent}\n` : ''}deleteall\n`;
-		for (const [name, entry] of [...entries].sort(([a], [b]) => (a < b ? -1 : (a > b ? 1 : 0)))) {
+		sortedEntries = [...entries].sort(([a], [b]) => (a < b ? -1 : (a > b ? 1 : 0)));
+		yield `commit ${ref}\ncommitter git-publish <bot@git-publish> 0 +0000\ndata 0\n\ndeleteall\n`;
+		for (const [name, entry] of sortedEntries) {
 			yield `M ${entry.mode} :${entry.mark} ${quotePath(name)}\n`;
 		}
 		yield '\n';
@@ -199,17 +204,18 @@ export const importTarball = async ({
 	const writeResult = pipeline(Readable.from(generate()), input);
 	const [written, imported] = await Promise.allSettled([writeResult, processResult]);
 	// Prefer Git's diagnostic over the EPIPE caused by its early exit.
-	if (imported.status === 'rejected' && (written.status === 'fulfilled' || (written.reason as NodeJS.ErrnoException).code === 'EPIPE')) {
-		throw imported.reason;
-	}
 	if (written.status === 'rejected') {
-		throw written.reason;
+		throw imported.status === 'rejected' && (written.reason as NodeJS.ErrnoException).code === 'EPIPE' ? imported.reason : written.reason;
 	}
 	if (imported.status === 'rejected') {
 		throw imported.reason;
 	}
-	return [...entries].map(([file, entry]) => ({
-		file,
-		size: entry.size,
-	})).sort((a, b) => (a.file < b.file ? -1 : (a.file > b.file ? 1 : 0)));
+	const tree = await getStdout(spawn('git', ['rev-parse', `${ref}^{tree}`], gitOptions));
+	return {
+		tree,
+		files: sortedEntries.map(([file, entry]) => ({
+			file,
+			size: entry.size,
+		})),
+	};
 };

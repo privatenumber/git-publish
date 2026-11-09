@@ -98,26 +98,23 @@ export const preparePackagePublication = async ({
 		delete manifest.devDependencies;
 		return stringify(manifest) === original ? content : Buffer.from(stringify(manifest, null, 2));
 	};
-	const files = await importTarball({
+	const { files, tree: newTree } = await importTarball({
 		tarball: packedTarball,
 		ref: importRef,
-		parent,
-		message: commitMessage,
 		gitOptions,
 		rewriteManifest,
 	});
 	if (!manifest) {
 		throw new Error('Packed package is missing package.json');
 	}
-	const importedCommit = await getStdout(spawn('git', ['rev-parse', importRef], gitOptions));
-	const [newTree, parentTree] = await Promise.all([
-		getStdout(spawn('git', ['rev-parse', `${importedCommit}^{tree}`], gitOptions)),
-		parent ? getStdout(spawn('git', ['rev-parse', `${parent}^{tree}`], gitOptions)) : undefined,
-	]);
-	const reusedExistingCommit = parentTree !== undefined && newTree === parentTree;
+	const parentRevisions = parent
+		? await getStdout(spawn('git', ['rev-parse', parent, `${parent}^{tree}`], gitOptions))
+		: '';
+	const [parentCommit, parentTree] = parentRevisions ? parentRevisions.split('\n') : [];
+	const reusedExistingCommit = parentCommit !== undefined && newTree === parentTree;
 	let commit: string;
-	if (reusedExistingCommit) {
-		commit = await getStdout(spawn('git', ['rev-parse', parent!], gitOptions));
+	if (parentCommit && reusedExistingCommit) {
+		commit = parentCommit;
 	} else {
 		const signing = await getStdout(spawn('git', ['config', '--type=bool', '--get', 'commit.gpgSign'], gitOptions)).catch((error: unknown) => {
 			if (error instanceof SubprocessError && error.exitCode === 1) {
