@@ -8,7 +8,8 @@ import { renderPackageBranch } from '../package-publication/branch.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getStdout } from '../utils/get-stdout.ts';
 import {
-	createPublishGraph, findWorkspacePackageDirectory, type PublishGraphNode, type WorkspacePeer,
+	createEdgeResolver, createPublishGraph, findWorkspacePackageDirectory,
+	type PublishGraphNode, type WorkspacePeer,
 } from './graph.ts';
 import { findWorkspacePackages, type WorkspacePackage } from './discover.ts';
 import { createInstallGraph } from './install-graph.ts';
@@ -23,6 +24,7 @@ export type WorkspacePublicationPlan = {
 	nodes: WorkspacePublicationNode[];
 	peers: WorkspacePeer[];
 	standalone?: boolean;
+	resolveEdge?: ReturnType<typeof createEdgeResolver>;
 };
 
 export const planStandalonePublication = async ({
@@ -190,9 +192,7 @@ export const planWorkspacePublication = async ({
 		...workspace,
 		packages: candidates,
 	}, [...roots], { policy });
-	if (publicRoot && graph.nodes.length === 1 && graph.peers.length === 0) {
-		return undefined;
-	}
+	const standalone = publicRoot && graph.nodes.length === 1 && graph.peers.length === 0;
 	if (!force) {
 		const privatePackage = graph.nodes.find(node => (
 			path.resolve(node.package.dir) === path.resolve(workspace.rootDirectory)
@@ -234,10 +234,15 @@ export const planWorkspacePublication = async ({
 		});
 	}
 	const plan = {
+		standalone,
 		roots: [...roots],
 		publishAll,
 		nodes,
 		peers: graph.peers,
+		resolveEdge: createEdgeResolver({
+			...workspace,
+			packages: candidates,
+		}, policy),
 	};
 	const { edges, reachable } = createInstallGraph(plan);
 	for (const root of plan.roots) {

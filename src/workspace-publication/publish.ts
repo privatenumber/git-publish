@@ -16,6 +16,7 @@ import { packPackage } from '../utils/pack-package.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 import { validatePeerRanges } from '../package-publication/validate.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
+import { createInstallGraph } from './install-graph.ts';
 
 export const publishWorkspaceClosure = async ({
 	plan,
@@ -33,7 +34,8 @@ export const publishWorkspaceClosure = async ({
 	sourceName: string;
 	sourceCommit: string | undefined;
 	fresh: boolean | undefined;
-}): Promise<ReadonlyMap<string, PackagePreparation>> => {
+}): Promise<{ plan: WorkspacePublicationPlan;
+	preparations: ReadonlyMap<string, PackagePreparation>; }> => {
 	const repository = await createPublishRepository({
 		sourceRepositoryPath: repositoryPath,
 		publishRemote,
@@ -94,6 +96,8 @@ export const publishWorkspaceClosure = async ({
 					dependencyPublications,
 					peers: plan.peers.filter(peer => peer.from === node.key),
 					gitOptions: repository.gitOptions,
+					workspacePackage: node.package,
+					resolveEdge: plan.resolveEdge,
 				});
 				preparations.set(node.key, preparation);
 				if (plan.standalone) {
@@ -141,15 +145,26 @@ export const publishWorkspaceClosure = async ({
 				async taskApi => processPackage(index, taskApi),
 			)),
 		));
-		validatePeerRanges(plan, preparations);
-		const packageCount = plan.nodes.length;
+		const effective = {
+			...plan,
+			nodes: plan.nodes.map(node => ({
+				...node,
+				dependencies: preparations.get(node.key)!.dependencies,
+			})),
+			peers: [...preparations.values()].flatMap(preparation => preparation.peers),
+		};
+		const reachable = createInstallGraph(effective).reachable(effective.roots, () => true);
+		effective.nodes = effective.nodes.filter(node => reachable.has(node.key));
+		effective.peers = effective.peers.filter(peer => reachable.has(peer.from));
+		validatePeerRanges(effective, preparations);
+		const packageCount = effective.nodes.length;
 		await task(
 			`Pushing ${packageCount} ${packageCount === 1 ? 'package' : 'packages'}${packageCount === 1 ? '' : ' together'}`,
 			async ({ streamPreview }) => {
 				try {
 					await pushPackagePublications({
 						repository,
-						publications: [...preparations.values()].map(preparation => preparation.publication),
+						publications: effective.nodes.map(node => preparations.get(node.key)!.publication),
 						pushPlan,
 						standalone: plan.standalone,
 					});
@@ -159,7 +174,10 @@ export const publishWorkspaceClosure = async ({
 				}
 			},
 		);
-		return preparations;
+		return {
+			plan: effective,
+			preparations,
+		};
 	} finally {
 		const cleanup = task('Cleaning up temporary files', async ({ setWarning }) => {
 			try {

@@ -4,6 +4,12 @@
 
 Verified 2026-11-07 against npm 11.21.2 and 12.2.2, pnpm 10.34.9, 11.28.11, and 12.18.0, Yarn 1.22.22 and 4.18.1, and Bun 1.4.4.
 
+## Packing and the publication graph
+
+The publication graph is planned from source manifests and reconciled after packing. Only surviving runtime and peer edges determine the packages pushed and the install sets. A packed package name must match the planned name, and a pack hook cannot add an unplanned internal runtime dependency. This prevents the published manifests from requiring packages missing from the install set.
+
+Packing can change dependencies: pnpm exposes [`beforePacking`](https://pnpm.io/pnpmfile), and Yarn exposes [`beforeWorkspacePacking`](https://yarnpkg.com/api/plugin-pack/interface/Hooks). The removal and rejection cases are covered by [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts).
+
 ## Why the set is installed at the root
 
 Current package managers block Git dependencies that are declared by another Git dependency unless the consumer opts in:

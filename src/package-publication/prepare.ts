@@ -4,7 +4,8 @@ import { getStdout } from '../utils/get-stdout.ts';
 import { readJson } from '../utils/read-json.ts';
 import { findUnpublishedFilesFieldEntries } from '../utils/unpublished-files-field.ts';
 import { toPackageManagerGitUrl } from '../utils/git-url.ts';
-import type { WorkspacePeer } from '../workspace-publication/graph.ts';
+import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/graph.ts';
+import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { importTarball, type File } from './import-tarball.ts';
 import { validatePackedManifest } from './validate.ts';
 
@@ -24,6 +25,8 @@ export type PackagePreparation = {
 	reusedExistingCommit: boolean;
 	version: string | undefined;
 	peerDependencies: Partial<Record<string, string>>;
+	dependencies: PublishGraphEdge[];
+	peers: WorkspacePeer[];
 };
 
 export type PackagePublicationDependency = {
@@ -47,6 +50,8 @@ export const preparePackagePublication = async ({
 	dependencyPublications,
 	peers = [],
 	gitOptions,
+	workspacePackage,
+	resolveEdge,
 }: {
 	packageName: string;
 	sourceManifestPath: string;
@@ -60,13 +65,19 @@ export const preparePackagePublication = async ({
 	dependencyPublications: ReadonlyMap<string, PackagePublication>;
 	peers?: WorkspacePeer[];
 	gitOptions: SpawnOptions;
+	workspacePackage?: WorkspacePackage;
+	resolveEdge?: (
+		from: WorkspacePackage, key: string, specification: string, peer: boolean,
+	) => string | undefined;
 }): Promise<PackagePreparation> => {
 	const sourceManifest = await readJson(sourceManifestPath) as PackageJson;
 	let manifest: PackageJson | undefined;
 	const rewriteManifest = (content: Buffer) => {
 		manifest = JSON.parse(content.toString('utf8')) as PackageJson;
 		const original = stringify(manifest);
-		validatePackedManifest(packageName, manifest, sourceManifest, dependencyEdges, peers);
+		validatePackedManifest(
+			packageName, manifest, sourceManifest, dependencyEdges, peers, workspacePackage, resolveEdge,
+		);
 		for (const edge of dependencyEdges) {
 			const field = manifest[edge.field];
 			if (field && Object.hasOwn(field, edge.key)) {
@@ -158,5 +169,14 @@ export const preparePackagePublication = async ({
 		reusedExistingCommit,
 		version: manifest.version,
 		peerDependencies: manifest.peerDependencies ?? {},
+		dependencies: dependencyEdges.filter(edge => (
+			Object.hasOwn(manifest![edge.field] ?? {}, edge.key)
+		)),
+		peers: peers.filter(peer => (
+			Object.hasOwn(manifest!.peerDependencies ?? {}, peer.key)
+		)).map(peer => ({
+			...peer,
+			optional: manifest!.peerDependenciesMeta?.[peer.key]?.optional === true,
+		})),
 	};
 };

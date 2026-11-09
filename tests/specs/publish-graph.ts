@@ -316,6 +316,8 @@ describe('Publication graph', () => {
 			reusedExistingCommit: false,
 			version: '1.0.0',
 			peerDependencies: {},
+			dependencies: [],
+			peers: [],
 		}]));
 		const plan = {
 			roots: ['app'],
@@ -401,6 +403,8 @@ describe('Publication graph', () => {
 			reusedExistingCommit: false,
 			version: '1.0.0',
 			peerDependencies: {},
+			dependencies: [],
+			peers: [],
 		}]));
 		const result = createWorkspaceResult({
 			roots: ['app'],
@@ -453,6 +457,8 @@ describe('Publication graph', () => {
 			reusedExistingCommit: false,
 			version: '1.0.0',
 			peerDependencies: {},
+			dependencies: [],
+			peers: [],
 		}]));
 		for (const optional of [false, true]) {
 			graph.peers[0]!.optional = optional;
