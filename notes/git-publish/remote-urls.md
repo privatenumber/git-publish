@@ -21,11 +21,11 @@ Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts
 
 ## Credentials
 
-Install specifiers drop passwords and query strings from network URLs. HTTP(S) and `git://` usernames are dropped; SSH, rsync, and FTP usernames are kept because they select an account. File URLs retain their existing path behavior. Displayed remotes and errors redact userinfo except bare SSH usernames, and redact query strings. Tests: "never publishes or prints remote URL credentials", "omits SSH query credentials from install specifiers", "redacts username tokens while preserving SSH usernames".
+Install specifiers drop passwords and query strings from network URLs. HTTP(S) and `git://` usernames are dropped; SSH, rsync, and FTP usernames are kept because they select an account. File URLs with a query or fragment are rejected because Git configuration can rewrite them to a network remote. Displayed remotes and errors redact userinfo except bare SSH usernames, and redact query strings. Tests: "never publishes or prints remote URL credentials", "omits SSH query credentials from install specifiers", "redacts username tokens while preserving SSH usernames".
 
 ## Install protocols
 
-Install URLs support HTTP, HTTPS, SSH, Git, rsync, FTP, and file transports. Other transports, including Git's `<transport>::<address>` helper syntax, are rejected before packing. This matches the Git protocols accepted by [npm-package-arg 13.0.2](https://github.com/npm/npm-package-arg/blob/v13.0.2/lib/npa.js#L398-L426), which rejects unsupported URL types. SCP-like remotes and local paths are converted to SSH and file URLs respectively. Tests: [`tests/specs/github-remotes.ts`](../../tests/specs/github-remotes.ts) and [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts).
+Install URLs support HTTP, HTTPS, SSH, Git, rsync, FTP, and file transports. Other transports, including Git's `<transport>::<address>` helper syntax, are rejected before packing. Single-letter `://` schemes are rejected on POSIX and treated as drive paths on Windows. This matches the Git protocols accepted by [npm-package-arg 13.0.2](https://github.com/npm/npm-package-arg/blob/v13.0.2/lib/npa.js#L398-L426), which rejects unsupported URL types. SCP-like remotes and local paths are converted to SSH and file URLs respectively. Tests: [`tests/specs/github-remotes.ts`](../../tests/specs/github-remotes.ts) and [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts).
 
 ## npm ignores commit pins for non-hosted Git URLs
 

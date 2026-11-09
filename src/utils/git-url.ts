@@ -87,7 +87,13 @@ export const toPackageManagerGitUrl = (value: string) => {
 	if (/^[a-z][a-z\d+.-]*::/i.test(value)) {
 		return unsupported();
 	}
+	if (process.platform !== 'win32' && /^[a-z]:\/\//i.test(value)) {
+		return unsupported();
+	}
 	if (kind === 'file') {
+		if (/[?#]/.test(value)) {
+			return unsupported();
+		}
 		return value.startsWith('git+') ? value : `git+${value}`;
 	}
 	if (url?.hostname) {
@@ -159,12 +165,13 @@ export const isHostedGitRemote = (value: string) => {
 };
 
 export const redactRemote = (value: string) => value
-	.replaceAll(/(\b[a-z][a-z\d+.-]*::)\S+/gi, '$1[redacted]')
-	.replaceAll(/(\b(?:git\+)?([a-z][a-z\d+.-]*):\/\/)([^\s/?#]+)/gi, (match, prefix: string, scheme: string, authority: string) => {
+	.replaceAll(/(?<=^|\s)([a-z][a-z\d+.-]*::)\S+/gi, '$1[redacted]')
+	.replaceAll(/(\b(?:git\+)?([a-z][a-z\d+.-]*):\/\/)([^\s/]+)/gi, (match, prefix: string, scheme: string, authority: string) => {
 		const at = authority.lastIndexOf('@');
 		const user = authority.slice(0, at);
 		return at === -1 || (scheme.toLowerCase() === 'ssh' && !user.includes(':'))
 			? match
 			: `${prefix}[redacted]@${authority.slice(at + 1)}`;
 	})
+	.replaceAll(/(\b(?:git\+)?file:[^\s?#]*)[?#]\S*/gi, '$1?[redacted]')
 	.replaceAll(/(\b(?:git\+)?[a-z][a-z\d+.-]*:\/\/[^\s?]+)\?\S*/gi, '$1?[redacted]');

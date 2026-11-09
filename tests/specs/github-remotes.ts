@@ -43,9 +43,23 @@ describe('package manager Git URLs', () => {
 		expect(toPackageManagerGitUrl('ssh://git:secret@example.test/repo.git?token=secret')).toBe('git+ssh://git@example.test/repo.git');
 		expect(toPackageManagerGitUrl('git@example.test:repo.git')).toBe('git+ssh://git@example.test/~/repo.git');
 		expect(toPackageManagerGitUrl('.')).toBe(`git+${pathToFileURL(process.cwd()).href}`);
-		expect(toPackageManagerGitUrl('C://work/repo.git')).toBe(`git+${pathToFileURL('C://work/repo.git', { windows: true }).href}`);
-		expect(toPackageManagerGitUrl('file:///repo.git?token=secret')).toBe('git+file:///repo.git?token=secret');
+		if (process.platform === 'win32') {
+			expect(toPackageManagerGitUrl('C://work/repo.git')).toBe(`git+${pathToFileURL('C://work/repo.git', { windows: true }).href}`);
+		} else {
+			expect(() => toPackageManagerGitUrl('C://work/repo.git')).toThrow('Cannot form an install URL');
+		}
 	});
+
+	for (const input of ['file:///repo.git?token=secret', 'file:///repo.git#secret']) {
+		test(`rejects file URLs with ${input.includes('?') ? 'queries' : 'fragments'}`, () => {
+			expect(() => toPackageManagerGitUrl(input)).toThrow('Cannot form an install URL');
+			try {
+				toPackageManagerGitUrl(input);
+			} catch (error) {
+				expect(String(error)).not.toContain('secret');
+			}
+		});
+	}
 });
 
 describe('GitHub remotes', () => {

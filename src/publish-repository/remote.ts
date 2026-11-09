@@ -40,9 +40,12 @@ export const getPublishRemote = async (
 			return expandedPush === expandedFetch ? fetchUrl : expandedPush;
 		})
 		: fetchUrl;
-	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')
-		? path.resolve(repositoryPath, url)
-		: url);
+	const normalizeLocal = (url: string) => {
+		toPackageManagerGitUrl(url);
+		return isLocalGitUrl(url) && !url.startsWith('file://')
+			? path.resolve(repositoryPath, url)
+			: url;
+	};
 	const normalizedFetch = normalizeLocal(fetchUrl);
 	const pushUrls = pushUrlOutput.split('\n').map(normalizeLocal);
 	const publicationUrls = getPublicationUrls(normalizedFetch, pushUrls, repositoryPath);

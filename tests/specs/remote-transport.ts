@@ -33,6 +33,15 @@ describe('Remote transport', async () => {
 		await expect(getPublishRemote(fixture.path, 'x::address', false)).rejects.toThrow('Cannot form an install URL for remote x::[redacted]');
 	});
 
+	if (process.platform !== 'win32') {
+		test('rejects single-letter URL remotes before local normalization', async () => {
+			await using fixture = await createGitFixture();
+			const result = getPublishRemote(fixture.path, 'x://user:secret@host/r', false);
+			await expect(result).rejects.toThrow('Cannot form an install URL');
+			await expect(result).rejects.not.toThrow('secret');
+		});
+	}
+
 	test('prints the rejection reason for a standalone push', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		const hook = remote.getPath('hooks/pre-receive');
