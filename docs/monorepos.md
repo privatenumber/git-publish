@@ -12,7 +12,7 @@
   git-publish @acme/core ./packages/adapter './packages/plugins/*'
   ```
 
-Private workspace members are published without `--force`. `--force` is needed only for a private workspace root, which must also be selected, such as `git-publish . --force`. Without a selection, a private root publishes its non-private members.
+Private workspace members are published without `--force`. `--force` is needed only when the publication includes a private workspace root, either because you selected it or because a selected package depends on it.
 
 ## What gets published
 

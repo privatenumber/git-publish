@@ -96,7 +96,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			force: {
 				type: Boolean,
 				alias: 'f',
-				description: 'Allow publishing a private standalone package, or a private workspace root selected with "git-publish ."',
+				description: 'Allow publishing a private standalone package or a private workspace root.',
 			},
 			json: {
 				type: String,
