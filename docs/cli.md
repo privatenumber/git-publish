@@ -25,7 +25,7 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 | `-b, --branch <template>` | Branch name or template. See [Branches](#branches) |
 | `-d, --dry` | Simulate the run. Does not commit or push |
 | `-o, --fresh` | Publish a single-commit branch, replacing its history with a force-push. See [`--fresh`](#--fresh) |
-| `-f, --force` | Publish a private standalone package or a private workspace root |
+| `-f, --force` | Allow publishing a private standalone package or a selected private workspace root, such as `git-publish . --force` |
 | `--json <path>` | Write publication details and install sets to a JSON file. See [JSON output](#json-output) |
 | `-h, --help` | Show help |
 | `--version` | Show the version |

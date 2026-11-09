@@ -27,7 +27,7 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 - In a package directory: publishes that package plus every workspace package it needs at runtime or as a peer. Each package gets its own branch (default `npm/{gitRef}-{package}`), and all branches are pushed in one atomic push.
 - At the workspace root: publishes every non-private member when the root `package.json` is private or unnamed; a named public root publishes itself.
 - Select packages explicitly by name, path, or quoted glob: `npx git-publish @acme/core ./packages/adapter './packages/plugins/*'`. A package named `skills` must be selected by path, because `skills` is a subcommand.
-- Private workspace members are published without `--force`; `--force` is only for a private workspace root or a private standalone package.
+- Private workspace members are published without `--force`; `--force` is only for a private standalone package or a selected private workspace root (`npx git-publish . --force`).
 - A multi-package publication needs exactly one push URL.
 
 ## Install a published package
