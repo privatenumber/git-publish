@@ -28,22 +28,44 @@ describe('Remote transport', async () => {
 		expect(result.stdout).toContain('repo%231');
 		expect(await remoteGit('rev-parse', ['npm/source'])).toMatch(/^[0-9a-f]{40}$/);
 	});
-	test('publishes to a local push destination despite an unsupported fetch URL', async () => {
+	test('rejects an unsupported fetch URL before packing even with a local push destination', async () => {
 		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using marker = await createFixture();
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'app',
 				version: '1.0.0',
+				scripts: { prepack: `node -e "require('node:fs').writeFileSync('${marker.getPath('packed')}', '')"` },
 			}),
 		}, ['--initial-branch=source']);
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'initial']);
-		await fixture.git('remote', ['add', 'origin', 's3://bucket/repo.git']);
+		await fixture.git('remote', ['add', 'origin', 's3://user:secret@bucket/repo.git']);
 		await fixture.git('config', ['remote.origin.pushurl', destination.path]);
 		const result = await gitPublish(fixture.path);
-		expect('exitCode' in result).toBe(false);
-		expect(await destination.git('rev-parse', ['npm/source'])).toMatch(/^[0-9a-f]{40}$/);
+		expect('exitCode' in result && result.exitCode).not.toBe(false);
+		expect(result.stdout + result.stderr).toContain('Remote "origin" uses a URL that package managers cannot install from.');
+		expect(result.stdout + result.stderr).not.toContain('secret');
+		expect(await marker.exists('packed')).toBe(false);
+		expect(await destination.git('for-each-ref')).toBe('');
 	});
+
+	for (const [label, pushUrls] of [
+		['hosted scp query', ['git@github.com:fork/r.git?token=secret']],
+		['hosted helper', ['github.com::user:secret@host/repo.git']],
+		['second push query', ['https://github.com/a/r.git', 'git@github.com:fork/r.git?token=secret']],
+	] as const) {
+		test(`rejects ${label} before destination selection`, async () => {
+			await using fixture = await createGitFixture();
+			await fixture.git('remote', ['add', 'origin', 'https://github.com/a/r.git']);
+			for (const pushUrl of pushUrls) {
+				await fixture.git('config', ['--add', 'remote.origin.pushurl', pushUrl]);
+			}
+			const result = getPublishRemote(fixture.path, 'origin', true);
+			await expect(result).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
+			await expect(result).rejects.not.toThrow('secret');
+		});
+	}
 	test('rejects unsupported install transports before packing', async () => {
 		await using marker = await createFixture();
 		await using fixture = await createGitFixture({

@@ -40,6 +40,7 @@ describe('package manager Git URLs', () => {
 		expect(toPackageManagerGitUrl('https://user:secret@example.test/repo.git')).toBe('git+https://example.test/repo.git');
 		expect(toPackageManagerGitUrl('ssh://git:secret@example.test/repo.git')).toBe('git+ssh://git@example.test/repo.git');
 		expect(toPackageManagerGitUrl('git@example.test:repo.git')).toBe('git+ssh://git@example.test/~/repo.git');
+		expect(toPackageManagerGitUrl('git@[2001:db8::1]:repo.git')).toBe('git+ssh://git@[2001:db8::1]/~/repo.git');
 		expect(toPackageManagerGitUrl('.')).toBe(`git+${pathToFileURL(process.cwd()).href}`);
 		if (process.platform === 'win32') {
 			expect(toPackageManagerGitUrl('C://work/repo.git')).toBe(`git+${pathToFileURL('C://work/repo.git', { windows: true }).href}`);

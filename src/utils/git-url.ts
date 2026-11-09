@@ -14,7 +14,7 @@ export const parseGitUrl = (value: string) => {
 	const drivePath = process.platform === 'win32' && /^[a-z]:/i.test(value);
 	const url = drivePath ? null : URL.parse(value.replace(/^git\+/, ''));
 	const scp = !drivePath && !url?.hostname && url?.protocol !== 'file:'
-		? /^(?:([^@/:]+)@)?([^/:]+):(.+)$/.exec(value)
+		? /^(?:([^@/:]+)@)?(\[[^\]]+\]|[^/:]+):(.+)$/.exec(value)
 		: null;
 	const host = (url?.hostname || scp?.[2])?.toLowerCase();
 	let kind: GitUrlKind = 'local';
@@ -154,7 +154,7 @@ export const isHostedGitRemote = (value: string) => {
 export const redactRemote = (value: string) => value
 	.replaceAll(/(?<=^|\s)([a-z][a-z\d+.-]*::)[^\r\n]*/gi, '$1[redacted]')
 	.replaceAll(/(\b(?:git\+)?([a-z][a-z\d+.-]*):\/\/)(\S+)/gi, (match, prefix: string, scheme: string, rest: string) => {
-		if (!/[@?#]/.test(rest) || (scheme.toLowerCase() === 'ssh' && /^[^:@/?#]+@(?:\[[^\]@]+\]|[^:@/?#]+)(?::\d+)?\/[^?#]*$/.test(rest))) {
+		if (!/[@?#]/.test(rest) || (scheme.toLowerCase() === 'ssh' && !rest.includes('://') && /^[^:@/?#]+@(?:\[[^\]@]+\]|[^:@/?#]+)(?::\d+)?\/[^@?#]*$/.test(rest))) {
 			return match;
 		}
 		return `${prefix}[redacted]`;

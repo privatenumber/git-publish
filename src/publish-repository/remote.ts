@@ -44,6 +44,9 @@ export const getPublishRemote = async (
 		? path.resolve(repositoryPath, url)
 		: url);
 	const rawPushUrls = pushUrlOutput.split('\n');
+	for (const url of [fetchUrl, ...rawPushUrls]) {
+		toPackageManagerGitUrl(url, configuredName);
+	}
 	const publicationUrls = getPublicationUrls(fetchUrl, rawPushUrls, repositoryPath);
 	toPackageManagerGitUrl(publicationUrls.installUrl, configuredName);
 	const pushUrls = rawPushUrls.map(normalizeLocal);

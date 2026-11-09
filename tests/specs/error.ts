@@ -9,6 +9,8 @@ for (const [index, [input, expected]] of [
 	['https://user:pass@example.test?token=prefix@secret', 'https://[redacted]'],
 	['https://user:secret#tail@host/repo.git', 'https://[redacted]'],
 	['git@host:repo.git?token=secret', 'git@host:repo.git?[redacted]'],
+	['ssh://git@host/repo/https://u:secret@other/r', 'ssh://[redacted]'],
+	['ssh://git@host/repo/https://other/r', 'ssh://[redacted]'],
 ].entries()) {
 	test(`redacts custom remote ${index}: ${expected}`, () => {
 		expect(redactRemote(input)).toBe(expected);
