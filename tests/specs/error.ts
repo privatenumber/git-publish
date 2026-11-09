@@ -22,6 +22,7 @@ for (const [input, expected] of [
 	['s3://token@bucket/repo.git?token=secret', 's3://[redacted]@bucket/repo.git?[redacted]'],
 	['ftp://token@host/r', 'ftp://[redacted]@host/r'],
 	['helper://user:pass@host/r?token=secret', 'helper://[redacted]@host/r?[redacted]'],
+	['x://user:secret@host/r', 'x://[redacted]@host/r'],
 ]) {
 	test(`redacts custom remote ${expected}`, () => {
 		expect(redactRemote(input)).toBe(expected);
@@ -34,8 +35,6 @@ test('preserves remotes without credentials and Windows paths', () => {
 		'git@github.com:o/r.git',
 		'https://github.com/o/r.git',
 		'C://work/repo.git',
-		'C://user:pass@work/repo.git?token=secret',
-		'git+C://user:pass@work/repo.git?token=secret',
 	]) {
 		expect(redactRemote(input)).toBe(input);
 	}

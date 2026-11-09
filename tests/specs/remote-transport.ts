@@ -9,6 +9,30 @@ import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Remote transport', async () => {
+	test('rejects unsupported install transports before packing', async () => {
+		await using marker = await createFixture();
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				scripts: { prepack: `node -e "require('node:fs').writeFileSync('${marker.getPath('packed')}', '')"` },
+			}),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		const result = await gitPublish(fixture.path, ['--remote', 's3://key:secret@bucket/repo.git']);
+		expect('exitCode' in result && result.exitCode).not.toBe(false);
+		expect(result.stdout + result.stderr).toContain('Cannot form an install URL for remote');
+		expect(result.stdout).not.toContain('secret');
+		expect(result.stderr).not.toContain('secret');
+		expect(await marker.exists('packed')).toBe(false);
+	});
+
+	test('rejects single-letter helper syntax during remote resolution', async () => {
+		await using fixture = await createGitFixture();
+		await expect(getPublishRemote(fixture.path, 'x::address', false)).rejects.toThrow('Cannot form an install URL for remote x::[redacted]');
+	});
+
 	test('prints the rejection reason for a standalone push', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		const hook = remote.getPath('hooks/pre-receive');

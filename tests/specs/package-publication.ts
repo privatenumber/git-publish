@@ -23,7 +23,7 @@ describe('Package publication', () => {
 	test('omits query strings from HTTP and Git install URLs', () => {
 		for (const scheme of ['http', 'https', 'git', 'git+https']) {
 			expect(toInstallSpecifier(`${scheme}://host/repo.git?access_token=secret`, 'abc'))
-				.toBe(`git+${scheme.replace(/^git\+/, '')}://host/repo.git#abc`);
+				.toBe(`${scheme === 'git' ? '' : 'git+'}${scheme.replace(/^git\+/, '')}://host/repo.git#abc`);
 		}
 	});
 	test('removes SSH passwords from install specifiers', () => {

@@ -6,16 +6,37 @@ import {
 
 describe('package manager Git URLs', () => {
 	for (const [input, expected] of [
-		['ftp://user:secret@example.test/repo.git?token=secret', 'git+ftp://example.test/repo.git'],
-		['git+ftp://user:secret@example.test/repo.git?token=secret', 'git+ftp://example.test/repo.git'],
-		['s3://key:secret@bucket/repo.git?token=secret', 'git+s3://bucket/repo.git'],
-		['s3://key:secret@bucket:service/repo.git?token=secret', 'git+s3://bucket:service/repo.git'],
-		['git+s3://key:secret@bucket:service/repo.git?token=secret', 'git+s3://bucket:service/repo.git'],
+		['ftp://user:secret@example.test/repo.git?token=secret', 'git+ftp://user@example.test/repo.git'],
+		['git+ftp://user:secret@example.test/repo.git?token=secret', 'git+ftp://user@example.test/repo.git'],
+		['rsync://user:secret@example.test/repo.git?token=secret', 'git+rsync://user@example.test/repo.git'],
+		['git+rsync://user:secret@example.test/a/../repo.git?token=secret', 'git+rsync://user@example.test/a/../repo.git'],
+		['git://user:secret@example.test/repo.git?token=secret', 'git://example.test/repo.git'],
 	]) {
 		test(`strips credentials from ${input.split(':')[0]} URLs to ${expected}`, () => {
 			expect(toPackageManagerGitUrl(input)).toBe(expected);
 		});
 	}
+
+	for (const input of ['s3://key:secret@bucket/repo.git', 'x::address', 'https::https://user:secret@host/r.git']) {
+		test(`rejects unsupported remote ${input.split(':')[0]}`, () => {
+			expect(() => toPackageManagerGitUrl(input)).toThrow('Cannot form an install URL for remote');
+			try {
+				toPackageManagerGitUrl(input);
+			} catch (error) {
+				expect(String(error)).not.toContain('secret');
+			}
+		});
+	}
+
+	test('redacts credentials in opaque helper addresses', () => {
+		expect(() => toPackageManagerGitUrl('x::user:secret@host/r.git')).toThrow('Cannot form an install URL for remote');
+		try {
+			toPackageManagerGitUrl('x::user:secret@host/r.git');
+		} catch (error) {
+			expect(String(error)).toContain('Cannot form an install URL for remote');
+			expect(String(error)).not.toContain('secret');
+		}
+	});
 
 	test('preserves existing transport behavior', () => {
 		expect(toPackageManagerGitUrl('https://user:secret@example.test/repo.git?token=secret')).toBe('git+https://example.test/repo.git');

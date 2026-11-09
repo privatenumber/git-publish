@@ -1,7 +1,7 @@
 import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
-import { isLocalGitUrl } from '../utils/git-url.ts';
+import { isLocalGitUrl, toPackageManagerGitUrl } from '../utils/git-url.ts';
 import { getPublicationUrls } from './destination.ts';
 
 export type PublishRemote = {
@@ -45,9 +45,11 @@ export const getPublishRemote = async (
 		: url);
 	const normalizedFetch = normalizeLocal(fetchUrl);
 	const pushUrls = pushUrlOutput.split('\n').map(normalizeLocal);
+	const publicationUrls = getPublicationUrls(normalizedFetch, pushUrls, repositoryPath);
+	toPackageManagerGitUrl(publicationUrls.installUrl);
 	return {
 		pushUrls,
-		...getPublicationUrls(normalizedFetch, pushUrls, repositoryPath),
+		...publicationUrls,
 		configuredName,
 	};
 };
