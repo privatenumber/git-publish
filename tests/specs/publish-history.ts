@@ -76,17 +76,16 @@ describe('Publish history', async () => {
 				version: '1.0.0',
 			}),
 			'index.js': 'first',
-		}, ['--initial-branch=ref-collision']);
+		}, ['--initial-branch=git-publish-0']);
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial commit']);
-		await fixture.git('branch', ['git-publish-0']);
 		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
 		expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
 		await fixture.writeFile('index.js', 'second');
 		await fixture.git('add', ['index.js']);
 		await fixture.git('commit', ['-m', 'Update package']);
 		expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
-		expect(await remoteGit('show', ['npm/ref-collision:index.js'])).toBe('second');
+		expect(await remoteGit('show', ['npm/git-publish-0:index.js'])).toBe('second');
 	});
 
 	test('publishes packed files excluded by global Git configuration', async () => {

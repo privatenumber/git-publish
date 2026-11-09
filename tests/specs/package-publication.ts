@@ -295,6 +295,7 @@ describe('Package publication', () => {
 			.toBe(Buffer.byteLength(await publishFixture.git('show', [`${preparation.publication.commit}:package.json`])));
 		expect(preparation.reusedExistingCommit).toBe(false);
 		expect(await publishFixture.git('cat-file', ['-t', preparation.publication.commit])).toBe('commit');
+		expect(await publishFixture.git('rev-parse', ['refs/git-publish/0'])).toBe(preparation.publication.commit);
 		expect(await publishFixture.git('rev-parse', [`${preparation.publication.commit}^{tree}`]))
 			.toBe(await publishFixture.git('rev-parse', ['refs/git-publish/0^{tree}']));
 		expect(preparation.publication).toStrictEqual({

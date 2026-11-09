@@ -143,6 +143,7 @@ export const preparePackagePublication = async ({
 			},
 		}));
 	}
+	await spawn('git', ['update-ref', importRef, commit], gitOptions);
 	return {
 		publication: {
 			packageName,
