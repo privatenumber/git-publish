@@ -68,9 +68,7 @@ export const preparePackagePublication = async ({
 	const rewriteManifest = (content: Buffer) => {
 		manifest = JSON.parse(content.toString('utf8')) as PackageJson;
 		const original = stringify(manifest);
-		validatePackedManifest(
-			packageName, manifest, sourceManifest, dependencyEdges, peers,
-		);
+		validatePackedManifest(packageName, manifest, sourceManifest, dependencyEdges, peers);
 		for (const edge of dependencyEdges) {
 			const field = manifest[edge.field];
 			if (field && Object.hasOwn(field, edge.key)) {

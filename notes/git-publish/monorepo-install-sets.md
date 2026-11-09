@@ -6,9 +6,16 @@ Verified 2026-11-07 against npm 11.21.2 and 12.2.2, pnpm 10.34.9, 11.28.11, and 
 
 ## Packing and the publication graph
 
-The publication graph is planned from source manifests and reconciled after packing. Only surviving runtime and peer edges determine the packages pushed and the install sets. A packed package name must match the planned name. A pack hook may remove dependency keys but cannot add keys or change unplanned values, except package-manager rewrites of `workspace:` and `catalog:` specifications. Removing an optional dependency while retaining the same key in dependencies is rejected because it changes precedence.
+The publication graph is planned from source manifests. After packing, runtime and peer edges removed by pack hooks are dropped from the pushed closure and install sets. pnpm exposes [`beforePacking`](https://pnpm.io/pnpmfile), and Yarn exposes [`beforeWorkspacePacking`](https://yarnpkg.com/api/plugin-pack/interface/Hooks).
 
-Packing can change dependencies: pnpm exposes [`beforePacking`](https://pnpm.io/pnpmfile), and Yarn exposes [`beforeWorkspacePacking`](https://yarnpkg.com/api/plugin-pack/interface/Hooks). pnpm can also normalize workspace specifications while creating the [exportable manifest](https://github.com/pnpm/pnpm/blob/v11.28.10/pnpm11/releasing/exportable-manifest/src/index.ts#L252-L287), so the check allows package-manager rewrites for planned edges and `workspace:` or `catalog:` specifications. This rule also rejects hooks that add external dependencies, which develop accepted. Supporting additions safely would require resolving every alias form; revisit this if users need hooks that add dependencies. The plan remains fixed before packing: every planned package is packed and validated, even if a later pack hook makes it unreachable. Plan-time checks, including multiple push URLs and branch-template collisions, use the planned closure. The removal and rejection cases are covered by [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts).
+Known limits:
+
+- Pack hooks that add or redirect internal dependencies are not detected, as on develop. Detecting them safely requires resolving every alias, catalog, and protocol form.
+- The planner does not resolve pnpm `catalog:` entries that point at workspace packages, as on develop.
+- A peer included only because a runtime edge selected its target can still cause a peer-range mismatch error after the runtime edge is removed. This fails closed and is rare.
+- The plan is fixed before packing. Every planned package is packed and validated, even if a later pack hook makes it unreachable. Plan-time checks, including multiple push URLs and branch-template collisions, use the planned closure.
+
+Removal behavior is covered by [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts).
 
 ## Why the set is installed at the root
 
