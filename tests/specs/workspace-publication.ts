@@ -856,9 +856,9 @@ exec '${npm}' "$@"
 		expect(result.stderr).toContain('Publication succeeded');
 		expect(result.stderr).toContain('ENOENT');
 		expect(result.stdout).toContain('Use --json <path> for install sets');
-		const jsonStart = result.stdout.lastIndexOf('\n{\n  "source"');
+		const jsonStart = result.stderr.lastIndexOf('\n{\n  "source"');
 		expect(jsonStart).toBeGreaterThan(-1);
-		const json = JSON.parse(result.stdout.slice(jsonStart));
+		const json = JSON.parse(result.stderr.slice(jsonStart));
 		expect(json.installSets).toStrictEqual({
 			'@test/adapter': {
 				required: ['@test/adapter', '@test/core', '@test/broker'],
@@ -877,7 +877,7 @@ exec '${npm}' "$@"
 				optional: [],
 			},
 		});
-		expect(result.stderr).toContain('details follow on stdout');
+		expect(result.stderr).toContain('Publication details follow:');
 		expect(json.packages.map((item: { name: string }) => item.name).sort()).toStrictEqual(['@test/adapter', '@test/broker', '@test/core', 'extra']);
 		for (const name of ['@test/adapter', '@test/broker', '@test/core', 'extra']) {
 			const branch = `npm/json-all-failure-${name}`;

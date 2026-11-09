@@ -210,23 +210,34 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	});
 	if (publication) {
 		const result = createWorkspaceResult(plan, publication, sourceName, sourceCommitId);
-		if (!isHostedGitRemote(remoteUrl) && Object.values(result.installSets).some(set => (
-			set.required.length + set.optional.length > 1
-		))) {
-			console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
-		}
-		console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl)}`);
+		let jsonFailure: {
+			json: string;
+			message: string;
+			path: string;
+		} | undefined;
 		if (argv.flags.json) {
 			const { presentation: _presentation, ...jsonResult } = result;
 			const json = `${stringify(jsonResult, null, 2)}\n`;
 			try {
 				await fs.writeFile(argv.flags.json, json);
 			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				console.error(`Publication succeeded, but could not write JSON file ${stringify(redactRemote(argv.flags.json))}: ${redactRemote(message)}. Publication details follow on stdout.`);
-				console.log(json.trimEnd());
-				process.exitCode = 1;
+				jsonFailure = {
+					json,
+					message: error instanceof Error ? error.message : String(error),
+					path: argv.flags.json,
+				};
 			}
+		}
+		if (!isHostedGitRemote(remoteUrl) && Object.values(result.installSets).some(set => (
+			set.required.length + set.optional.length > 1
+		))) {
+			console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
+		}
+		console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl)}`);
+		if (jsonFailure) {
+			console.error(`Publication succeeded, but could not write JSON file ${stringify(redactRemote(jsonFailure.path))}: ${redactRemote(jsonFailure.message)}. Publication details follow:`);
+			console.error(jsonFailure.json.trimEnd());
+			process.exitCode = 1;
 		}
 	}
 })().catch((error) => {
