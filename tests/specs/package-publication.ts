@@ -20,10 +20,10 @@ describe('Package publication', () => {
 		}
 		validatePackedWorkspaceDependencies('app', { dependencies: { core: '^1.0.0' } });
 	});
-	test('omits query strings from HTTP and Git install URLs', () => {
+	test('rejects query strings from HTTP and Git install URLs', () => {
 		for (const scheme of ['http', 'https', 'git', 'git+https']) {
-			expect(toInstallSpecifier(`${scheme}://host/repo.git?access_token=secret`, 'abc'))
-				.toBe(`${scheme === 'git' ? '' : 'git+'}${scheme.replace(/^git\+/, '')}://host/repo.git#abc`);
+			expect(() => toInstallSpecifier(`${scheme}://host/repo.git?access_token=secret`, 'abc'))
+				.toThrow('The remote URL uses a URL');
 		}
 	});
 	test('removes SSH passwords from install specifiers', () => {
@@ -31,12 +31,15 @@ describe('Package publication', () => {
 			.toBe('git+ssh://git@example.test/repo.git#abc');
 	});
 
-	test('omits SSH query credentials from install specifiers', () => {
-		expect(toInstallSpecifier('ssh://git@host/repo.git?access_token=secret', 'abc'))
-			.toBe('git+ssh://git@host/repo.git#abc');
+	test('rejects SSH query credentials in install specifiers', () => {
+		expect(() => toInstallSpecifier('ssh://git@host/repo.git?access_token=secret', 'abc'))
+			.toThrow('The remote URL uses a URL');
 	});
 
 	test('treats Windows drive paths as local Git URLs', () => {
+		if (process.platform !== 'win32') {
+			return;
+		}
 		for (const url of [String.raw`C:\git\repo.git`, 'C:/git/repo.git']) {
 			expect(toInstallSpecifier(url, 'abc')).toBe('git+file:///C:/git/repo.git#abc');
 		}

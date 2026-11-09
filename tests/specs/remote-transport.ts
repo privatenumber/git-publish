@@ -5,10 +5,45 @@ import {
 import { createFixture } from 'fs-fixture';
 import { getPublicationUrls } from '../../src/publish-repository/destination.ts';
 import { getPublishRemote } from '../../src/publish-repository/remote.ts';
-import { createGitFixture } from '../utils/create-git.ts';
+import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Remote transport', async () => {
+	test('publishes to a local path containing a hash', async () => {
+		await using destination = await createFixture();
+		const remotePath = destination.getPath('repo#1');
+		await fs.mkdir(remotePath);
+		const remoteGit = createGit(remotePath);
+		await remoteGit.init(['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=source']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		const result = await gitPublish(fixture.path, ['--remote', remotePath]);
+		expect('exitCode' in result).toBe(false);
+		expect(result.stdout).toContain('repo%231');
+		expect(await remoteGit('rev-parse', ['npm/source'])).toMatch(/^[0-9a-f]{40}$/);
+	});
+	test('publishes to a local push destination despite an unsupported fetch URL', async () => {
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=source']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		await fixture.git('remote', ['add', 'origin', 's3://bucket/repo.git']);
+		await fixture.git('config', ['remote.origin.pushurl', destination.path]);
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result).toBe(false);
+		expect(await destination.git('rev-parse', ['npm/source'])).toMatch(/^[0-9a-f]{40}$/);
+	});
 	test('rejects unsupported install transports before packing', async () => {
 		await using marker = await createFixture();
 		await using fixture = await createGitFixture({
@@ -22,7 +57,7 @@ describe('Remote transport', async () => {
 		await fixture.git('commit', ['-m', 'initial']);
 		const result = await gitPublish(fixture.path, ['--remote', 's3://key:secret@bucket/repo.git']);
 		expect('exitCode' in result && result.exitCode).not.toBe(false);
-		expect(result.stdout + result.stderr).toContain('Cannot form an install URL for remote');
+		expect(result.stdout + result.stderr).toContain('The remote URL uses a URL that package managers cannot install from.');
 		expect(result.stdout).not.toContain('secret');
 		expect(result.stderr).not.toContain('secret');
 		expect(await marker.exists('packed')).toBe(false);
@@ -30,14 +65,22 @@ describe('Remote transport', async () => {
 
 	test('rejects single-letter helper syntax during remote resolution', async () => {
 		await using fixture = await createGitFixture();
-		await expect(getPublishRemote(fixture.path, 'x::address', false)).rejects.toThrow('Cannot form an install URL for remote x::[redacted]');
+		await expect(getPublishRemote(fixture.path, 'x::address', false)).rejects.toThrow('The remote URL uses a URL that package managers cannot install from.');
+	});
+
+	test('names configured remotes without exposing their URLs', async () => {
+		await using fixture = await createGitFixture();
+		await fixture.git('remote', ['add', 'origin', 's3://user:secret@host/r']);
+		const result = getPublishRemote(fixture.path, 'origin', true);
+		await expect(result).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
+		await expect(result).rejects.not.toThrow('secret');
 	});
 
 	if (process.platform !== 'win32') {
 		test('rejects single-letter URL remotes before local normalization', async () => {
 			await using fixture = await createGitFixture();
 			const result = getPublishRemote(fixture.path, 'x://user:secret@host/r', false);
-			await expect(result).rejects.toThrow('Cannot form an install URL');
+			await expect(result).rejects.toThrow('The remote URL uses a URL');
 			await expect(result).rejects.not.toThrow('secret');
 		});
 	}
@@ -222,10 +265,10 @@ describe('Remote transport', async () => {
 		const token = await gitPublish(fixture.path, ['--dry', '--remote', 'https://ghp_secret@github.com/o/r.git']);
 		expect('exitCode' in token).toBe(false);
 		expect(token.stdout).not.toContain('ghp_secret');
-		expect(token.stdout).toContain('https://[redacted]@github.com/o/r.git');
+		expect(token.stdout).toContain('https://[redacted]');
 		expect(token.stderr).not.toContain('ghp_secret');
 		const query = await gitPublish(fixture.path, ['--dry', '--remote', 'https://host/repo.git?access_token=secret']);
-		expect('exitCode' in query).toBe(false);
+		expect('exitCode' in query).toBe(true);
 		expect(query.stdout).not.toContain('secret');
 		expect(query.stderr).not.toContain('secret');
 	});

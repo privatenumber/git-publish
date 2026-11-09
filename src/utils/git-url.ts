@@ -10,8 +10,8 @@ const scpPath = (value: string, host: string) => (value.startsWith('/')
 	: `${hostedGitHosts.has(host) ? '/' : '/~/'}${value}`);
 
 export const parseGitUrl = (value: string) => {
-	const windows = /^[a-z]:[\\/]/i.test(value);
-	const drivePath = /^[a-z]:/i.test(value);
+	const windows = process.platform === 'win32' && /^[a-z]:[\\/]/i.test(value);
+	const drivePath = process.platform === 'win32' && /^[a-z]:/i.test(value);
 	const url = drivePath ? null : URL.parse(value.replace(/^git\+/, ''));
 	const scp = !drivePath && !url?.hostname && url?.protocol !== 'file:'
 		? /^(?:([^@/:]+)@)?([^/:]+):(.+)$/.exec(value)
@@ -78,35 +78,22 @@ export const parseRepository = (value: string, directory: string) => {
 	};
 };
 
-export const toPackageManagerGitUrl = (value: string) => {
+export const toPackageManagerGitUrl = (value: string, remoteName?: string) => {
 	const parsed = parseGitUrl(value);
 	const { url, kind } = parsed;
 	const unsupported = () => {
-		throw new Error(`Cannot form an install URL for remote ${redactRemote(value)}: package managers install Git dependencies only over https, http, ssh, git, rsync, ftp, or file URLs.`);
+		throw new Error(`${remoteName === undefined ? 'The remote URL' : `Remote ${JSON.stringify(remoteName)}`} uses a URL that package managers cannot install from. Use an https, http, ssh, git, or file URL without a query or fragment.`);
 	};
-	if (/^[a-z][a-z\d+.-]*::/i.test(value)) {
+	if (/^[a-z][a-z\d+.-]*::/i.test(value) || ((url || kind !== 'local') && /[?#]/.test(value))) {
 		return unsupported();
 	}
 	if (process.platform !== 'win32' && /^[a-z]:\/\//i.test(value)) {
 		return unsupported();
 	}
 	if (kind === 'file') {
-		if (/[?#]/.test(value)) {
-			return unsupported();
-		}
-		return value.startsWith('git+') ? value : `git+${value}`;
+		return `git+${url!.href}`;
 	}
 	if (url?.hostname) {
-		if (url.protocol === 'ftp:' || url.protocol === 'rsync:') {
-			const match = /^(?:git\+)?(ftp|rsync):\/\/([^/?#]*)(\/[^?#]*)?(?:\?[^#]*)?(#.*)?$/i.exec(value);
-			if (!match) {
-				return unsupported();
-			}
-			const [, scheme, authority, pathname = '', hash = ''] = match;
-			const at = authority.lastIndexOf('@');
-			const user = at === -1 ? '' : `${authority.slice(0, at).split(':')[0]}@`;
-			return `git+${scheme}://${user}${authority.slice(at + 1)}${pathname}${hash}`;
-		}
 		if (!['ssh:', 'http:', 'https:', 'git:'].includes(url.protocol)) {
 			return unsupported();
 		}
@@ -165,13 +152,11 @@ export const isHostedGitRemote = (value: string) => {
 };
 
 export const redactRemote = (value: string) => value
-	.replaceAll(/(?<=^|\s)([a-z][a-z\d+.-]*::)\S+/gi, '$1[redacted]')
-	.replaceAll(/(\b(?:git\+)?([a-z][a-z\d+.-]*):\/\/)([^\s/]+)/gi, (match, prefix: string, scheme: string, authority: string) => {
-		const at = authority.lastIndexOf('@');
-		const user = authority.slice(0, at);
-		return at === -1 || (scheme.toLowerCase() === 'ssh' && !user.includes(':'))
-			? match
-			: `${prefix}[redacted]@${authority.slice(at + 1)}`;
+	.replaceAll(/(?<=^|\s)([a-z][a-z\d+.-]*::)[^\r\n]*/gi, '$1[redacted]')
+	.replaceAll(/(\b(?:git\+)?([a-z][a-z\d+.-]*):\/\/)(\S+)/gi, (match, prefix: string, scheme: string, rest: string) => {
+		if (!/[@?#]/.test(rest) || (scheme.toLowerCase() === 'ssh' && /^[^:@/?#]+@(?:\[[^\]@]+\]|[^:@/?#]+)(?::\d+)?\/[^?#]*$/.test(rest))) {
+			return match;
+		}
+		return `${prefix}[redacted]`;
 	})
-	.replaceAll(/(\b(?:git\+)?file:[^\s?#]*)[?#]\S*/gi, '$1?[redacted]')
-	.replaceAll(/(\b(?:git\+)?[a-z][a-z\d+.-]*:\/\/[^\s?]+)\?\S*/gi, '$1?[redacted]');
+	.replaceAll(/(?<=^|\s)([^\s@/:]+@[^\s/:]+:[^\s?#]*)([?#])\S*/g, '$1$2[redacted]');
