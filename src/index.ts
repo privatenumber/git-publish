@@ -224,7 +224,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(`Publication succeeded, but could not write JSON file ${stringify(redactRemote(argv.flags.json))}: ${redactRemote(message)}. Publication details follow on stdout.`);
-				process.stdout.write(json);
+				console.log(json.trimEnd());
 				process.exitCode = 1;
 			}
 		}
