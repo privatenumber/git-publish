@@ -6,9 +6,9 @@ Verified 2026-11-07 against npm 11.21.2 and 12.2.2, pnpm 10.34.9, 11.28.11, and 
 
 ## Packing and the publication graph
 
-The publication graph is planned from source manifests and reconciled after packing. Only surviving runtime and peer edges determine the packages pushed and the install sets. A packed package name must match the planned name, and a pack hook cannot add an unplanned internal runtime dependency. This prevents the published manifests from requiring packages missing from the install set.
+The publication graph is planned from source manifests and reconciled after packing. Only surviving runtime and peer edges determine the packages pushed and the install sets. A packed package name must match the planned name, and a pack hook cannot add or move a dependency that names a workspace package. This prevents the published manifests from requiring packages missing from the install set.
 
-Packing can change dependencies: pnpm exposes [`beforePacking`](https://pnpm.io/pnpmfile), and Yarn exposes [`beforeWorkspacePacking`](https://yarnpkg.com/api/plugin-pack/interface/Hooks). The removal and rejection cases are covered by [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts).
+Packing can change dependencies: pnpm exposes [`beforePacking`](https://pnpm.io/pnpmfile), and Yarn exposes [`beforeWorkspacePacking`](https://yarnpkg.com/api/plugin-pack/interface/Hooks). pnpm can also normalize workspace specifications while creating the [exportable manifest](https://github.com/pnpm/pnpm/blob/v11.28.10/pnpm11/releasing/exportable-manifest/src/index.ts#L252-L287), so the check uses workspace package names rather than the packed version range. The plan remains fixed before packing: every planned package is packed and validated, even if a later pack hook makes it unreachable. Plan-time checks, including multiple push URLs and branch-template collisions, use the planned closure. The removal and rejection cases are covered by [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts).
 
 ## Why the set is installed at the root
 

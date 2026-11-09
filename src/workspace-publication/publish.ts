@@ -96,8 +96,7 @@ export const publishWorkspaceClosure = async ({
 					dependencyPublications,
 					peers: plan.peers.filter(peer => peer.from === node.key),
 					gitOptions: repository.gitOptions,
-					workspacePackage: node.package,
-					resolveEdge: plan.resolveEdge,
+					workspacePackageNames: plan.workspacePackageNames,
 				});
 				preparations.set(node.key, preparation);
 				if (plan.standalone) {
@@ -153,8 +152,16 @@ export const publishWorkspaceClosure = async ({
 			})),
 			peers: [...preparations.values()].flatMap(preparation => preparation.peers),
 		};
-		const reachable = createInstallGraph(effective).reachable(effective.roots, () => true);
-		effective.nodes = effective.nodes.filter(node => reachable.has(node.key));
+		const graph = createInstallGraph(effective);
+		const reachable = graph.reachable(effective.roots, () => true);
+		const dependencies = graph.reachable(effective.roots, edge => (
+			edge.kind === 'dependency' || edge.kind === 'optional'
+		));
+		const roots = new Set(effective.roots);
+		effective.nodes = effective.nodes.filter(node => reachable.has(node.key)).map(node => ({
+			...node,
+			role: roots.has(node.key) ? 'root' : (dependencies.has(node.key) ? 'dependency' : 'peer'),
+		}));
 		effective.peers = effective.peers.filter(peer => reachable.has(peer.from));
 		validatePeerRanges(effective, preparations);
 		const packageCount = effective.nodes.length;

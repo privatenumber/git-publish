@@ -5,7 +5,6 @@ import { readJson } from '../utils/read-json.ts';
 import { findUnpublishedFilesFieldEntries } from '../utils/unpublished-files-field.ts';
 import { toPackageManagerGitUrl } from '../utils/git-url.ts';
 import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/graph.ts';
-import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { importTarball, type File } from './import-tarball.ts';
 import { validatePackedManifest } from './validate.ts';
 
@@ -50,8 +49,7 @@ export const preparePackagePublication = async ({
 	dependencyPublications,
 	peers = [],
 	gitOptions,
-	workspacePackage,
-	resolveEdge,
+	workspacePackageNames,
 }: {
 	packageName: string;
 	sourceManifestPath: string;
@@ -65,10 +63,7 @@ export const preparePackagePublication = async ({
 	dependencyPublications: ReadonlyMap<string, PackagePublication>;
 	peers?: WorkspacePeer[];
 	gitOptions: SpawnOptions;
-	workspacePackage?: WorkspacePackage;
-	resolveEdge?: (
-		from: WorkspacePackage, key: string, specification: string, peer: boolean,
-	) => string | undefined;
+	workspacePackageNames?: ReadonlySet<string>;
 }): Promise<PackagePreparation> => {
 	const sourceManifest = await readJson(sourceManifestPath) as PackageJson;
 	let manifest: PackageJson | undefined;
@@ -76,7 +71,7 @@ export const preparePackagePublication = async ({
 		manifest = JSON.parse(content.toString('utf8')) as PackageJson;
 		const original = stringify(manifest);
 		validatePackedManifest(
-			packageName, manifest, sourceManifest, dependencyEdges, peers, workspacePackage, resolveEdge,
+			packageName, manifest, sourceManifest, dependencyEdges, peers, workspacePackageNames,
 		);
 		for (const edge of dependencyEdges) {
 			const field = manifest[edge.field];

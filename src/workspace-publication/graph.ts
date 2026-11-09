@@ -123,11 +123,13 @@ export const findWorkspacePackageDirectory = (
 	return selected;
 };
 
-export const createEdgeResolver = (
+export const createPublishGraph = (
 	workspace: Workspace,
-	policy: { plainRanges: boolean;
-		plainPeers: boolean; },
-) => {
+	roots: string[],
+	{ policy }: { policy: { plainRanges: boolean;
+		plainPeers: boolean; }; },
+): PublishGraph => {
+	const rootNames = new Set(roots);
 	const byName = new Map<string, WorkspacePackage[]>();
 	const byDirectory = new Map(workspace.packages.map(candidate => (
 		[path.resolve(candidate.dir), candidate.name]
@@ -231,26 +233,6 @@ export const createEdgeResolver = (
 		return target;
 	};
 
-	return resolveEdge;
-};
-
-export const createPublishGraph = (
-	workspace: Workspace,
-	roots: string[],
-	{ policy }: { policy: { plainRanges: boolean;
-		plainPeers: boolean; }; },
-): PublishGraph => {
-	const rootNames = new Set(roots);
-	const resolveEdge = createEdgeResolver(workspace, policy);
-	const byName = new Map<string, WorkspacePackage[]>();
-	for (const candidate of workspace.packages) {
-		const group = byName.get(candidate.name);
-		if (group) {
-			group.push(candidate);
-		} else {
-			byName.set(candidate.name, [candidate]);
-		}
-	}
 	const nodes = new Map<string, PublishGraphNode>();
 	const peers: WorkspacePeer[] = [];
 	const pendingPeers: WorkspacePeer[] = [];

@@ -1,7 +1,6 @@
 import semver from 'semver';
 import type { PackageJson } from '@npmcli/package-json';
 import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
-import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import type { WorkspacePeer } from '../workspace-publication/graph.ts';
 import { parseAliasedRange, satisfiesPackedPeer } from '../workspace-publication/satisfies-range.ts';
 import type { PackagePreparation, PackagePublicationDependency } from './prepare.ts';
@@ -24,24 +23,20 @@ export const validatePackedManifest = (
 	sourceManifest: PackageJson,
 	dependencyEdges: PackagePublicationDependency[],
 	peers: WorkspacePeer[],
-	workspacePackage?: WorkspacePackage,
-	resolveEdge?: (
-		from: WorkspacePackage, key: string, specification: string, peer: boolean,
-	) => string | undefined,
+	workspacePackageNames?: ReadonlySet<string>,
 ) => {
 	if (manifest.name !== packageName) {
 		throw new Error(`Package ${stringify(packageName)} has packed name ${stringify(manifest.name)}.`);
 	}
-	if (workspacePackage && resolveEdge) {
-		const planned = new Set(dependencyEdges.map(edge => `${edge.field}\0${edge.key}`));
-		for (const field of ['dependencies', 'optionalDependencies'] as const) {
-			for (const [key, specification] of Object.entries(manifest[field] ?? {})) {
-				if (field === 'dependencies' && Object.hasOwn(manifest.optionalDependencies ?? {}, key)) {
-					continue;
-				}
-				if (specification && !planned.has(`${field}\0${key}`) && resolveEdge(workspacePackage, key, specification, false)) {
-					throw new Error(`Package ${stringify(packageName)} has unplanned internal ${field} ${stringify(key)}: ${stringify(specification)}.`);
-				}
+	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+		for (const [key, specification] of Object.entries(manifest[field] ?? {})) {
+			if (Object.hasOwn(sourceManifest[field] ?? {}, key)) {
+				continue;
+			}
+			const alias = specification ? parseAliasedRange(specification) : undefined;
+			const target = workspacePackageNames?.has(key) ? key : alias?.target;
+			if (target && workspacePackageNames?.has(target)) {
+				throw new Error(`Package ${stringify(packageName)} adds ${field} ${stringify(key)} during packing, which names workspace package ${stringify(target)}. Pack hooks may remove internal dependencies but not add them.`);
 			}
 		}
 	}

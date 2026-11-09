@@ -8,7 +8,7 @@ import { renderPackageBranch } from '../package-publication/branch.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getStdout } from '../utils/get-stdout.ts';
 import {
-	createEdgeResolver, createPublishGraph, findWorkspacePackageDirectory,
+	createPublishGraph, findWorkspacePackageDirectory,
 	type PublishGraphNode, type WorkspacePeer,
 } from './graph.ts';
 import { findWorkspacePackages, type WorkspacePackage } from './discover.ts';
@@ -24,7 +24,7 @@ export type WorkspacePublicationPlan = {
 	nodes: WorkspacePublicationNode[];
 	peers: WorkspacePeer[];
 	standalone?: boolean;
-	resolveEdge?: ReturnType<typeof createEdgeResolver>;
+	workspacePackageNames?: ReadonlySet<string>;
 };
 
 export const planStandalonePublication = async ({
@@ -239,10 +239,7 @@ export const planWorkspacePublication = async ({
 		publishAll,
 		nodes,
 		peers: graph.peers,
-		resolveEdge: createEdgeResolver({
-			...workspace,
-			packages: candidates,
-		}, policy),
+		workspacePackageNames: new Set(candidates.map(candidate => candidate.name)),
 	};
 	const { edges, reachable } = createInstallGraph(plan);
 	for (const root of plan.roots) {
