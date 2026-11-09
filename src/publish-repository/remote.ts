@@ -18,32 +18,30 @@ export const getPublishRemote = async (
 ): Promise<PublishRemote> => {
 	const options = { cwd: repositoryPath };
 	let configuredName: string | undefined = remote;
-	const urlOutput = await getStdout(spawn('git', ['config', '--get-all', `remote.${remote}.url`], options)).catch(() => {
+	const urls = await spawn('git', ['config', '--null', '--get-all', `remote.${remote}.url`], options).then(({ stdout }) => stdout.split('\0').slice(0, -1)).catch(() => {
 		configuredName = undefined;
 		if (usesDefaultRemote) {
 			throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
 		}
 
-		return remote;
+		return [remote];
 	});
-	const urls = urlOutput.split('\n');
 	const fetchUrl = urls[0]!;
-	const pushUrlOutput = configuredName
-		? await getStdout(spawn('git', ['config', '--get-all', `remote.${remote}.pushurl`], options)).catch(async () => {
+	const rawPushUrls = configuredName
+		? await spawn('git', ['config', '--null', '--get-all', `remote.${remote}.pushurl`], options).then(({ stdout }) => stdout.split('\0').slice(0, -1)).catch(async () => {
 			if (urls.length > 1) {
-				return urlOutput;
+				return urls;
 			}
 			const [expandedFetch, expandedPush] = await Promise.all([
-				getStdout(spawn('git', ['remote', 'get-url', remote], options)),
-				getStdout(spawn('git', ['remote', 'get-url', '--push', remote], options)),
+				spawn('git', ['remote', 'get-url', remote], options),
+				spawn('git', ['remote', 'get-url', '--push', remote], options),
 			]);
-			return expandedPush === expandedFetch ? fetchUrl : expandedPush;
+			return [expandedPush.stdout === expandedFetch.stdout ? fetchUrl : expandedPush.stdout];
 		})
-		: fetchUrl;
+		: [fetchUrl];
 	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')
 		? path.resolve(repositoryPath, url)
 		: url);
-	const rawPushUrls = pushUrlOutput.split('\n');
 	for (const url of [fetchUrl, ...rawPushUrls]) {
 		toPackageManagerGitUrl(url, configuredName);
 	}

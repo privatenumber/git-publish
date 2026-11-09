@@ -9,6 +9,34 @@ import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Remote transport', async () => {
+	test('rejects a whitespace-containing remote before dry-run output', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		const result = await gitPublish(fixture.path, ['--dry', '--remote', 'https://user:hello secret@host/repo.git']);
+		expect('exitCode' in result && result.exitCode).not.toBe(false);
+		expect(result.stdout + result.stderr).not.toContain('secret');
+	});
+
+	test('rejects embedded newlines in configured remote URLs', async () => {
+		await using fixture = await createGitFixture();
+		await fixture.git('remote', ['add', 'origin', 'https://host/repo.git']);
+		await fixture.git('config', ['remote.origin.url', 'https://host/repo.git\nsecret']);
+		const result = getPublishRemote(fixture.path, 'origin', true);
+		await expect(result).rejects.toThrow('Remote "origin" uses a URL');
+		await expect(result).rejects.not.toThrow('secret');
+	});
+
+	test('names the configured remote when rejecting an IPv6 SCP host', async () => {
+		await using fixture = await createGitFixture();
+		await fixture.git('remote', ['add', 'origin', 'git@[2001:db8::1]:repo.git']);
+		await expect(getPublishRemote(fixture.path, 'origin', true)).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
+	});
 	test('publishes to a local path containing a hash', async () => {
 		await using destination = await createFixture();
 		const remotePath = destination.getPath('repo#1');

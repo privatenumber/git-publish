@@ -1,6 +1,6 @@
 # Remote URLs
 
-**Decision.** Install URLs, manifest pins, and branch-history lookups name the repository that receives the push. The transport comes from the fetch URL when possible. Credentials never appear in published manifests, `--json`, or terminal output. Verified 2026-11-07.
+**Decision.** Install URLs, manifest pins, and branch-history lookups name the repository that receives the push. The transport comes from the fetch URL when possible. git-publish does not include credentials in published manifests, `--json`, or the remote URLs it prints. Verified 2026-11-07.
 
 ## Push destination identity
 
@@ -23,9 +23,13 @@ Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts
 
 Install specifiers omit passwords and keep usernames only for SSH. URL and SCP-like remotes with a query or fragment are rejected before packing, including file URLs. Local filesystem paths can contain `?` and `#`; these characters are encoded in the install URL. Errors identify a configured remote by name and never print a rejected URL. Displayed URLs with userinfo, queries, or fragments are redacted, except for strict SSH URLs with a bare username. Helper commands and SCP queries or fragments are also redacted. Tests: [`tests/specs/error.ts`](../../tests/specs/error.ts), [`tests/specs/github-remotes.ts`](../../tests/specs/github-remotes.ts), and [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts).
 
+Git can introduce credentials through its own configuration, such as an `insteadOf` rewrite to an `ext::` helper. git-publish does not sanitize arbitrary Git trace output, including output enabled by `GIT_TRACE`.
+
 ## Install protocols
 
 Install URLs support HTTP, HTTPS, SSH, Git, and file transports. Other transports, including Git's `<transport>::<address>` helper syntax, are rejected before packing. SCP-like remotes and local paths are converted to SSH and file URLs respectively. On POSIX, single-letter `://` schemes are rejected and `x:repo.git` is SCP-like; on Windows, drive-letter paths stay local. [npm-package-arg 13.0.2](https://github.com/npm/npm-package-arg/blob/v13.0.2/lib/npa.js#L398-L426) also accepts rsync and FTP, but Git 2.54.0 (Apple Git-157) reports `fatal: git-over-rsync is no longer supported` for `git ls-remote rsync://example.test/repo.git`; FTP is deprecated and fetch-only. The fetch URL and every push URL are validated before destination selection, which can otherwise encode a query into a rewritten path or leave an unsafe push URL available to Git.
+
+Every URL of the selected remote must use a supported install transport, including push-only mirrors. Use a separate remote for a mirror that requires a helper transport. Remote values containing whitespace and SCP-like remotes with bracketed IPv6 hosts are rejected.
 
 ## npm ignores commit pins for non-hosted Git URLs
 

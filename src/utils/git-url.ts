@@ -14,7 +14,7 @@ export const parseGitUrl = (value: string) => {
 	const drivePath = process.platform === 'win32' && /^[a-z]:/i.test(value);
 	const url = drivePath ? null : URL.parse(value.replace(/^git\+/, ''));
 	const scp = !drivePath && !url?.hostname && url?.protocol !== 'file:'
-		? /^(?:([^@/:]+)@)?(\[[^\]]+\]|[^/:]+):(.+)$/.exec(value)
+		? /^(?:([^@/:]+)@)?([^/:]+):(.+)$/.exec(value)
 		: null;
 	const host = (url?.hostname || scp?.[2])?.toLowerCase();
 	let kind: GitUrlKind = 'local';
@@ -84,7 +84,7 @@ export const toPackageManagerGitUrl = (value: string, remoteName?: string) => {
 	const unsupported = () => {
 		throw new Error(`${remoteName === undefined ? 'The remote URL' : `Remote ${JSON.stringify(remoteName)}`} uses a URL that package managers cannot install from. Use an https, http, ssh, git, or file URL without a query or fragment.`);
 	};
-	if (/^[a-z][a-z\d+.-]*::/i.test(value) || ((url || kind !== 'local') && /[?#]/.test(value))) {
+	if (/^(?:[^@/:]+@)?\[[^\]]+\]:/.test(value) || /^[a-z][a-z\d+.-]*::/i.test(value) || ((url || kind !== 'local') && /[\s?#]/.test(value))) {
 		return unsupported();
 	}
 	if (process.platform !== 'win32' && /^[a-z]:\/\//i.test(value)) {
