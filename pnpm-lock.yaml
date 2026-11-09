@@ -184,6 +184,9 @@ importers:
       tar-fs:
         specifier: ^3.1.2
         version: 3.1.2
+      tar-stream:
+        specifier: ^3.1.8
+        version: 3.1.8
       tasuku:
         specifier: 3.0.0-beta.7
         version: 3.0.0-beta.7
@@ -209,6 +212,9 @@ importers:
       '@types/tar-fs':
         specifier: ^2.0.4
         version: 2.0.4
+      '@types/tar-stream':
+        specifier: ^3.1.4
+        version: 3.1.4
       ansis:
         specifier: ^4.3.1
         version: 4.3.1

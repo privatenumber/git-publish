@@ -42,30 +42,3 @@ export const loadPublishBranches = async (
 	}
 	return existing;
 };
-
-export const preparePublishBranch = async ({
-	repository,
-	localBranch,
-	orphan,
-}: {
-	repository: PublishRepository;
-	localBranch: string;
-	orphan: boolean;
-}) => {
-	const { gitOptions } = repository;
-	if (orphan) {
-		// Fresh orphan branch with no history
-		await spawn('git', ['checkout', '--orphan', localBranch], gitOptions);
-	} else {
-		// Repoint HEAD to the fetched branch without checkout
-		await spawn('git', ['symbolic-ref', 'HEAD', `refs/heads/${localBranch}`], gitOptions);
-	}
-
-	// Remove all files from index and working directory
-
-	// removes tracked files from index (.catch() since it fails on empty orphan branches)
-	await spawn('git', ['rm', '--cached', '-r', ':/'], gitOptions).catch(() => {});
-
-	// removes all untracked files from the working directory
-	await spawn('git', ['clean', '-fdx'], gitOptions);
-};

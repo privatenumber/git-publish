@@ -6,7 +6,7 @@ import { blueBright, dim } from 'ansis';
 import { terminalColumns } from 'terminal-columns';
 import task from '../utils/task.ts';
 import { createPublishRepository } from '../publish-repository/create.ts';
-import { loadPublishBranches, preparePublishBranch } from '../publish-repository/prepare-branch.ts';
+import { loadPublishBranches } from '../publish-repository/prepare-branch.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
 import { preparePackagePublication, type PackagePreparation, type PackagePublication } from '../package-publication/prepare.ts';
 import { planPackagePublicationPush, pushPackagePublications } from '../package-publication/push.ts';
@@ -77,11 +77,6 @@ export const publishWorkspaceClosure = async ({
 					path.relative(repositoryPath, node.package.dir),
 				);
 				setStatus('Preparing publication commit');
-				await preparePublishBranch({
-					repository,
-					localBranch: branches[index]!.localBranch,
-					orphan: !existingBranches.has(node.branch),
-				});
 				const dependencyPublications = new Map<string, PackagePublication>();
 				for (const edge of node.dependencies) {
 					dependencyPublications.set(edge.target, preparations.get(edge.target)!.publication);
@@ -90,7 +85,8 @@ export const publishWorkspaceClosure = async ({
 					packageName: node.key,
 					sourceManifestPath: path.join(node.package.dir, 'package.json'),
 					packedTarball: tarball,
-					publishWorktree: repository.publishWorktreePath,
+					importRef: `refs/git-publish/${index}`,
+					parent: existingBranches.has(node.branch) ? `refs/heads/${branches[index]!.localBranch}` : undefined,
 					branch: node.branch,
 					fetchUrl: publishRemote.installUrl,
 					commitMessage: `Published ${plan.standalone ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(sourceName)}${sourceCommit ? ` (${sourceCommit})` : ''}`,

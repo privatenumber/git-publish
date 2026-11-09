@@ -13,6 +13,95 @@ describe('Publish history', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('publishes packed files excluded by global Git configuration', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+			'ignored-by-global.js': 'module.exports = 1;',
+		}, ['--initial-branch=global-ignore']);
+		await using config = await createFixture({ ignore: 'ignored-by-global.js\n' });
+		const globalConfig = config.getPath('gitconfig');
+		await spawn('git', ['config', '--file', globalConfig, 'core.excludesFile', config.getPath('ignore')]);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+
+		const result = await gitPublish(fixture.path, [], { GIT_CONFIG_GLOBAL: globalConfig });
+		expect('exitCode' in result).toBe(false);
+		expect(await remoteGit('show', ['npm/global-ignore:ignored-by-global.js'])).toBe('module.exports = 1;');
+	});
+
+	test('preserves packed CRLF bytes despite global autocrlf', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+			'crlf.txt': 'first\r\nsecond',
+		}, ['--initial-branch=global-autocrlf']);
+		await using config = await createFixture();
+		const globalConfig = config.getPath('gitconfig');
+		await spawn('git', ['config', '--file', globalConfig, 'core.autocrlf', 'true']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+
+		const result = await gitPublish(fixture.path, [], { GIT_CONFIG_GLOBAL: globalConfig });
+		expect('exitCode' in result).toBe(false);
+		expect(await remoteGit('show', ['npm/global-autocrlf:crlf.txt'])).toBe('first\r\nsecond');
+	});
+
+	test('preserves packed bytes despite a Git clean filter', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+			'.gitattributes': 'filtered.txt filter=x\n',
+			'filtered.txt': 'aaa',
+		}, ['--initial-branch=global-filter']);
+		await fixture.git('config', ['filter.x.clean', 'sed s/a/b/g']);
+		await fixture.git('config', ['filter.x.smudge', 'sed s/b/a/g']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
+		expect(await remoteGit('show', ['npm/global-filter:filtered.txt'])).toBe('aaa');
+	});
+
+	test('preserves packed executable mode', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+			'run.js': '#!/usr/bin/env node\n',
+		}, ['--initial-branch=executable-mode']);
+		await fs.chmod(fixture.getPath('run.js'), 0o755);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
+		expect(await remoteGit('ls-tree', ['npm/executable-mode', 'run.js'])).toMatch(/^100755 blob /);
+	});
+
+	test('preserves packed filenames containing a double quote', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+			'a"b.txt': 'quoted filename',
+		}, ['--initial-branch=quoted-filename']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
+		expect(await remoteGit('show', ['npm/quoted-filename:a"b.txt'])).toBe('quoted filename');
+	});
+
 	test('uses an exact tag from detached HEAD', async () => {
 		const tagName = 'v1.2.3';
 		await using fixture = await createGitFixture({
@@ -189,14 +278,15 @@ describe('Publish history', async () => {
 	printf x >> '${fixture.getPath('receive-pack-called')}'
 	exec git-receive-pack "$@"
 	`);
-			await fixture.writeFile('post-commit', `#!/bin/sh
+			// Observe the isolated repository's materialized config during checkout.
+			await fixture.writeFile('post-checkout', `#!/bin/sh
 	git config --null --get-all http.extraHeader > '${headersPath}'
 	`);
 			await fixture.writeFile('system-config', '');
 			await Promise.all([
 				fs.chmod(fixture.getPath('upload-pack'), 0o755),
 				fs.chmod(fixture.getPath('receive-pack'), 0o755),
-				fs.chmod(fixture.getPath('post-commit'), 0o755),
+				fs.chmod(fixture.getPath('post-checkout'), 0o755),
 			]);
 		});
 		await using fixture = await createGitFixture({

@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import path from 'node:path';
 import { createGzip } from 'node:zlib';
@@ -6,6 +5,8 @@ import { pipeline } from 'node:stream/promises';
 import { describe, expect, test } from 'manten';
 import { createFixture } from 'fs-fixture';
 import tarFs from 'tar-fs';
+import tar from 'tar-stream';
+import { importTarball } from '../../src/package-publication/import-tarball.ts';
 import {
 	preparePackagePublication, toInstallSpecifier,
 } from '../../src/package-publication/prepare.ts';
@@ -13,6 +14,51 @@ import { validatePackedWorkspaceDependencies } from '../../src/package-publicati
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	test('imports packed symbolic links as Git symbolic links', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('link.tgz');
+		const pack = tar.pack();
+		pack.entry({
+			name: 'package/link',
+			type: 'symlink',
+			linkname: 'target',
+		});
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		const files = await importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			parent: undefined,
+			message: 'test',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		});
+		expect(await repository.git('ls-tree', ['refs/git-publish/0', 'link'])).toMatch(/^120000 blob /);
+		expect(await repository.git('show', ['refs/git-publish/0:link'])).toBe('target');
+		expect(files).toStrictEqual([{
+			file: 'link',
+			size: 6,
+		}]);
+	});
+
+	test('rejects packed paths outside the publication tree', async () => {
+		await using fixture = await createFixture();
+		await using repository = await createGitFixture();
+		const tarball = fixture.getPath('invalid.tgz');
+		const pack = tar.pack();
+		pack.entry({ name: 'package/../escape' }, 'content');
+		pack.finalize();
+		await pipeline(pack, createGzip(), createWriteStream(tarball));
+		await expect(importTarball({
+			tarball,
+			ref: 'refs/git-publish/0',
+			parent: undefined,
+			message: 'test',
+			gitOptions: { cwd: repository.path },
+			rewriteManifest: content => content,
+		})).rejects.toThrow('Invalid packed path');
+	});
 	test('rejects unresolved workspace specifications in packed dependency fields', () => {
 		for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
 			expect(() => validatePackedWorkspaceDependencies('app', { [field]: { core: 'workspace:*' } }))
@@ -93,7 +139,8 @@ describe('Package publication', () => {
 			packageName: '@test/adapter',
 			sourceManifestPath: packageFixture.getPath('package/package.json'),
 			packedTarball: tarballPath,
-			publishWorktree: publishFixture.path,
+			importRef: 'refs/git-publish/0',
+			parent: undefined,
 			branch: 'npm/adapter',
 			fetchUrl: '/remote.git',
 			commitMessage: 'Published "@test/adapter" from "main" (1234567)',
@@ -123,9 +170,9 @@ describe('Package publication', () => {
 					installSpecifier: 'git+file:///remote.git#optional-commit',
 				}],
 			]),
-			gitOptions: {},
+			gitOptions: { cwd: publishFixture.path },
 		});
-		const manifest = JSON.parse(await fs.readFile(path.join(publishFixture.path, 'package.json'), 'utf8'));
+		const manifest = JSON.parse(await publishFixture.git('show', [`${preparation.publication.commit}:package.json`]));
 		expect(manifest.dependencies).toStrictEqual({
 			'core-alias': 'git+file:///remote.git#core-commit',
 		});
@@ -138,11 +185,13 @@ describe('Package publication', () => {
 			install: 'node install.js',
 			postinstall: 'node postinstall.js',
 		});
+		expect(preparation.files.find(file => file.file === 'package.json')?.size)
+			.toBe(Buffer.byteLength(await publishFixture.git('show', [`${preparation.publication.commit}:package.json`])));
 		expect(preparation.reusedExistingCommit).toBe(false);
 		expect(preparation.publication).toStrictEqual({
 			packageName: '@test/adapter',
 			branch: 'npm/adapter',
-			commit: await publishFixture.git('rev-parse', ['HEAD']),
+			commit: await publishFixture.git('rev-parse', ['refs/git-publish/0']),
 			installSpecifier: `git+file://${path.resolve('/remote.git')}#${preparation.publication.commit}`,
 		});
 	});
