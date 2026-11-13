@@ -3,10 +3,17 @@ import path from 'node:path';
 
 const findOnPath = (command: string) => {
 	for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
-		const candidate = path.join(directory, command);
+		if (!directory) {
+			continue;
+		}
+
+		// Absolute, because the shims run from other directories
+		const candidate = path.resolve(directory, command);
 		try {
 			fs.accessSync(candidate, fs.constants.X_OK);
-			return candidate;
+			if (fs.statSync(candidate).isFile()) {
+				return candidate;
+			}
 		} catch {
 			// Not in this directory or not executable; keep searching
 		}
