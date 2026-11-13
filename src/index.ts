@@ -210,18 +210,28 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	});
 	if (publication) {
 		const result = createWorkspaceResult(plan, publication, sourceName, sourceCommitId);
+		const { presentation: _presentation, ...jsonResult } = result;
+		const json = `${stringify(jsonResult, null, 2)}\n`;
+		let jsonWriteError: Error | undefined;
+		if (argv.flags.json) {
+			// Write before printing so a closed stdout cannot prevent the file write
+			await fs.writeFile(argv.flags.json, json).catch((error: Error) => {
+				jsonWriteError = error;
+			});
+		}
 		if (!isHostedGitRemote(remoteUrl) && Object.values(result.installSets).some(set => (
 			set.required.length + set.optional.length > 1
 		))) {
 			console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
 		}
-		if (argv.flags.json) {
-			const { presentation: _presentation, ...jsonResult } = result;
-			await fs.writeFile(argv.flags.json, `${stringify(jsonResult, null, 2)}\n`);
-		}
 		console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl)}`);
+		if (jsonWriteError) {
+			console.error(`Publication succeeded, but could not write JSON file ${stringify(argv.flags.json)}: ${redactRemote(jsonWriteError.message)}. Publication details follow:`);
+			console.error(json.trimEnd());
+			process.exitCode = 1;
+		}
 	}
 })().catch((error) => {
 	console.error('Error:', redactRemote(error.message));
-	process.exit(1);
+	process.exitCode = 1;
 });
