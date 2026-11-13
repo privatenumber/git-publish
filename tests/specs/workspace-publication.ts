@@ -9,6 +9,7 @@ import spawn from 'nano-spawn';
 import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
+import { npmPath } from '../utils/npm-path.ts';
 
 describe('Workspace publication', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
@@ -43,7 +44,7 @@ describe('Workspace publication', async () => {
 if [ "$1" = pack ] && [ -f package.json ]; then
   "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.${field}) { delete p.${field}.core; fs.writeFileSync("package.json", JSON.stringify(p)); }'
 fi
-exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+exec "${npmPath}" "$@"
 `,
 			});
 			await fs.chmod(commands.getPath('npm'), 0o755);
@@ -100,7 +101,7 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 if [ "$1" = pack ] && [ -f package.json ]; then
   "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.name === "app") { ${mutation}; fs.writeFileSync("package.json", JSON.stringify(p)); }'
 fi
-exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+exec "${npmPath}" "$@"
 `,
 			});
 			await fs.chmod(commands.getPath('npm'), 0o755);
@@ -167,7 +168,7 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 if [ "$1" = pack ] && [ -f package.json ]; then
   "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.name === "app") { delete p.dependencies.core; fs.writeFileSync("package.json", JSON.stringify(p)); }'
 fi
-exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+exec "${npmPath}" "$@"
 `,
 		});
 		await fs.chmod(commands.getPath('npm'), 0o755);
@@ -299,7 +300,7 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 if [ "$1" = pack ] && [ -f package.json ]; then
   "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); for (const f of ["dependencies", "optionalDependencies", "peerDependencies", "devDependencies"]) if (p[f]) p[f] = Object.fromEntries(Object.entries(p[f]).reverse()); fs.writeFileSync("package.json", JSON.stringify(p));'
 fi
-exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+exec "${npmPath}" "$@"
 `,
 		});
 		await fs.chmod(commands.getPath('npm'), 0o755);
@@ -428,7 +429,7 @@ exec '${gitPath}' "$@"
 if [ "$1" = pack ] && [ -f package.json ]; then
   "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.name === "@test/adapter") { delete p.dependencies["@test/broker"]; fs.writeFileSync("package.json", JSON.stringify(p)); }'
 fi
-exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+exec "${npmPath}" "$@"
 `,
 		});
 		await fs.chmod(commands.getPath('npm'), 0o755);
@@ -449,7 +450,7 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 if [ "$1" = pack ] && [ -f package.json ]; then
   "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.name === "@test/adapter") { p.dependencies["@test/broker"] = ${JSON.stringify(packed)}; fs.writeFileSync("package.json", JSON.stringify(p)); }'
 fi
-exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+exec "${npmPath}" "$@"
 `,
 			});
 			await fs.chmod(commands.getPath('npm'), 0o755);
@@ -939,13 +940,12 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 			}
 			await fixture.git('add', ['.']);
 			await fixture.git('commit', ['-m', 'Select package manager']);
-			const npm = path.join(path.dirname(process.execPath), 'npm');
 			await using commands = await createFixture({
 				[manager]: `#!/bin/sh
 if [ "$1" = --version ]; then echo 1.22.22; exit 0; fi
-if [ "$1" = pm ]; then exec '${npm}' pack --pack-destination "$4"; fi
-if [ "$1" = pack ] && [ "$2" = --filename ]; then exec '${npm}' pack --pack-destination "$(dirname "$3")"; fi
-exec '${npm}' "$@"
+if [ "$1" = pm ]; then exec '${npmPath}' pack --pack-destination "$4"; fi
+if [ "$1" = pack ] && [ "$2" = --filename ]; then exec '${npmPath}' pack --pack-destination "$(dirname "$3")"; fi
+exec '${npmPath}' "$@"
 `,
 			});
 			await fs.chmod(commands.getPath(manager), 0o755);
@@ -1477,7 +1477,7 @@ exec '${npm}' "$@"
 if [ "$1" = pack ] && [ -f package.json ]; then
   "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.peerDependencies) { delete p.peerDependencies["@test/core"]; fs.writeFileSync("package.json", JSON.stringify(p)); }'
 fi
-exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+exec "${npmPath}" "$@"
 `,
 		});
 		await fs.chmod(commands.getPath('npm'), 0o755);
@@ -1499,7 +1499,7 @@ exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
 if [ "$1" = pack ] && [ -f package.json ]; then
   "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.peerDependencies) { p.peerDependencies["@test/core"] = "^2.0.0"; fs.writeFileSync("package.json", JSON.stringify(p)); }'
 fi
-exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+exec "${npmPath}" "$@"
 `,
 		});
 		await fs.chmod(commands.getPath('npm'), 0o755);
