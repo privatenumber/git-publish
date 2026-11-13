@@ -6,10 +6,14 @@ import {
 } from 'manten';
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
+import which from 'which';
 import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
-import { npmPath } from '../utils/npm-path.ts';
+
+// npm is not always next to process.execPath (pnpm-managed Node runtimes ship
+// without it). Absolute, because the shims run from other directories.
+const npmPath = path.resolve(await which('npm'));
 
 describe('Workspace publication', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
@@ -404,8 +408,7 @@ exec "${npmPath}" "$@"
 		const packagePath = fixture.getPath('packages/adapter');
 		const first = await gitPublish(packagePath);
 		expect('exitCode' in first).toBe(false);
-		const gitCommand = await spawn('which', ['git']);
-		const gitPath = gitCommand.stdout;
+		const gitPath = path.resolve(await which('git'));
 		await using commands = await createFixture({
 			git: `#!/bin/sh
 case "$1" in ls-remote|fetch) printf '%s\n' "$1" >> '${fixture.getPath('git-calls')}';; esac
