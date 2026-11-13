@@ -1,29 +1,10 @@
-import fs from 'node:fs';
 import path from 'node:path';
-
-const findOnPath = (command: string) => {
-	for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
-		if (!directory) {
-			continue;
-		}
-
-		// Absolute, because the shims run from other directories
-		const candidate = path.resolve(directory, command);
-		try {
-			fs.accessSync(candidate, fs.constants.X_OK);
-			if (fs.statSync(candidate).isFile()) {
-				return candidate;
-			}
-		} catch {
-			// Not in this directory or not executable; keep searching
-		}
-	}
-	throw new Error(`${command} not found on PATH`);
-};
+import spawn from 'nano-spawn';
 
 /**
- * The real npm, resolved before tests prepend their own `npm` shims to PATH.
- * It is not always next to `process.execPath`: some Node runtimes, such as
- * pnpm-managed ones, ship without npm.
+ * npm is not always next to `process.execPath` (pnpm-managed Node runtimes
+ * ship without it), so resolve it from PATH. Absolute, because the shims run
+ * from other directories.
  */
-export const npmPath = findOnPath('npm');
+const { stdout } = await spawn('which', ['npm']);
+export const npmPath = path.resolve(stdout);
