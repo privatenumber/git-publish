@@ -8,7 +8,6 @@ import {
 } from './remote.ts';
 
 export type PublishRepository = {
-	publishWorktreePath: string;
 	packWorktreePath: string;
 	packTemporaryDirectory: string;
 	gitOptions: SpawnOptions;
@@ -27,7 +26,7 @@ export const createPublishRepository = async ({
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
 	const fetchRemoteName = 'publish-source';
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
-	const publishWorktreePath = path.join(temporaryDirectory, 'publish-worktree');
+	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');
 	const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
 	const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
 	const gitEnvironment = {
@@ -35,7 +34,7 @@ export const createPublishRepository = async ({
 		GIT_CONFIG_GLOBAL: path.join(temporaryDirectory, 'global-config'),
 	};
 	const gitOptions = {
-		cwd: publishWorktreePath,
+		cwd: publishRepositoryPath,
 		env: gitEnvironment,
 	};
 	const pushRemoteNames = publishRemote.pushUrls.map((_, index) => `publish-${index}`);
@@ -58,14 +57,14 @@ export const createPublishRepository = async ({
 	try {
 		// The isolated client can hold credentials copied from the source remote.
 		await fs.chmod(temporaryDirectory, 0o700);
-		await spawn('git', ['clone', '--origin', fetchRemoteName, '--shared', '--no-checkout', sourceRepositoryPath, publishWorktreePath], { env: gitEnvironment });
+		await spawn('git', ['clone', '--origin', fetchRemoteName, '--shared', '--no-checkout', sourceRepositoryPath, publishRepositoryPath], { env: gitEnvironment });
 		await spawn('git', ['remote', 'set-url', fetchRemoteName, publishRemote.historyUrl], gitOptions);
 		for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
 			await spawn('git', ['remote', 'add', pushRemoteNames[index], pushUrl], gitOptions);
 		}
 		await materializePublishGitConfig({
 			sourceRepositoryOptions,
-			destinationRepositoryPath: publishWorktreePath,
+			destinationRepositoryPath: publishRepositoryPath,
 			remote: publishRemote,
 			fetchRemoteName,
 			pushRemoteNames,
@@ -91,7 +90,6 @@ export const createPublishRepository = async ({
 	}
 
 	return {
-		publishWorktreePath,
 		packWorktreePath,
 		packTemporaryDirectory,
 		gitOptions,

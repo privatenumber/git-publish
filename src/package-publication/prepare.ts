@@ -1,14 +1,11 @@
-import path from 'node:path';
-import fs from 'node:fs/promises';
-import spawn, { type Options as SpawnOptions } from 'nano-spawn';
+import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import type { PackageJson } from '@npmcli/package-json';
-import { extractTarball, type File } from '../utils/extract-tarball.ts';
 import { getStdout } from '../utils/get-stdout.ts';
-import { gitStatusTracked } from '../utils/git.ts';
 import { readJson } from '../utils/read-json.ts';
 import { findUnpublishedFilesFieldEntries } from '../utils/unpublished-files-field.ts';
 import { toPackageManagerGitUrl } from '../utils/git-url.ts';
 import type { WorkspacePeer } from '../workspace-publication/graph.ts';
+import { importTarball, type File } from './import-tarball.ts';
 import { validatePackedManifest } from './validate.ts';
 
 const { stringify } = JSON;
@@ -41,7 +38,8 @@ export const preparePackagePublication = async ({
 	packageName,
 	sourceManifestPath,
 	packedTarball,
-	publishWorktree,
+	importRef,
+	parent,
 	branch,
 	fetchUrl,
 	commitMessage,
@@ -53,7 +51,8 @@ export const preparePackagePublication = async ({
 	packageName: string;
 	sourceManifestPath: string;
 	packedTarball: string;
-	publishWorktree: string;
+	importRef: string;
+	parent: string | undefined;
 	branch: string;
 	fetchUrl: string;
 	commitMessage: string;
@@ -62,64 +61,88 @@ export const preparePackagePublication = async ({
 	peers?: WorkspacePeer[];
 	gitOptions: SpawnOptions;
 }): Promise<PackagePreparation> => {
-	const worktreeOptions = {
-		cwd: publishWorktree,
-		env: gitOptions.env,
-	};
-	const files = await extractTarball(packedTarball, publishWorktree);
-	const manifestPath = path.join(publishWorktree, 'package.json');
-	const manifest = await readJson(manifestPath) as PackageJson;
 	const sourceManifest = await readJson(sourceManifestPath) as PackageJson;
-	const original = stringify(manifest);
-	validatePackedManifest(packageName, manifest, sourceManifest, dependencyEdges, peers);
-	for (const edge of dependencyEdges) {
-		const field = manifest[edge.field];
-		if (field && Object.hasOwn(field, edge.key)) {
-			field[edge.key] = dependencyPublications.get(edge.target)!.installSpecifier;
-		}
-	}
-	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
-		const packed = manifest[field];
-		if (packed) {
-			const ordered: Record<string, string> = {};
-			for (const key of [...Object.keys(sourceManifest[field] ?? {}), ...Object.keys(packed)]) {
-				if (Object.hasOwn(packed, key)) {
-					ordered[key] = packed[key]!;
-				}
+	let manifest: PackageJson | undefined;
+	const rewriteManifest = (content: Buffer) => {
+		manifest = JSON.parse(content.toString('utf8')) as PackageJson;
+		const original = stringify(manifest);
+		validatePackedManifest(packageName, manifest, sourceManifest, dependencyEdges, peers);
+		for (const edge of dependencyEdges) {
+			const field = manifest[edge.field];
+			if (field && Object.hasOwn(field, edge.key)) {
+				field[edge.key] = dependencyPublications.get(edge.target)!.installSpecifier;
 			}
-			manifest[field] = ordered;
 		}
-	}
-	const { scripts } = manifest;
-	if (scripts) {
-		delete scripts.prepare;
-		delete scripts.prepack;
-		delete scripts.postpack;
-		if (!('preinstall' in scripts || 'install' in scripts || 'postinstall' in scripts)) {
-			delete scripts.build;
+		for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+			const packed = manifest[field];
+			if (packed) {
+				const ordered: Record<string, string> = {};
+				for (const key of [...Object.keys(sourceManifest[field] ?? {}), ...Object.keys(packed)]) {
+					if (Object.hasOwn(packed, key)) {
+						ordered[key] = packed[key]!;
+					}
+				}
+				manifest[field] = ordered;
+			}
 		}
+		const { scripts } = manifest;
+		if (scripts) {
+			delete scripts.prepare;
+			delete scripts.prepack;
+			delete scripts.postpack;
+			if (!('preinstall' in scripts || 'install' in scripts || 'postinstall' in scripts)) {
+				delete scripts.build;
+			}
+		}
+		delete manifest.workspaces;
+		delete manifest.devDependencies;
+		return stringify(manifest) === original ? content : Buffer.from(stringify(manifest, null, 2));
+	};
+	const { files, tree: newTree } = await importTarball({
+		tarball: packedTarball,
+		ref: importRef,
+		gitOptions,
+		rewriteManifest,
+	});
+	if (!manifest) {
+		throw new Error('Packed package is missing package.json');
 	}
-	delete manifest.workspaces;
-	delete manifest.devDependencies;
-	if (stringify(manifest) !== original) {
-		await fs.writeFile(manifestPath, stringify(manifest, null, 2));
-	}
-	await spawn('git', ['add', '--all'], worktreeOptions);
-	const tracked = await gitStatusTracked(worktreeOptions);
-	if (tracked.length > 0) {
-		await spawn('git', [
+	const parentRevisions = parent
+		? await getStdout(spawn('git', ['rev-parse', parent, `${parent}^{tree}`], gitOptions))
+		: '';
+	const [parentCommit, parentTree] = parentRevisions ? parentRevisions.split('\n') : [];
+	const reusedExistingCommit = parentCommit !== undefined && newTree === parentTree;
+	let commit: string;
+	if (parentCommit && reusedExistingCommit) {
+		commit = parentCommit;
+	} else {
+		const signing = await getStdout(spawn('git', ['config', '--type=bool', '--get', 'commit.gpgSign'], gitOptions)).catch((error: unknown) => {
+			if (error instanceof SubprocessError && error.exitCode === 1) {
+				return 'false';
+			}
+			throw error;
+		});
+		commit = await getStdout(spawn('git', [
 			'-c',
 			'user.name=git-publish',
 			'-c',
 			'user.email=bot@git-publish',
-			'commit',
-			'--no-verify',
+			'commit-tree',
+			newTree,
+			...(parent ? ['-p', parent] : []),
+			...(signing === 'true' ? ['-S'] : []),
 			'-m',
 			commitMessage,
-			'--author=git-publish <bot@git-publish>',
-		], worktreeOptions);
+		], {
+			...gitOptions,
+			env: {
+				...gitOptions.env,
+				GIT_AUTHOR_NAME: 'git-publish',
+				GIT_AUTHOR_EMAIL: 'bot@git-publish',
+			},
+		}));
 	}
-	const commit = await getStdout(spawn('git', ['rev-parse', 'HEAD'], worktreeOptions));
+	await spawn('git', ['update-ref', importRef, commit], gitOptions);
 	return {
 		publication: {
 			packageName,
@@ -132,7 +155,7 @@ export const preparePackagePublication = async ({
 			manifest.files,
 			files.map(file => file.file),
 		),
-		reusedExistingCommit: tracked.length === 0,
+		reusedExistingCommit,
 		version: manifest.version,
 		peerDependencies: manifest.peerDependencies ?? {},
 	};

@@ -91,7 +91,8 @@ export const materializePublishGitConfig = async ({
 		fs.writeFile(globalConfigPath, publishConfig.filter(({ scope }) => scope === 'global').map(serializeGitConfig).join('')),
 	]);
 	const remoteNames = [fetchRemoteName, ...pushRemoteNames];
-	await fs.appendFile(path.join(destinationRepositoryPath, '.git', 'config'), [
+	const configPath = await getStdout(spawn('git', ['rev-parse', '--git-path', 'config'], { cwd: destinationRepositoryPath }));
+	await fs.appendFile(path.resolve(destinationRepositoryPath, configPath), [
 		...publishConfig.filter(({ scope }) => scope === 'local' || scope === 'worktree'),
 		...remoteNames.flatMap(remoteName => remoteConfig.map(entry => ({
 			...entry,
