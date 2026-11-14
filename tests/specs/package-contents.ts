@@ -45,6 +45,11 @@ describe('Package contents', async () => {
 			main: 'entry.js',
 		}, {}, 'entry.js'],
 		['copies nested files matched by a directory glob', { files: ['src/*'] }, {}, 'src/sub/x.js'],
+		['copies files excluded by git info exclude', {}, {}, 'excluded.js'],
+		['prefers nested npmignore over gitignore', {}, {
+			'sub/.gitignore': 'index.js',
+			'sub/.npmignore': '',
+		}, 'sub/index.js'],
 	] as const) {
 		test(description, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
@@ -59,6 +64,9 @@ describe('Package contents', async () => {
 			await fixture.git('add', ['.']);
 			await fixture.git('commit', ['-m', 'Initial commit']);
 			await fixture.git('remote', ['add', 'origin', remote.path]);
+			if (description === 'copies files excluded by git info exclude') {
+				await fs.writeFile(fixture.getPath('.git/info/exclude'), 'excluded.js\n');
+			}
 			await fs.mkdir(path.dirname(fixture.getPath(file)), { recursive: true });
 			await fixture.writeFile(file, 'untracked content');
 			const result = await gitPublish(fixture.path);
@@ -68,7 +76,7 @@ describe('Package contents', async () => {
 		});
 	}
 
-	test('skips an untracked nested repository under files', async () => {
+	test('publishes files inside an untracked nested repository', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
@@ -87,7 +95,27 @@ describe('Package contents', async () => {
 		const result = await gitPublish(fixture.path);
 		onTestFail(() => console.log(result.stdout, result.stderr));
 		expect('exitCode' in result).toBe(false);
-		expect(await remote.git('ls-tree', ['-r', '--name-only', 'npm/snapshot'])).toBe('dist/index.js\npackage.json');
+		expect(await remote.git('ls-tree', ['-r', '--name-only', 'npm/snapshot'])).toBe('dist/index.js\ndist/nested/index.js\npackage.json');
+	});
+
+	test('publishes output ignored by a parent repository gitignore', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'.gitignore': 'dist/\n',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=snapshot']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await fs.mkdir(fixture.getPath('packages/app/dist'));
+		await fixture.writeFile('packages/app/dist/index.js', 'untracked content');
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('show', ['npm/snapshot-app:dist/index.js'])).toBe('untracked content');
 	});
 
 	test('publishes untracked non-ignored files matched by files', async () => {

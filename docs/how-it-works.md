@@ -25,7 +25,7 @@ Add your build command to the [`prepack`](https://docs.npmjs.com/cli/v11/using-n
 }
 ```
 
-You can also run the build before `git-publish`. Untracked files, including gitignored build output, are selected to approximate what npm would pack from your working directory. The package manager applies its own pack rules afterward. Tracked files come from the captured commit; lifecycle hooks can change files in the isolated checkout before packing. Clean stale output as part of your build, for example with `pkgroll --clean-dist`. For workspace builds and custom hooks in a fork, see [Preparing packages](./monorepos.md#preparing-packages).
+You can also run the build before `git-publish`. Untracked files, including gitignored build output, are selected from the files npm would pack from your working directory. The package manager applies its own pack rules afterward. Tracked files come from the captured commit; lifecycle hooks can change files in the isolated checkout before packing. Clean stale output as part of your build, for example with `pkgroll --clean-dist`. For workspace builds and custom hooks in a fork, see [Preparing packages](./monorepos.md#preparing-packages).
 
 After lifecycle hooks run, `git-publish` checks each positive `files` entry against the packed package. If an entry matches no packed file or directory, it warns and still publishes. That usually means the build did not run or the entry is wrong.
 

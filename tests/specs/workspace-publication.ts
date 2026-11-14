@@ -20,6 +20,57 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	for (const variant of ['symlink', 'directory'] as const) {
+		test(`preserves a captured ${variant} when live untracked content collides`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'package-lock.json': '{}',
+				'packages/app/original-target': 'original',
+				'packages/app/other-target': 'other',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					files: ['out', 'result.txt'],
+					dependencies: { core: 'file:../core' },
+					scripts: { prepack: variant === 'symlink' ? "node -e \"require('fs').writeFileSync('result.txt',require('fs').readlinkSync('out'))\"" : "node -e \"require('fs').writeFileSync('result.txt',require('fs').readFileSync('out/keep.js'))\"" },
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+					scripts: { prepack: 'node hook.cjs' },
+				}),
+				'packages/core/hook.cjs': `const fs=require('fs');const cp=require('child_process');const path=require('path');const root=process.env.SOURCE_REPOSITORY;cp.execFileSync('git',['-C',root,'switch','other']);${variant === 'symlink' ? "fs.symlinkSync('other-target',path.join(root,'packages/app/out'));" : "fs.writeFileSync(path.join(root,'packages/app/out'),'live');"}`,
+			}, ['--initial-branch=snapshot']);
+			if (variant === 'symlink') {
+				await fs.symlink('original-target', fixture.getPath('packages/app/out'));
+			} else {
+				await fs.mkdir(fixture.getPath('packages/app/out'));
+				await fixture.writeFile('packages/app/out/keep.js', 'captured');
+			}
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('switch', ['-c', 'other']);
+			if (variant === 'symlink') {
+				await fs.unlink(fixture.getPath('packages/app/out'));
+			} else {
+				await fs.rm(fixture.getPath('packages/app/out'), { recursive: true });
+			}
+			await fixture.git('add', ['-A']);
+			await fixture.git('commit', ['-m', 'Remove captured path']);
+			await fixture.git('switch', ['snapshot']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const result = await gitPublish(fixture.getPath('packages/app'), [], { SOURCE_REPOSITORY: fixture.path });
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(await remote.git('show', ['npm/snapshot-app:result.txt'])).toBe(variant === 'symlink' ? 'original-target' : 'captured');
+		});
+	}
+
 	for (const target of ['inside', 'outside'] as const) {
 		test(`does not copy through a captured symlink pointing ${target}`, async () => {
 			await using outside = await createFixture();

@@ -14,57 +14,49 @@ The isolated repository is a [non-bare clone without checkout](../../src/publish
 
 ## Source snapshot
 
-**Decision.** git-publish packs one source commit, captured once at startup, plus the untracked files the package manager would pack from the working directory. Decided 2026-11-14 with npm 12.2.2 (npm-packlist 11.3.0), pnpm 12.18.0, Yarn 4.18.1 and 1.22.22, Bun 1.4.4, and Git 2.54.0.
+**Decision.** git-publish packs one source commit, captured once at startup, plus untracked files from npm's working-directory file list. It requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`, matching npm-packlist. Decided 2026-11-14 with npm 12.2.2 (npm-packlist 11.3.0), pnpm 12.18.0, Yarn 4.18.1 and 1.22.22, Bun 1.4.4, and Git 2.54.0.
 
 ### Captured commit
 
 - `git symbolic-ref -q HEAD` captures the branch ref first; `git rev-parse --verify --quiet <ref>^{commit}` resolves that exact ref, or `HEAD^{commit}` when detached. The branch name, exact-tag fallback, short SHA, `{gitSha}`, JSON `source.commit`, and newly created publication commit message derive from this capture. A reused publication commit keeps its original message. Resolving the captured ref keeps the name and commit aligned if HEAD switches between calls.
 - `git rev-parse --verify --quiet HEAD^{commit}` exits 1 on an unborn branch and 128 outside a repository, so exit 1 alone means "no commits".
 - The isolated checkout is created at the captured SHA before planning. Planning and the private-package check read that checkout, so they describe the commit that is packed. Planning from the live checkout let a `HEAD` move publish a private commit without `--force`.
-- Internal checkout, reset, and clean operations disable Git hooks but retain smudge filters.
+- Internal checkout, reset, and clean operations disable Git hooks but retain smudge filters. The live checkout passes through the same filters, so npm and develop read the same filtered manifest; the private check reads the filtered checkout consistently with what is packed.
 - Package manager detection reads the live checkout, including ignored lockfiles.
-- Mandatory package files bypass Git ignore rules even without a `files` field.
-- Case-insensitive Git pathspecs select a superset; the package manager applies the final pack rules.
 - Copying skips destinations with symlink or non-directory ancestors in the pack checkout.
 
 ### Untracked files copied into the pack checkout
 
-npm runs `prepack` and `prepare` in the package directory and packs that directory as the hooks leave it ([libnpmpack](https://github.com/npm/cli/tree/latest/workspaces/libnpmpack), pacote `lib/dir.js:33-51`). Gitignored build output is therefore packed, and a bundler that does not empty its output directory publishes stale chunks with `npm publish` too ([#96](https://github.com/privatenumber/git-publish/issues/96)). git-publish matches this: the pack checkout gets the untracked files the package manager would see, and cleaning stale output is the build's job, for example pkgroll's `--clean-dist`.
+npm runs `prepack` and `prepare` in the package directory and packs that directory as the hooks leave it ([libnpmpack](https://github.com/npm/cli/tree/latest/workspaces/libnpmpack), pacote `lib/dir.js:33-51`). Gitignored build output is therefore packed, and a bundler that does not empty its output directory publishes stale chunks with `npm publish` too ([#96](https://github.com/privatenumber/git-publish/issues/96)). Cleaning stale output is the build's job, for example pkgroll's `--clean-dist`.
 
-For each package, git-publish runs `git ls-files --others -z` in the live package directory and copies the listed files with `fs.cp` (`verbatimSymlinks`, no overwrite). Git lists Git paths, does not descend through tracked symlinks or into submodules, and omits files that are tracked live. Destination ancestor checks also prevent writing through captured symlinks. The listed set is a superset; the real pack filters it.
-
-- **With `files`:** npm normalizes each entry by stripping leading `!`, `./`, one leading `/`, and trailing `/`, expands it with `glob` (`dot: true`), and includes the contents of matched directories ([`npm-packlist` v11.3.0 `lib/index.js:334-379`](https://github.com/npm/npm-packlist/blob/v11.3.0/lib/index.js#L334-L379)). git-publish passes `:(glob,icase)E` and `:(glob,icase)E/**` for entries that use only `*`, `?`, `[...]`, and `**`. For entries with braces or extglobs, it passes the static prefix before the first glob segment (the package directory when the first segment has one). `!` entries are skipped, because npm applies entries as ordered last-match-wins rules and a later entry can re-include a negated path.
-- **Always included:** `main`, `browser`, and each `bin` path ([`:383-397`](https://github.com/npm/npm-packlist/blob/v11.3.0/lib/index.js#L383-L397)) as `:(literal,icase)` pathspecs, and README, COPYING, LICENSE, and LICENCE at the package root ([`:316-319`](https://github.com/npm/npm-packlist/blob/v11.3.0/lib/index.js#L316-L319)) as `:(glob,icase)`.
-- **Without `files`:** `--exclude-per-directory=.npmignore` when the package root has `.npmignore`, otherwise `--exclude-standard`, plus `--exclude=node_modules`. A second listing without excludes selects mandatory paths.
+For each package, npm-packlist lists candidates in the live directory using the captured manifest, with bundled dependencies removed from the stub tree. One `git ls-files -z` listing filters paths tracked in the live index. Regular files are copied exclusively, preserving their modes; existing destinations and unsafe ancestors are skipped. npm-packlist excludes symlinks and `.git`, but lists files inside nested repositories and submodules, so those files come from the live checkout. The package manager applies its own rules afterward.
 
 ### Measurements
 
-These measurements predate the second mandatory-path listing and directory checks; they do not measure their added cost.
-
-In rolldown (11,408 tracked files and 9.3 GB untracked, mostly `target/`), `packages/rolldown` with `files: ["bin", "cli", "dist", "!dist/*.node"]`:
+In rolldown (11,408 tracked files and 9.3 GB untracked, mostly `target/`), npm-packlist measurements were:
 
 | Step | Result |
 | --- | --- |
-| `git ls-files --others` with the `files` pathspecs | 45 files, 19 ms |
-| `git ls-files --others --exclude-standard` (no-`files` form) | 42 ms |
-| All untracked files in the package directory | 605 files, 38 ms |
-| All untracked files at the repository root | 65,334 files, 1.0 s |
-| `fs.cp` of the 45 files (97 MB, with the skipped `!` entry's `.node` binary) | 98 ms |
+| `packages/rolldown` with `files` | 47 files, 29 ms |
+| `packages/rolldown` without `files` | 2,107 files, 1.2 s |
+| Repository root without `files` | 15,494 files, 14.1 s |
+
+This is the same walk npm pack performs, so its cost matches npm's own file listing.
 
 ### Rejected alternatives
 
 - **Skip the copy when `prepack` exists:** `"prepack": "clean-pkg-json"` does not build, so that package would publish without `dist`.
 - **Ask the package manager for its file list:** `yarn pack --dry-run` (Yarn 4) runs `prepack` even with `YARN_ENABLE_SCRIPTS=0`, Yarn 1 has no dry run, and `pnpm pack --dry-run` runs scripts unless given `--ignore-scripts`.
 - **Copy every untracked file:** local repositories hold up to 20 GB of untracked files; the root listing alone takes 1 s in rolldown.
+- **Git ignore rules and pathspecs (option D):** parent `.gitignore` and `.git/info/exclude` apply when npm would ignore neither; npm chooses `.npmignore` or `.gitignore` per directory; Git's case folding is ASCII-only. Three review rounds found new mismatches.
 - **fast-glob over the live directory, filtered by `git ls-tree`:** path strings disagreed for `./dist`, a symlink alias wrote through to a captured file, files committed after the capture were copied, submodule files looked untracked, and `src/*` was not recursive.
-- **A JS glob matcher over all untracked files:** exact, but it adds a dependency or relies on `path.matchesGlob`, and it cannot limit Git's traversal; the superset is cheap to copy.
+- **A JS glob matcher over all untracked files:** it would duplicate npm's file-list rules and cannot limit Git's traversal.
 
 Precedent: [pkg.pr.new](https://github.com/stackblitz-labs/pkg.pr.new/blob/657315c454cc07146ab93c7ba5f47e2b4bd2e8c3/packages/cli/index.ts#L942-L951) runs the package manager's pack in the live directory, and [yalc](https://github.com/wclr/yalc/blob/3b834e488837e87df47414fd9917c10f07f0df08/src/copy.ts#L151) lists files with npm-packlist in the live directory. Neither packs a commit snapshot.
 
 ### Limits
 
-- Untracked files inside submodules and untracked nested repositories are not copied. Git lists a nested repository as one `dir/` entry without its contents.
-- Nested `.npmignore` and `.gitignore` precedence, and package managers whose rules differ from npm's, are approximated by the superset. Bun omits an untracked `main` outside `files`; npm and pnpm include it.
+- Yarn and Bun have different packing rules, but the copy uses npm's list for every manager. Bun omits an untracked `main` outside `files`; npm and pnpm include it.
 - `directories.bin` is not expanded.
 
 Revisit if a package manager offers a script-free file listing for every supported version, or if users need publication to exclude live build output entirely.
