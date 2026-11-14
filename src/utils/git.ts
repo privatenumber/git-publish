@@ -19,13 +19,15 @@ export const assertCleanTree = async () => {
 	}
 };
 
+const getHeadRef = () => getStdout(spawn('git', ['symbolic-ref', '-q', 'HEAD'])).catch((error: unknown) => {
+	if (error instanceof SubprocessError && error.exitCode === 1) {
+		return undefined;
+	}
+	throw error;
+});
+
 export const getSourceCommit = async () => {
-	const ref = await getStdout(spawn('git', ['symbolic-ref', '-q', 'HEAD'])).catch((error: unknown) => {
-		if (error instanceof SubprocessError && error.exitCode === 1) {
-			return undefined;
-		}
-		throw error;
-	});
+	const ref = await getHeadRef();
 	// Resolving the captured ref keeps the branch name and commit aligned if HEAD switches.
 	const commit = await getStdout(spawn('git', ['rev-parse', '--verify', '--quiet', `${ref ?? 'HEAD'}^{commit}`])).catch((error: unknown) => {
 		if (error instanceof SubprocessError && error.exitCode === 1) {
@@ -41,10 +43,7 @@ export const getSourceCommit = async () => {
 
 export const assertSourceUnchanged = async ({ ref, commit }: { ref: string | undefined;
 	commit: string; }) => {
-	const currentRef = await getStdout(spawn('git', ['symbolic-ref', '-q', 'HEAD'])).catch((error: unknown) => {
-		if (error instanceof SubprocessError && error.exitCode === 1) { return undefined; }
-		throw error;
-	});
+	const currentRef = await getHeadRef();
 	const currentCommit = await getStdout(spawn('git', ['rev-parse', '--verify', '--quiet', `${ref ?? 'HEAD'}^{commit}`])).catch((error: unknown) => {
 		if (error instanceof SubprocessError && error.exitCode === 1) { return undefined; }
 		throw error;

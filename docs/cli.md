@@ -5,7 +5,7 @@ git-publish [packages...] [flags]
 git-publish skills [--install <directory>]
 ```
 
-Run `git-publish` inside a Git repository with a clean tracked working tree. It packs the committed source, so commit any edits you want to publish. Gitignored build output that matches the package's `files` field is included.
+Run `git-publish` inside a Git repository with a clean tracked working tree. It packs the committed source, so commit any edits you want to publish. Untracked files, including gitignored build output, are included when npm would pack them.
 
 ## Package selection
 

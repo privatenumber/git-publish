@@ -127,6 +127,42 @@ describe('Workspace publication', async () => {
 		});
 	}
 
+	for (const variant of ['symlink', 'file'] as const) {
+		test(`preserves a captured ${variant} when live untracked files collide`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					files: ['out', 'real', 'result.txt'],
+					scripts: { prepack: variant === 'symlink' ? "node -e \"require('fs').writeFileSync('result.txt',require('fs').readlinkSync('out'))\"" : "node -e \"require('fs').writeFileSync('result.txt',require('fs').readFileSync('out'))\"" },
+				}),
+				'real/keep.js': 'keep',
+			}, ['--initial-branch=snapshot']);
+			if (variant === 'symlink') {
+				await fs.symlink('real', fixture.getPath('out'));
+			} else {
+				await fixture.writeFile('out', 'captured');
+			}
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await fixture.git('update-index', ['--assume-unchanged', 'out']);
+			await fs.unlink(fixture.getPath('out'));
+			await fs.mkdir(fixture.getPath('out'));
+			await fixture.writeFile('out/injected.js', 'injected');
+			expect(await fixture.git('status', ['--porcelain', '--untracked-files=no'])).toBe('');
+			const result = await gitPublish(fixture.path);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(await remote.git('show', ['npm/snapshot:result.txt'])).toBe(variant === 'symlink' ? 'real' : 'captured');
+			expect(await remote.git('ls-tree', ['-r', '--name-only', 'npm/snapshot'])).toBe(variant === 'symlink' ? 'package.json\nreal/keep.js\nresult.txt' : 'out\npackage.json\nreal/keep.js\nresult.txt');
+			if (variant === 'file') {
+				expect(await remote.git('show', ['npm/snapshot:out'])).toBe('captured');
+			}
+		});
+	}
+
 	for (const target of ['inside', 'outside'] as const) {
 		test(`aborts before copying through a captured symlink pointing ${target}`, async () => {
 			await using outside = await createFixture();
