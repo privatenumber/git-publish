@@ -17,13 +17,21 @@ export type WorkspacePublicationNode = PublishGraphNode & {
 	branch: string;
 };
 
-export type WorkspacePublicationPlan = {
+type PlanFields = {
 	roots: string[];
-	publishAll: boolean;
 	nodes: WorkspacePublicationNode[];
 	peers: WorkspacePeer[];
-	standalone?: boolean;
 };
+
+export type WorkspacePublicationPlan = PlanFields & (
+	| {
+		kind: 'standalone';
+	}
+	| {
+		kind: 'workspace';
+		selection: 'explicit' | 'public-root' | 'default-roots' | 'current-package';
+	}
+);
 
 export const planStandalonePublication = async ({
 	cwd, gitRootPath, packageJson, sourceName, sourceCommitId, publishBranch,
@@ -61,9 +69,8 @@ export const planStandalonePublication = async ({
 		throw new Error(`Invalid publish branch ${JSON.stringify(branch)}.`);
 	}
 	return {
-		standalone: true,
+		kind: 'standalone',
 		roots: [name],
-		publishAll: false,
 		peers: [],
 		nodes: [{
 			key: name,
@@ -97,16 +104,26 @@ export const planWorkspacePublication = async ({
 	publishBranch?: string;
 	force: boolean | undefined;
 	selection: string[];
-}): Promise<WorkspacePublicationPlan | undefined> => {
+}): Promise<Extract<WorkspacePublicationPlan, { kind: 'workspace' }> | { kind: 'standalone' }> => {
 	const workspace = await findWorkspacePackages(cwd, packageManager, gitRootPath);
 	if (!workspace) {
-		return undefined;
+		return { kind: 'standalone' };
 	}
 	const isRoot = path.resolve(cwd) === path.resolve(workspace.rootDirectory);
 	const defaultAtRoot = selection.length === 0 && isRoot;
 	const publicRoot = defaultAtRoot && Boolean(workspace.rootPackage?.name)
 		&& !workspace.rootPackage?.packageJson.private;
 	const publishAll = defaultAtRoot && !publicRoot;
+	let selectionMode: Extract<WorkspacePublicationPlan, { kind: 'workspace' }>['selection'];
+	if (selection.length > 0) {
+		selectionMode = 'explicit';
+	} else if (publicRoot) {
+		selectionMode = 'public-root';
+	} else if (publishAll) {
+		selectionMode = 'default-roots';
+	} else {
+		selectionMode = 'current-package';
+	}
 	const candidates = [...workspace.packages];
 	if (workspace.rootPackage && !candidates.some(candidate => (
 		candidate.dir === workspace.rootDirectory
@@ -114,35 +131,51 @@ export const planWorkspacePublication = async ({
 		candidates.push(workspace.rootPackage);
 	}
 	const roots = new Set<string>();
-	if (selection.length > 0) {
-		for (const argument of selection) {
-			const pattern = path.resolve(cwd, argument).split(path.sep).join('/');
-			const matches = candidates.filter(candidate => candidate.name === argument
-				|| micromatch.isMatch(path.resolve(candidate.dir).split(path.sep).join('/'), pattern));
-			if (matches.length === 0) {
-				throw new Error(`No workspace package matches ${JSON.stringify(argument)}.`);
+	switch (selectionMode) {
+		case 'explicit': {
+			for (const argument of selection) {
+				const pattern = path.resolve(cwd, argument).split(path.sep).join('/');
+				const matches = candidates.filter(candidate => candidate.name === argument
+					|| micromatch.isMatch(path.resolve(candidate.dir).split(path.sep).join('/'), pattern));
+				if (matches.length === 0) {
+					throw new Error(`No workspace package matches ${JSON.stringify(argument)}.`);
+				}
+				for (const match of matches) {
+					if (!match.name) {
+						throw new Error('Cannot publish the selected workspace root because it has no name.');
+					}
+					roots.add(match.name);
+				}
 			}
-			for (const match of matches) {
-				roots.add(match.name);
+			break;
+		}
+		case 'public-root': {
+			roots.add(workspace.rootPackage!.name);
+			break;
+		}
+		case 'default-roots': {
+			for (const candidate of workspace.packages) {
+				if (
+					path.resolve(candidate.dir) !== path.resolve(workspace.rootDirectory)
+					&& !candidate.packageJson.private
+				) {
+					roots.add(candidate.name);
+				}
 			}
+			break;
 		}
-	} else if (publicRoot) {
-		roots.add(workspace.rootPackage!.name);
-	} else if (publishAll) {
-		for (const candidate of workspace.packages) {
-			if (
-				path.resolve(candidate.dir) !== path.resolve(workspace.rootDirectory)
-				&& !candidate.packageJson.private
-			) {
-				roots.add(candidate.name);
+		case 'current-package': {
+			const selectedPackage = findWorkspacePackageDirectory(workspace, cwd);
+			if (!selectedPackage) {
+				return { kind: 'standalone' };
 			}
+			roots.add(selectedPackage.name);
+			break;
 		}
-	} else {
-		const selectedPackage = findWorkspacePackageDirectory(workspace, cwd);
-		if (!selectedPackage) {
-			return undefined;
+		default: {
+			const unreachable: never = selectionMode;
+			throw new Error(`Unknown selection mode: ${unreachable}`);
 		}
-		roots.add(selectedPackage.name);
 	}
 	if (roots.size === 0) {
 		throw new Error('No non-private workspace packages found to publish.');
@@ -191,7 +224,7 @@ export const planWorkspacePublication = async ({
 		packages: candidates,
 	}, [...roots], { policy });
 	if (publicRoot && graph.nodes.length === 1 && graph.peers.length === 0) {
-		return undefined;
+		return { kind: 'standalone' };
 	}
 	if (!force) {
 		const privatePackage = graph.nodes.find(node => (
@@ -234,8 +267,9 @@ export const planWorkspacePublication = async ({
 		});
 	}
 	const plan = {
+		kind: 'workspace' as const,
 		roots: [...roots],
-		publishAll,
+		selection: selectionMode,
 		nodes,
 		peers: graph.peers,
 	};
