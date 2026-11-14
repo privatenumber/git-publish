@@ -1,7 +1,7 @@
 import path from 'node:path';
 import semver from 'semver';
-import npa from 'npm-package-arg';
 import type { PackageJson } from '@npmcli/package-json';
+import type { PackageManager } from '../utils/detect-package-manager.ts';
 import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
 import { parseWorkspaceSpecification, type WorkspacePeer } from '../workspace-publication/graph.ts';
 import { satisfiesPackedPeer } from '../workspace-publication/satisfies-range.ts';
@@ -12,6 +12,7 @@ const { stringify } = JSON;
 export type PackedManifestValidationContext = {
 	from: string;
 	root: string;
+	packageManager: PackageManager;
 	targets: ReadonlyMap<string, {
 		dir: string;
 		version?: string;
@@ -43,7 +44,7 @@ export const validatePackedManifest = (
 		let specifier = packed;
 		let base = context.from;
 		const separator = packed.indexOf('::');
-		if (separator !== -1) {
+		if (context.packageManager === 'yarn' && separator !== -1) {
 			const suffix = packed.slice(separator + 2);
 			const locator = new URLSearchParams(suffix).get('locator');
 			const match = locator && /^.+@workspace:(.+)$/.exec(locator);
@@ -52,9 +53,10 @@ export const validatePackedManifest = (
 				base = path.resolve(context.root, match[1]!);
 			}
 		}
-		const localPath = specifier.slice(specifier.indexOf(':') + 1);
+		const localPath = specifier.replace(/^(?:file|link|portal|workspace):/, '');
 		return {
 			localPath,
+			base,
 			resolved: path.resolve(base, localPath),
 		};
 	};
@@ -92,31 +94,17 @@ export const validatePackedManifest = (
 				continue;
 			}
 			const workspace = parseWorkspaceSpecification(value);
-			let resolved: string | undefined;
-			if (workspace?.kind === 'path' || (value.startsWith('workspace:') && path.isAbsolute(value.slice(10)))) {
-				resolved = resolvePath(value).resolved;
-			} else {
-				const separator = value.indexOf('::');
-				const locator = separator === -1 ? undefined : new URLSearchParams(value.slice(separator + 2)).get('locator');
-				const match = locator && /^.+@workspace:(.+)$/.exec(locator);
-				const specifier = match ? value.slice(0, separator) : value;
-				// npm-package-arg rejects pnpm's link: protocol, which also names a local directory
-				const npmSpecifier = specifier.startsWith('link:') ? `file:${specifier.slice('link:'.length)}` : specifier;
-				const base = match ? path.resolve(context.root, match[1]!) : context.from;
-				try {
-					const result = npa.resolve(key, npmSpecifier, base);
-					if (result.type === 'directory' || result.type === 'file') {
-						resolved = result.fetchSpec ?? undefined;
-					}
-				} catch {
-					// Unsupported specifications are outside this validation's scope.
-				}
+			if (!/^(?:file|link|portal):/.test(value) && workspace?.kind !== 'path'
+				&& !(value.startsWith('workspace:') && /^[/~]|^[a-z]:|^\\/i.test(value.slice(10)))
+				&& !/^[./~]/.test(value)) {
+				continue;
 			}
-			if (resolved) {
-				const relative = path.relative(context.from, resolved);
-				if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-					throw new Error(`Package ${stringify(packageName)} has ${field} ${stringify(key)}: ${stringify(value)}, a local path outside the package that consumers can't install.`);
-				}
+			const { localPath, base } = resolvePath(value);
+			const normalized = path.posix.normalize(localPath.replaceAll('\\', '/'));
+			const relative = path.relative(context.from, path.resolve(base, normalized));
+			if (/^[/~]|^[a-z]:/i.test(localPath) || path.win32.isAbsolute(localPath)
+				|| relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+				throw new Error(`Package ${stringify(packageName)} has ${field} ${stringify(key)}: ${stringify(value)}, a local path that consumers installing from Git can't resolve. Use a path inside the package, such as file:./vendor/core.`);
 			}
 		}
 	}

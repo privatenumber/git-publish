@@ -115,6 +115,7 @@ export const publishWorkspaceClosure = async ({
 					validationContext: {
 						from: node.package.dir,
 						root: plan.kind === 'workspace' ? plan.rootDirectory : repositoryPath,
+						packageManager,
 						targets,
 					},
 					peers: plan.peers.filter(peer => peer.from === node.key),
