@@ -16,6 +16,37 @@ describe('Package managers', async () => {
 	const { git: remoteGit } = remoteFixture;
 
 	describe('bun', () => {
+		test('catalog protocol is resolved', async () => {
+			const branchName = 'test-bun-catalog';
+			const msVersion = '2.1.3';
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					private: true,
+					workspaces: {
+						packages: ['packages/*'],
+						catalog: { ms: msVersion },
+					},
+				}),
+				'.gitignore': 'node_modules',
+				'packages/t/package.json': JSON.stringify({
+					name: 't',
+					version: '1.0.0',
+					dependencies: { ms: 'catalog:' },
+				}),
+			}, [`--initial-branch=${branchName}`]);
+
+			await spawn('bun', ['install'], { cwd: fixture.path });
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const result = await gitPublish(fixture.getPath('packages/t'), ['--fresh']);
+			onTestFail(() => console.log(result));
+			expect('exitCode' in result).toBe(false);
+			const packageJson = JSON.parse(await remoteGit('show', [`npm/${branchName}-t:package.json`]));
+			expect(packageJson.dependencies.ms).toBe(msVersion);
+		});
+
 		test('pack hooks can access dependency binaries', async () => {
 			const branchName = 'test-bun-pack-hook-dependency';
 			await using fixture = await createGitFixture({
@@ -109,6 +140,40 @@ exec npm "$@"
 	});
 
 	describe('Yarn', () => {
+		test('catalog protocol is resolved', async () => {
+			const branchName = 'test-yarn-catalog';
+			const msVersion = '2.1.3';
+			await using commandsFixture = await createFixture();
+			const environment = await createYarnEnvironment(commandsFixture, 'node_modules/yarn-berry/bin/yarn.js');
+			await using fixture = await createGitFixture({
+				'.yarnrc.yml': yaml.dump({
+					catalog: { ms: msVersion },
+					nodeLinker: 'node-modules',
+				}),
+				'.gitignore': 'node_modules\n.yarn\n',
+				'yarn.lock': '',
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+					dependencies: { ms: 'catalog:' },
+				}),
+			}, [`--initial-branch=${branchName}`]);
+
+			await spawn('yarn', ['install'], {
+				cwd: fixture.path,
+				env: environment,
+			});
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const result = await gitPublish(fixture.path, ['--fresh'], environment);
+			onTestFail(() => console.log(result));
+			expect('exitCode' in result).toBe(false);
+			const packageJson = JSON.parse(await remoteGit('show', [`npm/${branchName}:package.json`]));
+			expect(packageJson.dependencies.ms).toBe(msVersion);
+		});
+
 		for (const [release, binPath] of [
 			['1', 'node_modules/yarn-classic/bin/yarn.js'],
 			['4', 'node_modules/yarn-berry/bin/yarn.js'],
