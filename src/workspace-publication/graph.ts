@@ -8,6 +8,7 @@ export type PublishGraphEdge = {
 	key: string;
 	field: DependencyField;
 	target: string;
+	specification: string;
 };
 
 export type PublishGraphNode = {
@@ -221,7 +222,6 @@ export const createPublishGraph = (
 	const resolveEdge = (
 		from: WorkspacePackage, key: string, specification: string, peer: boolean,
 	) => {
-		specification = resolveSpecification?.(from, key, specification) ?? specification;
 		const workspaceProtocol = specification.startsWith('workspace:');
 		const target = workspaceProtocol
 			? (peer
@@ -264,7 +264,8 @@ export const createPublishGraph = (
 				if (typeof specification !== 'string') {
 					continue;
 				}
-				const target = resolveEdge(current, key, specification, false);
+				const resolved = resolveSpecification?.(current, key, specification) ?? specification;
+				const target = resolveEdge(current, key, resolved, false);
 				if (!target) {
 					continue;
 				}
@@ -272,6 +273,7 @@ export const createPublishGraph = (
 					key,
 					field,
 					target,
+					specification: resolved,
 				});
 				visit(byName.get(target)![0]!, role);
 			}
@@ -284,7 +286,7 @@ export const createPublishGraph = (
 			const resolved = resolveSpecification?.(current, key, specification) ?? specification;
 			const isWorkspaceProtocol = resolved.startsWith('workspace:');
 			const optional = current.packageJson.peerDependenciesMeta?.[key]?.optional === true;
-			const target = resolveEdge(current, key, specification, true);
+			const target = resolveEdge(current, key, resolved, true);
 			if (target === undefined && !isWorkspaceProtocol) {
 				if (byName.has(key)) {
 					pendingPeers.push({

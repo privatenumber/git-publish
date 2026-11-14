@@ -89,6 +89,7 @@ describe('Publication graph', () => {
 				key: 'core',
 				field: 'optionalDependencies',
 				target: 'core',
+				specification: '^1.0.0',
 			},
 		]);
 	});
@@ -349,6 +350,7 @@ describe('Publication graph', () => {
 			key: 'runtime',
 			field: 'dependencies',
 			target: 'core',
+			specification: 'workspace:*',
 		});
 		const requiredResult = createWorkspaceResult(plan, preparations, 'main', 'abc');
 		expect(requiredResult.aliases).toStrictEqual({
@@ -367,6 +369,7 @@ describe('Publication graph', () => {
 			key: 'core',
 			field: 'dependencies',
 			target: 'core',
+			specification: 'workspace:*',
 		});
 		const output = formatWorkspaceResult(createWorkspaceResult(plan, preparations, 'main', 'abc'), 'yarn', 'https://example.test/repo');
 		expect(output).toContain('core@git+https://example.test/repo#abc');
@@ -585,6 +588,7 @@ describe('Publication graph', () => {
 			key: '@hunk/session-broker-core',
 			field: 'dependencies',
 			target: '@hunk/session-broker-core',
+			specification: 'workspace:*',
 		}]);
 		expect(graph.peers).toStrictEqual([]);
 	});
@@ -680,6 +684,7 @@ describe('Publication graph', () => {
 			key: '@test/core',
 			field: 'optionalDependencies',
 			target: '@test/core',
+			specification: 'workspace:*',
 		}]);
 	});
 
@@ -854,6 +859,7 @@ describe('Publication graph', () => {
 			key: '@test/alias',
 			field: 'dependencies',
 			target: '@test/actual',
+			specification: 'workspace:@test/actual@^1.0.0',
 		}]);
 	});
 

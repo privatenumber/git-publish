@@ -948,8 +948,72 @@ exec "${npmPath}" "$@"
 		});
 	}
 
-	test('plans a Yarn catalog workspace dependency', async () => {
+	for (const [description, workspaceConfig, extra] of [
+		['included', 'include:\n  "./catalog.yaml": [catalog]\n', { 'catalog.yaml': 'catalog:\n  core: workspace:*\n' }],
+		['path', 'catalog:\n  core: file:packages/core\n', {}],
+	] as const) {
+		test(`publishes pnpm ${description} catalog dependency`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({ private: true }),
+				'pnpm-workspace.yaml': `packages:\n  - packages/*\n${workspaceConfig}`,
+				...extra,
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					dependencies: { core: 'catalog:' },
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=catalog-extra']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const result = await gitPublish(fixture.getPath('packages/app'));
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			const commit = await remote.git('rev-parse', ['npm/catalog-extra-core']);
+			const manifest = JSON.parse(await remote.git('show', ['npm/catalog-extra-app:package.json']));
+			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+		});
+	}
+
+	test('rejects unresolved workspace catalog references before pushing', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({ private: true }),
+			'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: 'catalog:missing' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=catalog-missing']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain('Cannot resolve catalog reference "catalog:missing" for dependency "core" in package "app"');
+		expect(await remote.git('branch', ['--list'])).toBe('');
+	});
+
+	test('publishes a Yarn catalog workspace dependency', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using commands = await createFixture({
+			yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n`,
+		});
+		await fs.chmod(commands.getPath('yarn'), 0o755);
+		const environment = {
+			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+			YARN_ENABLE_TELEMETRY: '0',
+		};
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'root',
@@ -968,13 +1032,73 @@ exec "${npmPath}" "$@"
 				version: '1.0.0',
 			}),
 		}, ['--initial-branch=yarn-catalog']);
+		await spawn('yarn', ['install'], {
+			cwd: fixture.path,
+			env: environment,
+		});
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
-		const dry = await gitPublish(fixture.getPath('packages/app'), ['--dry']);
+		const dry = await gitPublish(fixture.getPath('packages/app'), ['--dry'], environment);
 		onTestFail(() => console.log(dry.output));
 		expect('exitCode' in dry).toBe(false);
 		expect(dry.stdout).toContain('npm/yarn-catalog-core');
+		const result = await gitPublish(fixture.getPath('packages/app'), [], environment);
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		const commit = await remote.git('rev-parse', ['npm/yarn-catalog-core']);
+		const manifest = JSON.parse(await remote.git('show', ['npm/yarn-catalog-app:package.json']));
+		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+	});
+
+	test('distinguishes Yarn unnamed and named default catalogs', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using commands = await createFixture({ yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n` });
+		await fs.chmod(commands.getPath('yarn'), 0o755);
+		const environment = {
+			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+			YARN_ENABLE_TELEMETRY: '0',
+		};
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'yarn.lock': '',
+			'.yarnrc.yml': 'catalog:\n  is-number: "workspace:*"\ncatalogs:\n  default:\n    is-number: "^7.0.0"\n',
+			'packages/local/package.json': JSON.stringify({
+				name: 'local',
+				version: '1.0.0',
+				dependencies: { 'is-number': 'catalog:' },
+			}),
+			'packages/external/package.json': JSON.stringify({
+				name: 'external',
+				version: '1.0.0',
+				dependencies: { 'is-number': 'catalog:default' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'is-number',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=yarn-distinct']);
+		await spawn('yarn', ['install'], {
+			cwd: fixture.path,
+			env: environment,
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		for (const name of ['local', 'external']) {
+			const result = await gitPublish(fixture.getPath(`packages/${name}`), [], environment);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+		}
+		const commit = await remote.git('rev-parse', ['npm/yarn-distinct-is-number']);
+		const local = JSON.parse(await remote.git('show', ['npm/yarn-distinct-local:package.json']));
+		const external = JSON.parse(await remote.git('show', ['npm/yarn-distinct-external:package.json']));
+		expect(local.dependencies['is-number']).toBe(`git+file://${remote.path}#${commit}`);
+		expect(external.dependencies['is-number']).toBe('^7.0.0');
 	});
 
 	for (const enabled of [false, true]) {
@@ -1023,7 +1147,7 @@ exec "${npmPath}" "$@"
 				'packages/app/package.json': JSON.stringify({
 					name: 'app',
 					version: '1.0.0',
-					dependencies: { core: 'catalog:' },
+					dependencies: { core: 'catalog: ' },
 				}),
 				'packages/core/package.json': JSON.stringify({
 					name: 'core',

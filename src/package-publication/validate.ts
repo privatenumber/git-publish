@@ -2,7 +2,6 @@ import semver from 'semver';
 import type { PackageJson } from '@npmcli/package-json';
 import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
 import type { WorkspacePeer } from '../workspace-publication/graph.ts';
-import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { parseAliasedRange, satisfiesPackedPeer } from '../workspace-publication/satisfies-range.ts';
 import type { PackagePreparation, PackagePublicationDependency } from './prepare.ts';
 
@@ -21,7 +20,6 @@ export const validatePackedWorkspaceDependencies = (packageName: string, manifes
 export const validatePackedManifest = (
 	packageName: string,
 	manifest: PackageJson,
-	sourceManifest: WorkspacePackage['packageJson'],
 	dependencyEdges: PackagePublicationDependency[],
 	peers: WorkspacePeer[],
 ) => {
@@ -30,7 +28,7 @@ export const validatePackedManifest = (
 		if (packed === undefined) {
 			continue;
 		}
-		const source = sourceManifest[edge.field]?.[edge.key];
+		const source = edge.specification;
 		const alias = parseAliasedRange(packed);
 		if (packed !== source && !semver.validRange(packed)
 			&& !(alias && alias.target === edge.target && semver.validRange(alias.range))) {

@@ -29,11 +29,7 @@ export type PackagePreparation = {
 	peers: WorkspacePeer[];
 };
 
-export type PackagePublicationDependency = {
-	key: string;
-	field: 'dependencies' | 'optionalDependencies';
-	target: string;
-};
+export type PackagePublicationDependency = PublishGraphEdge;
 
 export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPackageManagerGitUrl(fetchUrl)}#${commit}`;
 
@@ -90,7 +86,7 @@ export const preparePackagePublication = async ({
 				}
 			}
 		}
-		validatePackedManifest(packageName, manifest, sourceManifest, dependencyEdges, peers);
+		validatePackedManifest(packageName, manifest, dependencyEdges, peers);
 		for (const edge of dependencyEdges) {
 			const field = manifest[edge.field];
 			if (field && Object.hasOwn(field, edge.key)) {

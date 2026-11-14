@@ -189,9 +189,7 @@ export const planWorkspacePublication = async ({
 		})
 		: '';
 	const yarnSettings = yaml.load(yarnConfig) as
-		| { enableTransparentWorkspaces?: boolean;
-			catalog?: Record<string, string>;
-			catalogs?: Record<string, Record<string, string>>; }
+		| { enableTransparentWorkspaces?: boolean }
 		| undefined;
 	const yarnEnvironment = process.env.YARN_ENABLE_TRANSPARENT_WORKSPACES;
 	const transparentWorkspaces = yarnEnvironment === undefined
@@ -199,15 +197,12 @@ export const planWorkspacePublication = async ({
 		: !['false', '0'].includes(yarnEnvironment.toLowerCase());
 	let pnpmLinkWorkspacePackages = false;
 	let catalogs: { catalog?: Record<string, string>;
-		catalogs?: Record<string, Record<string, string>>; } = packageManager === 'yarn' ? yarnSettings ?? {} : {};
+		catalogs?: Record<string, Record<string, string>>; } = {};
 	if (packageManager === 'pnpm') {
 		const workspaceConfig = (yaml.load(await fs.readFile(path.join(workspace.rootDirectory, 'pnpm-workspace.yaml'), 'utf8')) ?? {}) as {
 			linkWorkspacePackages?: boolean | string;
 			'link-workspace-packages'?: boolean | string;
-			catalog?: Record<string, string>;
-			catalogs?: Record<string, Record<string, string>>;
 		};
-		catalogs = workspaceConfig;
 		const npmrc = await fs.readFile(path.join(workspace.rootDirectory, '.npmrc'), 'utf8').catch((error: NodeJS.ErrnoException) => {
 			if (error.code === 'ENOENT') {
 				return '';
@@ -221,7 +216,23 @@ export const planWorkspacePublication = async ({
 			?? /^\s*link-workspace-packages\s*=\s*(\S+)\s*$/m.exec(npmrc)?.[1];
 		pnpmLinkWorkspacePackages = configured === true || configured === 'true' || configured === 'deep';
 	}
-	if (packageManager === 'bun') {
+	const references = candidates.flatMap(candidate => (
+		(['dependencies', 'optionalDependencies', 'peerDependencies'] as const).flatMap(field => (
+			Object.values(candidate.packageJson[field] ?? {}).filter((value): value is string => (
+				typeof value === 'string' && value.startsWith('catalog:')
+			))
+		))
+	));
+	if (references.length && packageManager === 'pnpm') {
+		catalogs = JSON.parse(await getStdout(spawn('pnpm', ['config', 'list', '--json'], { cwd: workspace.rootDirectory })));
+	} else if (references.length && packageManager === 'yarn') {
+		const queries = [
+			...(references.includes('catalog:') ? ['catalog'] : []),
+			...(references.some(reference => reference !== 'catalog:') ? ['catalogs'] : []),
+		] as const;
+		const results = await Promise.all(queries.map(async query => [query, JSON.parse(await getStdout(spawn('yarn', ['config', 'get', query, '--json'], { cwd: workspace.rootDirectory })))] as const));
+		catalogs = Object.fromEntries(results);
+	} else if (references.length && packageManager === 'bun') {
 		const root = workspace.rootPackage?.packageJson as (WorkspacePackage['packageJson'] & {
 			catalog?: Record<string, string>;
 			catalogs?: Record<string, Record<string, string>>;
@@ -245,6 +256,7 @@ export const planWorkspacePublication = async ({
 			&& (packageManager !== 'yarn' || transparentWorkspaces),
 		plainPeers: true,
 	};
+	const workspaceNames = new Set(candidates.map(candidate => candidate.name));
 	const graph = createPublishGraph({
 		...workspace,
 		packages: candidates,
@@ -254,16 +266,25 @@ export const planWorkspacePublication = async ({
 			if (!specification.startsWith('catalog:')) {
 				return specification;
 			}
-			const name = specification.slice('catalog:'.length) || 'default';
-			const range = name === 'default'
-				? catalogs.catalog?.[key] ?? catalogs.catalogs?.default?.[key]
+			const rawName = specification.slice('catalog:'.length);
+			const name = packageManager === 'bun' ? rawName.trim() : rawName;
+			const range = !name || (packageManager !== 'yarn' && name === 'default')
+				? catalogs.catalog?.[key] ?? (packageManager === 'yarn' ? undefined : catalogs.catalogs?.default?.[key])
 				: catalogs.catalogs?.[name]?.[key];
 			if (typeof range !== 'string') {
+				if (workspaceNames.has(key)) {
+					throw new Error(`Cannot resolve catalog reference ${JSON.stringify(specification)} for dependency ${JSON.stringify(key)} in package ${JSON.stringify(from.name)}.`);
+				}
 				return specification;
 			}
-			if (packageManager === 'pnpm' && /^(?:file|link|workspace):\.{1,2}\//.test(range)) {
-				const separator = range.indexOf(':');
-				return `${range.slice(0, separator + 1)}${path.relative(from.dir, path.resolve(workspace.rootDirectory, range.slice(separator + 1)))}`;
+			const match = /^(?:(file|link|workspace):)?(.*)$/.exec(range)!;
+			const [, protocol, entry] = match;
+			if ((protocol === 'file' || protocol === 'link' || ((protocol === 'workspace' || !protocol) && /^\.{1,2}\//.test(entry!)))) {
+				let relative = path.relative(from.dir, path.resolve(workspace.rootDirectory, entry!));
+				if (!relative.startsWith('.')) {
+					relative = `./${relative}`;
+				}
+				return `${protocol ?? 'file'}:${relative}`;
 			}
 			return range;
 		},

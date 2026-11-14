@@ -29,6 +29,7 @@ In each published package, internal runtime dependencies are rewritten to commit
 
 Publication fails before pushing if:
 
+- a catalog reference for a workspace package cannot be resolved,
 - a packed peer range does not match its target's packed version,
 - a packed dependency or peer still uses `workspace:`,
 - or a lifecycle hook changed or added an internal dependency during packing. Hooks may remove internal dependencies.

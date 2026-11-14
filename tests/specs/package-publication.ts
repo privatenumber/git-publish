@@ -423,11 +423,13 @@ describe('Package publication', () => {
 					key: 'core-alias',
 					field: 'dependencies',
 					target: '@test/core',
+					specification: 'workspace:@test/core@*',
 				},
 				{
 					key: '@test/optional',
 					field: 'optionalDependencies',
 					target: '@test/optional',
+					specification: 'workspace:*',
 				},
 			],
 			dependencyPublications: new Map([
