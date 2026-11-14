@@ -1,11 +1,20 @@
-import semver from 'semver';
+import path from 'node:path';
 import type { PackageJson } from '@npmcli/package-json';
 import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
 import type { WorkspacePeer } from '../workspace-publication/graph.ts';
-import { parseAliasedRange, satisfiesPackedPeer } from '../workspace-publication/satisfies-range.ts';
+import { satisfiesPackedPeer } from '../workspace-publication/satisfies-range.ts';
 import type { PackagePreparation, PackagePublicationDependency } from './prepare.ts';
 
 const { stringify } = JSON;
+
+export type PackedManifestValidationContext = {
+	from: string;
+	root: string;
+	targets: ReadonlyMap<string, {
+		dir: string;
+		version?: string;
+	}>;
+};
 
 export const validatePackedWorkspaceDependencies = (packageName: string, manifest: PackageJson) => {
 	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
@@ -22,6 +31,7 @@ export const validatePackedManifest = (
 	manifest: PackageJson,
 	dependencyEdges: PackagePublicationDependency[],
 	peers: WorkspacePeer[],
+	context: PackedManifestValidationContext,
 ) => {
 	for (const edge of dependencyEdges) {
 		const packed = manifest[edge.field]?.[edge.key];
@@ -29,9 +39,25 @@ export const validatePackedManifest = (
 			continue;
 		}
 		const source = edge.specification;
-		const alias = parseAliasedRange(packed);
-		if (packed !== source && !semver.validRange(packed)
-			&& !(alias && alias.target === edge.target && semver.validRange(alias.range))) {
+		const target = context.targets.get(edge.target);
+		let valid = packed === source;
+		if (!valid && target?.version) {
+			valid = satisfiesPackedPeer(packed, edge.target, target.version);
+		}
+		if (!valid && target && /^(?:file|link):/.test(packed)) {
+			const [specifier, suffix] = packed.split('::', 2);
+			let base = context.from;
+			if (suffix) {
+				const locator = new URLSearchParams(suffix).get('locator');
+				const match = locator && /@workspace:(.*)$/.exec(locator);
+				if (!match) {
+					throw new Error(`Package ${stringify(packageName)} dependency ${stringify(edge.key)} has an invalid packed locator.`);
+				}
+				base = path.resolve(context.root, match[1]!);
+			}
+			valid = path.resolve(base, specifier!.slice(specifier!.indexOf(':') + 1)) === path.resolve(target.dir);
+		}
+		if (!valid) {
 			throw new Error(`Package ${stringify(packageName)} dependency ${stringify(edge.key)} changed during packing from ${stringify(source)} to ${stringify(packed)}.`);
 		}
 	}

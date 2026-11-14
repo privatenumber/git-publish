@@ -17,6 +17,8 @@ The plain-range rule matters because npm has no `workspace:` protocol: an npm wo
 
 Catalogs are resolved before graph construction using effective package-manager configuration, so included pnpm configuration and Yarn configuration inherited from the environment or home directory are not missed. Yarn's unnamed `catalog:` and named `catalog:default` are distinct ([Yarn 4.18.1 source](https://github.com/yarnpkg/berry/blob/%40yarnpkg/cli/4.18.1/packages/plugin-catalog/sources/utils.ts#L21-L36)); the "distinguishes Yarn unnamed and named default catalogs" test publishes both cases. Missing catalog entries for workspace names stop publication before packing rather than silently omitting an edge.
 
+The isolated pack checkout does not inherit package-manager configuration located above the Git repository, such as an ancestor `.yarnrc.yml`. A catalog that depends on that configuration can therefore resolve during planning but fail during packing, before publication.
+
 Explicit `workspace:` ranges are checked by git-publish because the package manager does not always check them. pnpm 10.34.9 installs a workspace where `app` declares `core: "workspace:^2.0.0"` and the local `core` is `1.0.0`; pnpm 12.18.0 rejects it (`No matching version found for core@workspace:^2.0.0 inside` the workspace).
 
 Prerelease matching follows npm: a prerelease version satisfies only `*` and the empty range, not `x` or `^1.0.0`.

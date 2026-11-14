@@ -57,6 +57,10 @@ export const publishWorkspaceClosure = async ({
 		}));
 		const existingBranches = await loadPublishBranches(repository, branches, fresh, signal);
 		const preparations = new Map<string, PackagePreparation>();
+		const targets = new Map(plan.nodes.map(node => [node.key, {
+			dir: node.package.dir,
+			version: node.package.packageJson.version,
+		}]));
 		const processPackage = async (index: number, {
 			streamPreview,
 			setStatus,
@@ -102,6 +106,11 @@ export const publishWorkspaceClosure = async ({
 					commitMessage: `Published ${plan.kind === 'standalone' ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(source.name)} (${source.shortCommit})`,
 					dependencyEdges: node.dependencies,
 					dependencyPublications,
+					validationContext: {
+						from: node.package.dir,
+						root: plan.kind === 'workspace' ? plan.rootDirectory : repositoryPath,
+						targets,
+					},
 					peers: plan.peers.filter(peer => peer.from === node.key),
 					gitOptions: repository.gitOptions,
 					signal,

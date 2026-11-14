@@ -1004,11 +1004,84 @@ exec "${npmPath}" "$@"
 		expect(await remote.git('branch', ['--list'])).toBe('');
 	});
 
-	test('publishes a Yarn catalog workspace dependency', async () => {
+	test('rejects an incompatible packed catalog range before pushing', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
-		await using commands = await createFixture({
-			yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n`,
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({ private: true }),
+			'pnpm-workspace.yaml': 'packages:\n  - packages/*\ncatalog:\n  core: workspace:*\n',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: 'catalog:' },
+				scripts: { prepack: 'node hook.cjs' },
+			}),
+			'packages/app/hook.cjs': 'const fs = require("fs"); const p = require("./package.json"); p.dependencies.core = "^2.0.0"; fs.writeFileSync("package.json", JSON.stringify(p));',
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=catalog-changed']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain('changed during packing');
+		expect(await remote.git('branch', ['--list'])).toBe('');
+	});
+
+	for (const [description, entry] of [['workspace', 'workspace:*'], ['path', 'file:./packages/core']] as const) {
+		test(`publishes a Yarn catalog ${description} dependency`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using commands = await createFixture({
+				yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n`,
+			});
+			await fs.chmod(commands.getPath('yarn'), 0o755);
+			const environment = {
+				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+				YARN_ENABLE_TELEMETRY: '0',
+			};
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'yarn.lock': '',
+				'.yarnrc.yml': `catalogs:\n  named:\n    core: "${entry}"\n`,
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					dependencies: { core: 'catalog:named' },
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=yarn-catalog']);
+			await spawn('yarn', ['install'], {
+				cwd: fixture.path,
+				env: environment,
+			});
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const dry = await gitPublish(fixture.getPath('packages/app'), ['--dry'], environment);
+			onTestFail(() => console.log(dry.output));
+			expect('exitCode' in dry).toBe(false);
+			expect(dry.stdout).toContain('npm/yarn-catalog-core');
+			const result = await gitPublish(fixture.getPath('packages/app'), [], environment);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			const commit = await remote.git('rev-parse', ['npm/yarn-catalog-core']);
+			const manifest = JSON.parse(await remote.git('show', ['npm/yarn-catalog-app:package.json']));
+			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
 		});
+	}
+
+	test('uses Yarn catalog configuration from each package directory', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using commands = await createFixture({ yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n` });
 		await fs.chmod(commands.getPath('yarn'), 0o755);
 		const environment = {
 			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
@@ -1021,17 +1094,18 @@ exec "${npmPath}" "$@"
 				workspaces: ['packages/*'],
 			}),
 			'yarn.lock': '',
-			'.yarnrc.yml': 'catalogs:\n  named:\n    core: "workspace:*"\n',
+			'.yarnrc.yml': 'catalog:\n  is-number: "workspace:*"\n',
+			'packages/app/.yarnrc.yml': 'catalog:\n  is-number: "^7.0.0"\n',
 			'packages/app/package.json': JSON.stringify({
 				name: 'app',
 				version: '1.0.0',
-				dependencies: { core: 'catalog:named' },
+				dependencies: { 'is-number': 'catalog:' },
 			}),
 			'packages/core/package.json': JSON.stringify({
-				name: 'core',
+				name: 'is-number',
 				version: '1.0.0',
 			}),
-		}, ['--initial-branch=yarn-catalog']);
+		}, ['--initial-branch=yarn-local']);
 		await spawn('yarn', ['install'], {
 			cwd: fixture.path,
 			env: environment,
@@ -1039,16 +1113,12 @@ exec "${npmPath}" "$@"
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
-		const dry = await gitPublish(fixture.getPath('packages/app'), ['--dry'], environment);
-		onTestFail(() => console.log(dry.output));
-		expect('exitCode' in dry).toBe(false);
-		expect(dry.stdout).toContain('npm/yarn-catalog-core');
 		const result = await gitPublish(fixture.getPath('packages/app'), [], environment);
 		onTestFail(() => console.log(result.output));
 		expect('exitCode' in result).toBe(false);
-		const commit = await remote.git('rev-parse', ['npm/yarn-catalog-core']);
-		const manifest = JSON.parse(await remote.git('show', ['npm/yarn-catalog-app:package.json']));
-		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+		const manifest = JSON.parse(await remote.git('show', ['npm/yarn-local-app:package.json']));
+		expect(manifest.dependencies['is-number']).toBe('^7.0.0');
+		expect(await remote.git('branch', ['--list'])).not.toContain('npm/yarn-local-is-number');
 	});
 
 	test('distinguishes Yarn unnamed and named default catalogs', async () => {

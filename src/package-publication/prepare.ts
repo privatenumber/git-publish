@@ -7,7 +7,7 @@ import { toPackageManagerGitUrl } from '../utils/git-url.ts';
 import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/graph.ts';
 import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { importTarball, type File } from './import-tarball.ts';
-import { validatePackedManifest } from './validate.ts';
+import { validatePackedManifest, type PackedManifestValidationContext } from './validate.ts';
 
 const { stringify } = JSON;
 
@@ -44,6 +44,7 @@ export const preparePackagePublication = async ({
 	commitMessage,
 	dependencyEdges,
 	dependencyPublications,
+	validationContext,
 	peers = [],
 	gitOptions,
 	signal,
@@ -58,6 +59,7 @@ export const preparePackagePublication = async ({
 	commitMessage: string;
 	dependencyEdges: PackagePublicationDependency[];
 	dependencyPublications: ReadonlyMap<string, PackagePublication>;
+	validationContext: PackedManifestValidationContext;
 	peers?: WorkspacePeer[];
 	gitOptions: SpawnOptions;
 	signal?: AbortSignal;
@@ -86,7 +88,7 @@ export const preparePackagePublication = async ({
 				}
 			}
 		}
-		validatePackedManifest(packageName, manifest, dependencyEdges, peers);
+		validatePackedManifest(packageName, manifest, dependencyEdges, peers, validationContext);
 		for (const edge of dependencyEdges) {
 			const field = manifest[edge.field];
 			if (field && Object.hasOwn(field, edge.key)) {

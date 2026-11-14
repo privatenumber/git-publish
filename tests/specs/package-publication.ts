@@ -446,6 +446,20 @@ describe('Package publication', () => {
 					installSpecifier: 'git+file:///remote.git#optional-commit',
 				}],
 			]),
+			validationContext: {
+				from: packageFixture.getPath('package'),
+				root: packageFixture.path,
+				targets: new Map([
+					['@test/core', {
+						dir: packageFixture.getPath('core'),
+						version: '1.0.0',
+					}],
+					['@test/optional', {
+						dir: packageFixture.getPath('optional'),
+						version: '1.0.0',
+					}],
+				]),
+			},
 			gitOptions: { cwd: publishFixture.path },
 		});
 		const manifest = JSON.parse(await publishFixture.git('show', [`${preparation.publication.commit}:package.json`]));

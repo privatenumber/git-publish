@@ -331,6 +331,7 @@ describe('Publication graph', () => {
 		const plan = {
 			roots: ['app'],
 			kind: 'workspace' as const,
+			rootDirectory: workspace.rootDirectory,
 			selection: 'explicit' as const,
 			nodes,
 			peers: graph.peers,
@@ -421,6 +422,7 @@ describe('Publication graph', () => {
 		const result = createWorkspaceResult({
 			roots: ['app'],
 			kind: 'workspace',
+			rootDirectory: workspace.rootDirectory,
 			selection: 'explicit',
 			nodes,
 			peers: graph.peers,
@@ -478,6 +480,7 @@ describe('Publication graph', () => {
 			const result = createWorkspaceResult({
 				roots: ['app'],
 				kind: 'workspace',
+				rootDirectory: workspace.rootDirectory,
 				selection: 'explicit',
 				nodes,
 				peers: graph.peers,
