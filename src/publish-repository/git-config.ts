@@ -86,10 +86,14 @@ export const materializePublishGitConfig = async ({
 		? sourceConfig.filter(({ key }) => key.startsWith(remoteConfigPrefix) && key !== `${remoteConfigPrefix}url` && key !== `${remoteConfigPrefix}pushurl`)
 		: [];
 	const publishConfig = sourceConfig.filter(({ key }) => !key.startsWith('remote.')).filter(isPortableGitConfig);
-	await Promise.all([
+	const writes = await Promise.allSettled([
 		fs.writeFile(systemConfigPath, publishConfig.filter(({ scope }) => scope === 'system').map(serializeGitConfig).join('')),
 		fs.writeFile(globalConfigPath, publishConfig.filter(({ scope }) => scope === 'global').map(serializeGitConfig).join('')),
 	]);
+	const failedWrite = writes.find(result => result.status === 'rejected');
+	if (failedWrite) {
+		throw failedWrite.reason;
+	}
 	const remoteNames = [fetchRemoteName, ...pushRemoteNames];
 	const configPath = await getStdout(spawn('git', ['rev-parse', '--git-path', 'config'], { cwd: destinationRepositoryPath }));
 	await fs.appendFile(path.resolve(destinationRepositoryPath, configPath), [

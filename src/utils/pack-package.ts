@@ -1,12 +1,13 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
-import spawn, { type Options as SpawnOptions } from 'nano-spawn';
+import type { Options as SpawnOptions } from 'nano-spawn';
 import packlist from 'npm-packlist';
 import PackageJson from '@npmcli/package-json';
 import mapWorkspaces from '@npmcli/map-workspaces';
 import type { PackageManager } from './detect-package-manager.ts';
 import { getStdout } from './get-stdout.ts';
+import { spawnAbortable } from './spawn-abortable.ts';
 
 const hasErrorCode = (error: unknown, ...codes: string[]): boolean => (
 	typeof error === 'object'
@@ -29,7 +30,7 @@ const getPackArguments = async (
 		// `--filename`, and each rejects or ignores the other. Ask the Yarn that this
 		// package resolves to (packageManager, yarnPath) which major it is.
 		const tarballPath = path.join(packDestinationDirectory, 'package.tgz');
-		const version = await getStdout(spawn('yarn', ['--version'], packOptions));
+		const version = await getStdout(spawnAbortable('yarn', ['--version'], packOptions));
 		return Number.parseInt(version, 10) >= 2
 			? ['pack', '--out', tarballPath]
 			: ['pack', '--filename', tarballPath];
@@ -62,6 +63,7 @@ const copyContained = async (
 	cwd: string,
 	packWorktreePackageRoot: string,
 	candidates: string[],
+	signal: AbortSignal,
 ) => {
 	const checkedDirectories = new Map<string, boolean>();
 	const isSafeDirectory = async (directory: string): Promise<boolean> => {
@@ -82,6 +84,7 @@ const copyContained = async (
 		return safe;
 	};
 	for (const relativePath of candidates) {
+		signal.throwIfAborted();
 		const destinationPath = path.join(packWorktreePackageRoot, relativePath);
 		if (!await isSafeDirectory(path.dirname(destinationPath))) { continue; }
 		const source = path.join(cwd, relativePath);
@@ -103,6 +106,7 @@ export const packPackage = async (
 	cwd: string,
 	gitRootPath: string,
 	gitSubdirectory: string,
+	signal: AbortSignal,
 ): Promise<string> => {
 	const isMonorepo = gitSubdirectory.length > 0;
 	const packWorktreePackageRoot = path.join(packWorktreePath, gitSubdirectory);
@@ -129,7 +133,8 @@ export const packPackage = async (
 	}
 	await fs.mkdir(packDestinationDirectory, { recursive: true });
 	const candidates = await listCandidates(cwd);
-	await copyContained(cwd, packWorktreePackageRoot, candidates);
+	signal.throwIfAborted();
+	await copyContained(cwd, packWorktreePackageRoot, candidates, signal);
 
 	// Symlink node_modules so hooks have access to dependencies
 	// Note: Remove any existing node_modules directory in worktree first
@@ -199,12 +204,14 @@ export const packPackage = async (
 
 	const packOptions = {
 		cwd: packWorktreePackageRoot,
+		signal,
 		env: {
 			PATH: [...binaryPaths].filter(pathEntry => pathEntry !== undefined).join(path.delimiter),
 		},
 	};
 	const packArgs = await getPackArguments(packageManager, packDestinationDirectory, packOptions);
-	await spawn(packageManager, packArgs, packOptions);
+	signal.throwIfAborted();
+	await spawnAbortable(packageManager, packArgs, packOptions, { processGroup: true });
 
 	// Find the generated tarball (package managers create it with their own naming)
 	const files = await fs.readdir(packDestinationDirectory);

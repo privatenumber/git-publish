@@ -1,14 +1,204 @@
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import { spawn as spawnChild } from 'node:child_process';
+import { once } from 'node:events';
+import net from 'node:net';
 import spawn from 'nano-spawn';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { detectPackageManager } from '../../src/utils/detect-package-manager.ts';
+import { spawnAbortable } from '../../src/utils/spawn-abortable.ts';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
 
 describe('Lifecycle hooks', async () => {
+	test('stops a subprocess when aborted immediately after spawn', async () => {
+		const controller = new AbortController();
+		const reason = new Error('interrupted');
+		const subprocess = spawnAbortable(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+			signal: controller.signal,
+		}, { processGroup: true });
+		controller.abort(reason);
+		const child = await subprocess.nodeChildProcess;
+		expect(await subprocess.catch(error => error)).toBe(reason);
+		expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+	});
+	test('cleans up after SIGTERM during worktree creation', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using temporary = await createFixture();
+		await using marker = await createFixture();
+		await fs.writeFile(marker.getPath('filter.cjs'), `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(marker.getPath('ready'))}, ''); setInterval(() => {}, 1 << 30);`);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+			'.gitattributes': 'filtered.txt filter=block\n',
+			'filtered.txt': 'content',
+		}, ['--initial-branch=signal-worktree']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await fixture.git('config', ['filter.block.smudge', `exec "${process.execPath}" "${marker.getPath('filter.cjs')}"`]);
+		const watcher = fs.watch(marker.path, { signal: AbortSignal.timeout(30_000) });
+		const ready = (async () => {
+			if (await marker.exists('ready')) { return; }
+			for await (const _event of watcher) {
+				if (await marker.exists('ready')) { return; }
+			}
+		})();
+		const child = spawnChild(process.execPath, [path.resolve('dist/index.js')], {
+			cwd: fixture.path,
+			env: {
+				...process.env,
+				TMPDIR: temporary.path,
+				NODE_DISABLE_COMPILE_CACHE: '1',
+			},
+			stdio: ['ignore', 'pipe', 'pipe'],
+			detached: true,
+		});
+		let output = '';
+		child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+		child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+		const exited = once(child, 'close');
+		try {
+			await ready;
+			child.kill('SIGTERM');
+			const [code] = await exited;
+			expect(code).toBe(143);
+			expect(output.match(/Publication interrupted\./g)?.length).toBe(1);
+			expect(output).not.toContain('Command failed');
+			expect(await temporary.readdir('')).toStrictEqual([]);
+			expect(await remote.git('for-each-ref')).toBe('');
+		} finally {
+			await watcher.return?.();
+			if (child.pid) {
+				try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Already exited. */ }
+			}
+			await exited;
+		}
+	});
+	for (const [signal, exitCode] of [['SIGTERM', 143], ['SIGINT', 130]] as const) {
+		test(`cleans up after ${signal} during npm prepack`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using temporary = await createFixture();
+			await using marker = await createFixture();
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					scripts: { prepack: `"${process.execPath}" hook.cjs` },
+				}),
+				'hook.cjs': `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(marker.getPath('pending'))}, String(process.pid)); fs.renameSync(${JSON.stringify(marker.getPath('pending'))}, ${JSON.stringify(marker.getPath('pid'))}); setInterval(() => {}, 1000);`,
+			}, ['--initial-branch=signal']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const watcher = fs.watch(marker.path, { signal: AbortSignal.timeout(30_000) });
+			const ready = (async () => {
+				if (await marker.exists('pid')) { return; }
+				for await (const _event of watcher) {
+					if (await marker.exists('pid')) { return; }
+				}
+			})();
+			const child = spawnChild(process.execPath, [path.resolve('dist/index.js')], {
+				cwd: fixture.path,
+				env: {
+					...process.env,
+					TMPDIR: temporary.path,
+					NODE_DISABLE_COMPILE_CACHE: '1',
+				},
+				stdio: 'ignore',
+				detached: true,
+			});
+			const exited = once(child, 'exit');
+			try {
+				await ready;
+				const hookPid = Number(await marker.readFile('pid', 'utf8'));
+				child.kill(signal);
+				const [code] = await exited;
+				expect(code).toBe(exitCode);
+				const ps = await spawn('ps', ['-o', 'stat=', '-p', String(hookPid)])
+					.catch((error: { exitCode?: number }) => {
+						if (error.exitCode !== 1) { throw error; }
+						return undefined;
+					});
+				expect(!ps || ps.stdout.trim().startsWith('Z')).toBe(true);
+				expect(await temporary.readdir('')).toStrictEqual([]);
+				expect(await remote.git('for-each-ref')).toBe('');
+			} finally {
+				await watcher.return?.();
+				if (child.pid) {
+					try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Already exited. */ }
+				}
+				await exited;
+			}
+		});
+	}
+	test('kills an active pack group on a second signal', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using temporary = await createFixture();
+		await using marker = await createFixture();
+		const server = net.createServer();
+		server.listen(0, '127.0.0.1');
+		await once(server, 'listening');
+		const address = server.address();
+		if (!address || typeof address === 'string') { throw new Error('Missing server address'); }
+		const connected = once(server, 'connection', { signal: AbortSignal.timeout(30_000) });
+		const npmResult = await spawn('which', ['npm']);
+		const npmPath = npmResult.stdout.trim();
+		await fs.writeFile(marker.getPath('npm'), `#!${process.execPath}\nconst fs = require('node:fs'); const { spawn } = require('node:child_process'); process.on('SIGTERM', () => {}); fs.writeFileSync(${JSON.stringify(marker.getPath('group'))}, String(process.pid)); spawn(${JSON.stringify(npmPath)}, process.argv.slice(2), { stdio: 'inherit' }); setInterval(() => {}, 1000);`);
+		await fs.chmod(marker.getPath('npm'), 0o755);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				scripts: { prepack: `"${process.execPath}" hook.cjs` },
+			}),
+			'hook.cjs': `const net = require('node:net'); const socket = net.connect(${address.port}, '127.0.0.1', () => socket.write('ready')); process.on('SIGTERM', () => socket.write('term'));`,
+		}, ['--initial-branch=signal-twice']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const child = spawnChild(process.execPath, [path.resolve('dist/index.js')], {
+			cwd: fixture.path,
+			env: {
+				...process.env,
+				PATH: `${marker.path}${path.delimiter}${process.env.PATH}`,
+				TMPDIR: temporary.path,
+			},
+			stdio: 'ignore',
+		});
+		const exited = once(child, 'exit');
+		let socket: net.Socket | undefined;
+		try {
+			[socket] = await connected as [net.Socket];
+			await once(socket, 'data', { signal: AbortSignal.timeout(30_000) });
+			const received = once(socket, 'data', { signal: AbortSignal.timeout(30_000) });
+			const closed = once(socket, 'close', { signal: AbortSignal.timeout(30_000) });
+			child.kill('SIGTERM');
+			const [message] = await received;
+			// The group SIGTERM and npm's forwarded SIGTERM can both arrive and coalesce into one chunk
+			expect(String(message)).toMatch(/^(?:term)+$/);
+			expect(child.exitCode).toBe(null);
+			child.kill('SIGTERM');
+			const [code] = await exited;
+			expect(code).toBe(143);
+			await closed;
+		} finally {
+			if (await marker.exists('group')) {
+				try { process.kill(-Number(await marker.readFile('group', 'utf8')), 'SIGKILL'); } catch { /* Already exited. */ }
+			}
+			child.kill('SIGKILL');
+			socket?.destroy();
+			server.close();
+			await exited;
+		}
+	});
+
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;

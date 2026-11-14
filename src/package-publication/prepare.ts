@@ -1,6 +1,7 @@
 import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import type { PackageJson } from '@npmcli/package-json';
 import { getStdout } from '../utils/get-stdout.ts';
+import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import { findUnpublishedFilesFieldEntries } from '../utils/unpublished-files-field.ts';
 import { toPackageManagerGitUrl } from '../utils/git-url.ts';
 import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/graph.ts';
@@ -49,6 +50,7 @@ export const preparePackagePublication = async ({
 	dependencyPublications,
 	peers = [],
 	gitOptions,
+	signal,
 }: {
 	packageName: string;
 	sourceManifest: WorkspacePackage['packageJson'];
@@ -62,6 +64,7 @@ export const preparePackagePublication = async ({
 	dependencyPublications: ReadonlyMap<string, PackagePublication>;
 	peers?: WorkspacePeer[];
 	gitOptions: SpawnOptions;
+	signal?: AbortSignal;
 }): Promise<PackagePreparation> => {
 	let manifest: PackageJson | undefined;
 	const rewriteManifest = (content: Buffer) => {
@@ -124,7 +127,9 @@ export const preparePackagePublication = async ({
 		ref: importRef,
 		gitOptions,
 		rewriteManifest,
+		signal,
 	});
+	signal?.throwIfAborted();
 	if (!manifest) {
 		throw new Error('Packed package is missing package.json');
 	}
@@ -145,7 +150,7 @@ export const preparePackagePublication = async ({
 			}
 			throw error;
 		});
-		commit = await getStdout(spawn('git', [
+		commit = await getStdout(spawnAbortable('git', [
 			'-c',
 			'user.name=git-publish',
 			'-c',
@@ -158,6 +163,7 @@ export const preparePackagePublication = async ({
 			commitMessage,
 		], {
 			...gitOptions,
+			signal,
 			env: {
 				...gitOptions.env,
 				GIT_AUTHOR_NAME: 'git-publish',
@@ -165,6 +171,7 @@ export const preparePackagePublication = async ({
 			},
 		}));
 	}
+	signal?.throwIfAborted();
 	await spawn('git', ['update-ref', importRef, commit], gitOptions);
 	return {
 		publication: {

@@ -1,4 +1,4 @@
-import spawn from 'nano-spawn';
+import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import type { PublishRepository } from '../publish-repository/create.ts';
 import { getStdout } from '../utils/get-stdout.ts';
 import { getErrorDetails } from '../utils/error.ts';
@@ -32,9 +32,13 @@ export const planPackagePublicationPush = (
 const readRemoteTips = async (
 	repository: PublishRepository,
 	branches: Iterable<string>,
+	signal: AbortSignal,
 ): Promise<Map<string, string>> => {
 	const references = [...branches].map(branch => `refs/heads/${branch}`);
-	const output = await getStdout(spawn('git', ['ls-remote', repository.pushRemoteNames[0]!, ...references], repository.gitOptions));
+	const output = await getStdout(spawnAbortable('git', ['ls-remote', repository.pushRemoteNames[0]!, ...references], {
+		...repository.gitOptions,
+		signal,
+	}));
 	const tips = new Map<string, string>();
 	for (const line of output.split('\n')) {
 		const separator = line.indexOf('\t');
@@ -54,31 +58,37 @@ export const readPackagePublicationPushTips = async (
 	repository: PublishRepository,
 	strategy: PackagePublicationPushStrategy,
 	branches: Iterable<string>,
-): Promise<ReadonlyMap<string, string>> => (strategy.mode === 'lease' ? readRemoteTips(repository, branches) : new Map());
+	signal: AbortSignal,
+): Promise<ReadonlyMap<string, string>> => (strategy.mode === 'lease' ? readRemoteTips(repository, branches, signal) : new Map());
 
 export const pushPackagePublications = async ({
 	repository,
 	publications: input,
 	strategy,
 	remoteTips,
+	signal,
 }: {
 	repository: PublishRepository;
 	publications: Iterable<PackagePublication>;
 	strategy: PackagePublicationPushStrategy;
 	remoteTips: ReadonlyMap<string, string>;
+	signal: AbortSignal;
 }): Promise<void> => {
 	const [pushRemoteName] = repository.pushRemoteNames;
 	const publications = [...input];
 	if (strategy.destinations.length > 1) {
 		for (const [index, remoteName] of repository.pushRemoteNames.entries()) {
 			try {
-				await spawn('git', [
+				await spawnAbortable('git', [
 					'push',
 					...(strategy.mode === 'force' ? ['--force'] : []),
 					'--no-verify',
 					remoteName,
 					`${publications[0]!.commit}:refs/heads/${publications[0]!.branch}`,
-				], repository.gitOptions);
+				], {
+					...repository.gitOptions,
+					signal,
+				});
 			} catch (error) {
 				const outcomes = strategy.destinations.map((destination, destinationIndex) => {
 					const status = destinationIndex < index ? 'succeeded' : (destinationIndex === index ? 'failed; remote outcome unknown' : 'not attempted');
@@ -99,5 +109,8 @@ export const pushPackagePublications = async ({
 		}
 	}
 	args.push('--no-verify', pushRemoteName!, ...publications.map(publication => `${publication.commit}:refs/heads/${publication.branch}`));
-	await spawn('git', args, repository.gitOptions);
+	await spawnAbortable('git', args, {
+		...repository.gitOptions,
+		signal,
+	});
 };
