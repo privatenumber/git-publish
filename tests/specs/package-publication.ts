@@ -29,7 +29,7 @@ describe('Package publication', () => {
 				}, [], [], context))
 					.toThrow(`Package "app" has ${field} "core": ${JSON.stringify(value)}, a local path that consumers installing from Git can't resolve. Use a path inside the package, such as file:./vendor/core.`);
 			}
-			for (const value of ['file:./vendor/x', 'file:vendor/x', 'file:./core', 'link:./vendor/x', 'file:./thing::local', 'file:./vendor::locator=x%40workspace%3A..']) {
+			for (const value of ['file:./vendor/x', 'file:vendor/x', 'file:./core', 'link:./vendor/x', 'file:./thing::local', 'file:./vendor::locator=x%40workspace%3A..', '~1.2.3', '^1.0.0', 'latest']) {
 				validatePackedManifest('app', {
 					name: 'app',
 					[field]: { core: value },

@@ -96,7 +96,7 @@ export const validatePackedManifest = (
 			const workspace = parseWorkspaceSpecification(value);
 			if (!/^(?:file|link|portal):/.test(value) && workspace?.kind !== 'path'
 				&& !(value.startsWith('workspace:') && /^[/~]|^[a-z]:|^\\/i.test(value.slice(10)))
-				&& !/^[./~]/.test(value)) {
+				&& !/^(?:\.{1,2}(?:\/|$)|\/|~\/)/.test(value)) {
 				continue;
 			}
 			const { localPath, base } = resolvePath(value);
