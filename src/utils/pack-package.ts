@@ -3,8 +3,9 @@ import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import packlist from 'npm-packlist';
+import PackageJson from '@npmcli/package-json';
+import mapWorkspaces from '@npmcli/map-workspaces';
 import type { PackageManager } from './detect-package-manager.ts';
-import { readJson } from './read-json.ts';
 import { getStdout } from './get-stdout.ts';
 
 const isNotEnoent = (error: unknown): boolean => !(
@@ -37,28 +38,25 @@ const getPackArguments = async (
 	return ['pack', '--pack-destination', packDestinationDirectory];
 };
 
-const listCandidates = async (cwd: string, packageRoot: string) => {
-	const liveDirectoryExists = await fs.stat(cwd).then(() => true, (error: unknown) => {
-		if (isNotEnoent(error)) { throw error; }
-		return false;
+const listCandidates = async (cwd: string) => {
+	const { content } = await PackageJson.normalize(cwd);
+	delete content.bundleDependencies;
+	delete content.bundledDependencies;
+	const workspaces = content.workspaces
+		? await mapWorkspaces({
+			cwd,
+			pkg: content,
+		})
+		: undefined;
+	// npm-packlist reads the path, normalized package, project-root flag, dependency edges,
+	// and workspace map from Arborist. Bundled dependencies are excluded from this stub.
+	return packlist({
+		path: cwd,
+		package: content,
+		isProjectRoot: true,
+		edgesOut: new Map(),
+		workspaces,
 	});
-	if (!liveDirectoryExists) { return []; }
-	const manifest = await readJson(path.join(packageRoot, 'package.json')) as Record<string, unknown>;
-	delete manifest.bundleDependencies;
-	delete manifest.bundledDependencies;
-	// npm-packlist documents an Arborist tree; v11.3 reads only path, package,
-	// isProjectRoot, edgesOut (bundled deps) and workspaces. A stub without bundled deps is enough.
-	const [candidates, tracked] = await Promise.all([
-		packlist({
-			path: cwd,
-			package: manifest,
-			isProjectRoot: true,
-			edgesOut: new Map(),
-		}),
-		spawn('git', ['ls-files', '-z'], { cwd }),
-	]);
-	const trackedPaths = new Set(tracked.stdout.split('\0'));
-	return candidates.filter(candidate => !trackedPaths.has(candidate));
 };
 
 const copyContained = async (
@@ -112,7 +110,7 @@ export const packPackage = async (
 	await fs.mkdir(packDestinationDirectory, { recursive: true });
 	const isMonorepo = gitSubdirectory.length > 0;
 	const packWorktreePackageRoot = path.join(packWorktreePath, gitSubdirectory);
-	const candidates = await listCandidates(cwd, packWorktreePackageRoot);
+	const candidates = await listCandidates(cwd);
 	await copyContained(cwd, packWorktreePackageRoot, candidates);
 
 	// Symlink node_modules so hooks have access to dependencies

@@ -19,9 +19,11 @@ The isolated repository is a [non-bare clone without checkout](../../src/publish
 ### Captured commit
 
 - `git symbolic-ref -q HEAD` captures the branch ref first; `git rev-parse --verify --quiet <ref>^{commit}` resolves that exact ref, or `HEAD^{commit}` when detached. The branch name, exact-tag fallback, short SHA, `{gitSha}`, JSON `source.commit`, and newly created publication commit message derive from this capture. A reused publication commit keeps its original message. Resolving the captured ref keeps the name and commit aligned if HEAD switches between calls.
-- `git rev-parse --verify --quiet HEAD^{commit}` exits 1 on an unborn branch and 128 outside a repository, so exit 1 alone means "no commits".
-- The isolated checkout is created at the captured SHA before planning. Planning and the private-package check read that checkout, so they describe the commit that is packed. Planning from the live checkout let a `HEAD` move publish a private commit without `--force`.
-- Internal checkout, reset, and clean operations disable Git hooks but retain smudge filters. The live checkout passes through the same filters, so npm and develop read the same filtered manifest; the private check reads the filtered checkout consistently with what is packed.
+- `git rev-parse --verify --quiet <ref>^{commit}` exits 1 when the ref does not resolve to a commit, including an unborn or deleted branch. The error asks for a commit before publishing.
+- Planning reads the live checkout, including ignored configuration, before an isolated checkout is created at the captured SHA.
+- After planning, including dry runs, and before copying each package, git-publish checks the symbolic ref or detached state, the ref's commit, and the tracked tree's cleanliness. A mismatch aborts with `The source checkout changed during publication. Keep <name> at <short sha> until git-publish finishes.`
+- These checks are not atomic with planning or copying. Concurrent processes can change the source between checks; changing the checkout during publication is unsupported.
+- Internal checkout, reset, and clean operations disable Git hooks but retain smudge filters.
 - Package manager detection reads the live checkout, including ignored lockfiles.
 - Copying skips destinations with symlink or non-directory ancestors in the pack checkout.
 
@@ -29,7 +31,7 @@ The isolated repository is a [non-bare clone without checkout](../../src/publish
 
 npm runs `prepack` and `prepare` in the package directory and packs that directory as the hooks leave it ([libnpmpack](https://github.com/npm/cli/tree/latest/workspaces/libnpmpack), pacote `lib/dir.js:33-51`). Gitignored build output is therefore packed, and a bundler that does not empty its output directory publishes stale chunks with `npm publish` too ([#96](https://github.com/privatenumber/git-publish/issues/96)). Cleaning stale output is the build's job, for example pkgroll's `--clean-dist`.
 
-For each package, npm-packlist lists candidates in the live directory using the captured manifest, with bundled dependencies removed from the stub tree. One `git ls-files -z` listing filters paths tracked in the live index. Regular files are copied exclusively, preserving their modes; existing destinations and unsafe ancestors are skipped. npm-packlist excludes symlinks and `.git`, but lists files inside nested repositories and submodules, so those files come from the live checkout. The package manager applies its own rules afterward.
+For each package, npm-packlist lists candidates in the live directory using the manifest normalized by `@npmcli/package-json` and the workspace map from `@npmcli/map-workspaces`, as in npm's Arborist. Bundled dependencies are removed from the stub tree. Regular files are copied exclusively, preserving their modes; existing destinations and unsafe ancestors are skipped. npm-packlist excludes symlinks and `.git`, but lists files inside nested repositories and submodules, so those files come from the live checkout. The package manager applies its own rules afterward.
 
 ### Measurements
 
@@ -45,6 +47,8 @@ This is the same walk npm pack performs, so its cost matches npm's own file list
 
 ### Rejected alternatives
 
+- **Plan from the captured checkout:** ignored configuration such as `.npmrc` and lockfiles is missing.
+- **Tolerate mid-run source changes:** review rounds found divergences involving symlink aliases, Unicode normalization, and missing manifests.
 - **Skip the copy when `prepack` exists:** `"prepack": "clean-pkg-json"` does not build, so that package would publish without `dist`.
 - **Ask the package manager for its file list:** `yarn pack --dry-run` (Yarn 4) runs `prepack` even with `YARN_ENABLE_SCRIPTS=0`, Yarn 1 has no dry run, and `pnpm pack --dry-run` runs scripts unless given `--ignore-scripts`.
 - **Copy every untracked file:** local repositories hold up to 20 GB of untracked files; the root listing alone takes 1 s in rolldown.
@@ -57,7 +61,6 @@ Precedent: [pkg.pr.new](https://github.com/stackblitz-labs/pkg.pr.new/blob/65731
 ### Limits
 
 - Yarn and Bun have different packing rules, but the copy uses npm's list for every manager. Bun omits an untracked `main` outside `files`; npm and pnpm include it.
-- `directories.bin` is not expanded.
 
 Revisit if a package manager offers a script-free file listing for every supported version, or if users need publication to exclude live build output entirely.
 

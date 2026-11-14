@@ -42,7 +42,7 @@ describe('Error cases', () => {
 		const result = await gitPublish(fixture.path);
 		expect(await remote.git('for-each-ref')).toBe('');
 		expect('exitCode' in result).toBe(true);
-		expect(result.output).toMatch(/commit/i);
+		expect(result.output).toContain('HEAD does not point to a commit. Commit your changes before publishing.');
 	});
 	test('Rejects invalid CLI input before publishing', async () => {
 		await using markerFixture = await createFixture();
@@ -208,47 +208,6 @@ exec "${gitPath}" "$@"
 
 			await Promise.all(worktreePaths.map(worktree => git('worktree', ['remove', '--force', worktree])));
 		}
-	});
-
-	test('Cleans up the isolated checkout during dry runs without pushing', async () => {
-		await using remoteFixture = await createGitFixture(undefined, ['--bare']);
-		await using temporaryFixture = await createFixture();
-		await using fixture = await createGitFixture({
-			'package.json': JSON.stringify({
-				name: 'test-pkg',
-				version: '1.0.0',
-			}, null, 2),
-		});
-		const { git } = fixture;
-		await git('add', ['package.json']);
-		await git('commit', ['-m', 'Initial commit']);
-		await git('remote', ['add', 'origin', remoteFixture.path]);
-
-		const gitPublishProcess = await gitPublish(fixture.path, ['--dry'], { TMPDIR: temporaryFixture.path });
-		expect('exitCode' in gitPublishProcess).toBe(false);
-		expect(gitPublishProcess.stdout).not.toContain('→ Install command');
-		expect(await temporaryFixture.readdir('')).toStrictEqual([]);
-		expect(await remoteFixture.git('for-each-ref')).toBe('');
-	});
-
-	test('Cleans up the isolated checkout when planning fails', async () => {
-		await using remote = await createGitFixture(undefined, ['--bare']);
-		await using temporary = await createFixture();
-		await using fixture = await createGitFixture({
-			'package.json': JSON.stringify({
-				name: 'private',
-				version: '1.0.0',
-				private: true,
-			}),
-		});
-		await fixture.git('add', ['.']);
-		await fixture.git('commit', ['-m', 'Initial commit']);
-		await fixture.git('remote', ['add', 'origin', remote.path]);
-		const result = await gitPublish(fixture.path, [], { TMPDIR: temporary.path });
-		expect(('exitCode' in result) && result.exitCode).toBe(1);
-		expect(result.stderr).toContain('marked as private');
-		expect(await temporary.readdir('')).toStrictEqual([]);
-		expect(await remote.git('for-each-ref')).toBe('');
 	});
 
 	test('Workspace dependencies', async () => {

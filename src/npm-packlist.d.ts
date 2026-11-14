@@ -4,6 +4,7 @@ declare module 'npm-packlist' {
 		package: Record<string, unknown>;
 		isProjectRoot: boolean;
 		edgesOut: Map<string, unknown>;
+		workspaces?: Map<string, string>;
 	}) => Promise<string[]>;
 	export default packlist;
 }

@@ -44,6 +44,18 @@ describe('Package contents', async () => {
 			files: ['dist'],
 			main: 'entry.js',
 		}, {}, 'entry.js'],
+		['copies a string bin outside files', {
+			files: [],
+			bin: './cli.js',
+		}, {}, 'cli.js'],
+		['copies an object bin outside files', {
+			files: [],
+			bin: { app: './cli.js' },
+		}, {}, 'cli.js'],
+		['copies directories.bin outside files', {
+			files: [],
+			directories: { bin: 'bin' },
+		}, {}, 'bin/cli.js'],
 		['copies nested files matched by a directory glob', { files: ['src/*'] }, {}, 'src/sub/x.js'],
 		['copies files excluded by git info exclude', {}, {}, 'excluded.js'],
 		['prefers nested npmignore over gitignore', {}, {

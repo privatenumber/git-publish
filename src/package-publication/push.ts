@@ -1,5 +1,5 @@
 import spawn from 'nano-spawn';
-import type { ConfiguredPublishRepository } from '../publish-repository/create.ts';
+import type { PublishRepository } from '../publish-repository/create.ts';
 import { getStdout } from '../utils/get-stdout.ts';
 import type { PackagePublication } from './prepare.ts';
 
@@ -15,7 +15,7 @@ export const assertAtomicPackagePublicationDestination = (pushUrls: string[]) =>
 };
 
 const readRemoteTips = async (
-	repository: ConfiguredPublishRepository,
+	repository: PublishRepository,
 	branches: Iterable<string>,
 ): Promise<Map<string, string>> => {
 	const references = [...branches].map(branch => `refs/heads/${branch}`);
@@ -36,7 +36,7 @@ const readRemoteTips = async (
 };
 
 export const planPackagePublicationPush = async (
-	repository: ConfiguredPublishRepository,
+	repository: PublishRepository,
 	fresh: boolean | undefined,
 	branches: Iterable<string>,
 	standalone?: boolean,
@@ -51,7 +51,7 @@ export const pushPackagePublications = async ({
 	pushPlan,
 	standalone,
 }: {
-	repository: ConfiguredPublishRepository;
+	repository: PublishRepository;
 	publications: Iterable<PackagePublication>;
 	pushPlan: PackagePublicationPushPlan;
 	standalone?: boolean;

@@ -37,6 +37,8 @@
 	"dependencies": {
 		"@manypkg/get-packages": "^3.1.0",
 		"@manypkg/tools": "^2.1.2",
+		"@npmcli/map-workspaces": "^6.0.0",
+		"@npmcli/package-json": "^8.0.1",
 		"gunzip-maybe": "^1.4.2",
 		"micromatch": "^4.0.8",
 		"npm-packlist": "~11.3.1",

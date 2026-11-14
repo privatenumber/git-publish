@@ -29,7 +29,7 @@ export const getSourceCommit = async () => {
 	// Resolving the captured ref keeps the branch name and commit aligned if HEAD switches.
 	const commit = await getStdout(spawn('git', ['rev-parse', '--verify', '--quiet', `${ref ?? 'HEAD'}^{commit}`])).catch((error: unknown) => {
 		if (error instanceof SubprocessError && error.exitCode === 1) {
-			throw new Error('The repository has no commits. Commit your changes before publishing.');
+			throw new Error('HEAD does not point to a commit. Commit your changes before publishing.');
 		}
 		throw error;
 	});
@@ -37,6 +37,23 @@ export const getSourceCommit = async () => {
 		ref,
 		commit,
 	};
+};
+
+export const assertSourceUnchanged = async ({ ref, commit }: { ref: string | undefined;
+	commit: string; }) => {
+	const currentRef = await getStdout(spawn('git', ['symbolic-ref', '-q', 'HEAD'])).catch((error: unknown) => {
+		if (error instanceof SubprocessError && error.exitCode === 1) { return undefined; }
+		throw error;
+	});
+	const currentCommit = await getStdout(spawn('git', ['rev-parse', '--verify', '--quiet', `${ref ?? 'HEAD'}^{commit}`])).catch((error: unknown) => {
+		if (error instanceof SubprocessError && error.exitCode === 1) { return undefined; }
+		throw error;
+	});
+	if (currentRef !== ref || currentCommit !== commit || await gitStatusTracked()) {
+		const short = await getStdout(spawn('git', ['rev-parse', '--short', commit]));
+		const name = await getCurrentSourceName(ref, commit, short);
+		throw new Error(`The source checkout changed during publication. Keep ${name} at ${short} until git-publish finishes.`);
+	}
 };
 
 export const getCurrentSourceName = async (
