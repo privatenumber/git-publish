@@ -20,6 +20,39 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	for (const [workspacePattern, packagePath] of [
+		['packages/*', 'packages/a'],
+		['packages/*/*', 'packages/group/a'],
+	]) {
+		test(`publishes an untracked workspace package at ${packagePath}`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					private: true,
+					workspaces: [workspacePattern],
+				}),
+				'package-lock.json': '{}',
+				'packages/.keep': '',
+			}, ['--initial-branch=main']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await fs.mkdir(fixture.getPath(packagePath), { recursive: true });
+			await fixture.writeFile(`${packagePath}/package.json`, JSON.stringify({
+				name: 'a',
+				version: '1.0.0',
+			}));
+
+			const result = await gitPublish(fixture.path);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(JSON.parse(await remote.git('show', ['npm/main-a:package.json']))).toMatchObject({
+				name: 'a',
+				version: '1.0.0',
+			});
+		});
+	}
+
 	test('rejects a package path that escapes the pack checkout', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({

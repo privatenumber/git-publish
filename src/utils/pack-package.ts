@@ -106,13 +106,26 @@ export const packPackage = async (
 ): Promise<string> => {
 	const isMonorepo = gitSubdirectory.length > 0;
 	const packWorktreePackageRoot = path.join(packWorktreePath, gitSubdirectory);
-	const [checkoutRealPath, packageRealPath] = await Promise.all([
-		fs.realpath(packWorktreePath),
-		fs.realpath(packWorktreePackageRoot),
-	]);
-	const relativePackagePath = path.relative(checkoutRealPath, packageRealPath);
+	const checkoutRealPath = await fs.realpath(packWorktreePath);
+	const missingDirectories: string[] = [];
+	let ancestor = packWorktreePackageRoot;
+	let ancestorRealPath: string;
+	while (true) {
+		try {
+			ancestorRealPath = await fs.realpath(ancestor);
+			break;
+		} catch (error: unknown) {
+			if (!hasErrorCode(error, 'ENOENT') || ancestor === packWorktreePath) { throw error; }
+			missingDirectories.push(ancestor);
+			ancestor = path.dirname(ancestor);
+		}
+	}
+	const relativePackagePath = path.relative(checkoutRealPath, ancestorRealPath);
 	if (relativePackagePath === '..' || relativePackagePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePackagePath)) {
 		throw new Error(`Cannot pack ${gitSubdirectory || '.'}: the path leaves the isolated checkout through a symlink.`);
+	}
+	for (const directory of missingDirectories.reverse()) {
+		await fs.mkdir(directory);
 	}
 	await fs.mkdir(packDestinationDirectory, { recursive: true });
 	const candidates = await listCandidates(cwd);
