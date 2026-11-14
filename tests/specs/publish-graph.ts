@@ -3,7 +3,7 @@ import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
 import { discoverWorkspacePackages } from '../../src/workspace-publication/discover.ts';
 import { satisfiesPackedPeer, satisfiesWorkspaceRange } from '../../src/workspace-publication/satisfies-range.ts';
-import { planWorkspacePublication } from '../../src/workspace-publication/plan.ts';
+import { planWorkspacePublication as planWorkspace } from '../../src/workspace-publication/plan.ts';
 import { createWorkspaceResult, formatWorkspaceResult } from '../../src/workspace-publication/output.ts';
 import type { PackagePreparation } from '../../src/package-publication/prepare.ts';
 import {
@@ -11,6 +11,14 @@ import {
 	findWorkspacePackageDirectory,
 	selectWorkspacePackage,
 } from '../../src/workspace-publication/graph.ts';
+
+const planWorkspacePublication = async (...args: Parameters<typeof planWorkspace>) => {
+	const plan = await planWorkspace(...args);
+	if (plan.kind !== 'workspace') {
+		throw new Error('Expected a workspace plan');
+	}
+	return plan;
+};
 
 const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 	await using fixture = await createFixture({
@@ -321,7 +329,8 @@ describe('Publication graph', () => {
 		}]));
 		const plan = {
 			roots: ['app'],
-			publishAll: false,
+			kind: 'workspace' as const,
+			selection: 'explicit' as const,
 			nodes,
 			peers: graph.peers,
 		};
@@ -408,7 +417,8 @@ describe('Publication graph', () => {
 		}]));
 		const result = createWorkspaceResult({
 			roots: ['app'],
-			publishAll: false,
+			kind: 'workspace',
+			selection: 'explicit',
 			nodes,
 			peers: graph.peers,
 		}, preparations, 'main', 'abc');
@@ -464,7 +474,8 @@ describe('Publication graph', () => {
 			graph.peers[0]!.optional = optional;
 			const result = createWorkspaceResult({
 				roots: ['app'],
-				publishAll: false,
+				kind: 'workspace',
+				selection: 'explicit',
 				nodes,
 				peers: graph.peers,
 			}, preparations, 'main', 'abc');

@@ -7,7 +7,7 @@ type Edge = {
 	kind: 'dependency' | 'optional' | 'peer' | 'optionalPeer';
 };
 
-export const createInstallGraph = (plan: WorkspacePublicationPlan) => {
+export const createInstallGraph = (plan: Pick<WorkspacePublicationPlan, 'nodes' | 'peers'>) => {
 	const edges: Edge[] = [
 		...plan.nodes.flatMap(node => node.dependencies.map(edge => ({
 			from: node.key,

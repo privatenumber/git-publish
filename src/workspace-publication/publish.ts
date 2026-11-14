@@ -45,7 +45,7 @@ export const publishWorkspaceClosure = async ({
 			repository,
 			fresh,
 			plan.nodes.map(node => node.branch),
-			plan.standalone,
+			plan.kind === 'standalone',
 		);
 		const branches = plan.nodes.map((node, index) => ({
 			publishBranch: node.branch,
@@ -92,14 +92,14 @@ export const publishWorkspaceClosure = async ({
 					parent: existingBranches.has(node.branch) ? branches[index]!.localRef : undefined,
 					branch: node.branch,
 					fetchUrl: publishRemote.installUrl,
-					commitMessage: `Published ${plan.standalone ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(source.name)} (${source.shortCommit})`,
+					commitMessage: `Published ${plan.kind === 'standalone' ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(source.name)} (${source.shortCommit})`,
 					dependencyEdges: node.dependencies,
 					dependencyPublications,
 					peers: plan.peers.filter(peer => peer.from === node.key),
 					gitOptions: repository.gitOptions,
 				});
 				preparations.set(node.key, preparation);
-				if (plan.standalone) {
+				if (plan.kind === 'standalone') {
 					const totalSize = preparation.files.reduce((sum, file) => sum + file.size, 0);
 					console.log(terminalColumns([
 						...preparation.files.slice().sort((a, b) => (
@@ -138,11 +138,13 @@ export const publishWorkspaceClosure = async ({
 				throw error;
 			}
 		};
+		// Each preparation consumes earlier dependency publications and shares the checkout.
 		await task('Packages', async () => task.group(
 			createTask => plan.nodes.map((node, index) => createTask(
 				node.key,
 				async taskApi => processPackage(index, taskApi),
 			)),
+			{ concurrency: 1 },
 		));
 		const packed = {
 			...plan,
@@ -175,7 +177,7 @@ export const publishWorkspaceClosure = async ({
 						repository,
 						publications: effective.nodes.map(node => preparations.get(node.key)!.publication),
 						pushPlan,
-						standalone: plan.standalone,
+						standalone: plan.kind === 'standalone',
 					});
 				} catch (error) {
 					writeSubprocessErrorOutput(streamPreview, error);

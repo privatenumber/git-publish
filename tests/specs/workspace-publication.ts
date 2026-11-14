@@ -53,6 +53,32 @@ describe('Workspace publication', async () => {
 		});
 	}
 
+	test('rejects selecting an unnamed workspace root', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/a/package.json': JSON.stringify({
+				name: 'a',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=main']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		for (const args of [['.', '--dry'], ['.', '--force', '--dry'], ['.', '--force']]) {
+			const result = await gitPublish(fixture.path, args);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(true);
+			expect(result.output).toContain('Cannot publish the selected workspace root because it has no name.');
+			expect(result.output).not.toContain('--force');
+		}
+		expect(await remote.git('branch', ['--list'])).toBe('');
+	});
+
 	test('rejects a package path that escapes the pack checkout', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({

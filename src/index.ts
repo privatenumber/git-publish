@@ -148,27 +148,29 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		force: argv.flags.force,
 		selection: argv._.packages,
 	});
-	if (!closurePlan && argv._.packages.length > 0) {
+	if (closurePlan.kind === 'standalone' && argv._.packages.length > 0) {
 		throw new Error('Package selection requires a workspace.');
 	}
-	if (!closurePlan && packageJson.private && !argv.flags.force) {
+	if (closurePlan.kind === 'standalone' && packageJson.private && !argv.flags.force) {
 		throw new Error('This package is marked as private. Use --force to publish it anyway.');
 	}
-	const plan = closurePlan ?? await planStandalonePublication({
-		cwd,
-		gitRootPath,
-		packageJson,
-		sourceName: source.name,
-		sourceCommitId: source.commit,
-		publishBranch: branch,
-	});
+	const plan = closurePlan.kind === 'workspace'
+		? closurePlan
+		: await planStandalonePublication({
+			cwd,
+			gitRootPath,
+			packageJson,
+			sourceName: source.name,
+			sourceCommitId: source.commit,
+			publishBranch: branch,
+		});
 	await assertSourceUnchanged(source);
 	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
 	const remoteUrl = publishRemote.installUrl;
 	if (plan.nodes.length > 1) {
 		assertAtomicPackagePublicationDestination(publishRemote.pushUrls);
 	}
-	if (dry && !plan.standalone) {
+	if (dry && plan.kind === 'workspace') {
 		console.log(formatWorkspacePublicationPlan(plan, source.name));
 	}
 	const peerDiagnostics = formatWorkspacePeerDiagnostics(plan);
@@ -178,13 +180,13 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	const rootsDescription = plan.roots.map(root => stringify(root)).join(', ');
 	const publishBranch = plan.nodes[0]!.branch;
 	const publication = await task(
-		plan.standalone
+		plan.kind === 'standalone'
 			? `Publishing source ${stringify(source.name)} → ${stringify(publishBranch)}`
 			: `Publishing ${rootsDescription} from ${stringify(source.name)}`,
 		async ({ setTitle, setStatus }) => {
 			if (dry) {
 				setStatus('Dry run');
-				if (plan.standalone) {
+				if (plan.kind === 'standalone') {
 					console.log(`Pushing branch ${stringify(publishBranch)} to remote ${stringify(redactRemote(remote))}`);
 				}
 				return;
@@ -197,13 +199,13 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				source,
 				fresh,
 			});
-			const repositoryName = plan.standalone && getGitHubRepositoryName(remoteUrl);
+			const repositoryName = plan.kind === 'standalone' && getGitHubRepositoryName(remoteUrl);
 			if (repositoryName) {
 				const publishedCommit = prepared.preparations.get(plan.nodes[0]!.key)!.publication.commit;
 				const branchLink = terminalLink(publishBranch, `https://github.com/${repositoryName}/tree/${publishBranch}`, { fallback: false });
 				const commitLink = terminalLink(publishedCommit.slice(0, 7), `https://github.com/${repositoryName}/commit/${publishedCommit}`, { fallback: false });
 				setTitle(`Successfully published branch: ${branchLink} ${dim(`(${commitLink})`)}`);
-			} else if (!plan.standalone) {
+			} else if (plan.kind === 'workspace') {
 				setTitle(`Published ${rootsDescription} from ${stringify(source.name)}`);
 			}
 			return prepared;

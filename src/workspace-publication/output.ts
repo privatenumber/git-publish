@@ -108,7 +108,7 @@ export const createWorkspaceResult = (
 		installSets,
 		aliases,
 		presentation: {
-			publishAll: plan.publishAll,
+			publishAll: plan.kind === 'workspace' && plan.selection === 'default-roots',
 			installNames,
 			optionalInstall,
 		},
