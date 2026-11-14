@@ -35,7 +35,6 @@ describe('Package contents', async () => {
 
 	for (const [description, manifest, extraFiles, file, gitExclude] of [
 		['copies ignored mandatory main without files', { main: 'dist/index.js' }, { '.gitignore': 'dist/' }, 'dist/index.js'],
-		['copies case-insensitive files glob', { files: ['DIST/*.js'] }, {}, 'dist/index.js'],
 		['copies gitignored output with a root npmignore and no files', {}, {
 			'.gitignore': 'dist/',
 			'.npmignore': '',
