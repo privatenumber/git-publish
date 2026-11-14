@@ -194,7 +194,7 @@ const runPublication = async ({
 				}
 			},
 		);
-		// A completed push is reported even if a signal arrived; the wrapper still sets the signal's exit code
+		// Report a completed push even after a signal; the wrapper still sets the exit code
 		return {
 			plan: effective,
 			preparations,
