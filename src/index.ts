@@ -16,7 +16,7 @@ import {
 	getGitHubRepositoryName, isHostedGitRemote, redactRemote,
 } from './utils/git-url.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
-import { assertAtomicPackagePublicationDestination } from './package-publication/push.ts';
+import { planPackagePublicationPush } from './package-publication/push.ts';
 import { planStandalonePublication, planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
 import {
@@ -167,9 +167,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	await assertSourceUnchanged(source);
 	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
 	const remoteUrl = publishRemote.installUrl;
-	if (plan.nodes.length > 1) {
-		assertAtomicPackagePublicationDestination(publishRemote.pushUrls);
-	}
+	const pushStrategy = planPackagePublicationPush(plan, publishRemote.pushUrls, fresh);
 	if (dry && plan.kind === 'workspace') {
 		console.log(formatWorkspacePublicationPlan(plan, source.name));
 	}
@@ -196,6 +194,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				packageManager,
 				repositoryPath: gitRootPath,
 				publishRemote,
+				pushStrategy,
 				source,
 				fresh,
 			});

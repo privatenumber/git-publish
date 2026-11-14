@@ -9,7 +9,7 @@ import { createPublishRepository } from '../publish-repository/create.ts';
 import { loadPublishBranches } from '../publish-repository/prepare-branch.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
 import { preparePackagePublication, type PackagePreparation, type PackagePublication } from '../package-publication/prepare.ts';
-import { planPackagePublicationPush, pushPackagePublications } from '../package-publication/push.ts';
+import { readPackagePublicationPushTips, pushPackagePublications, type PackagePublicationPushStrategy } from '../package-publication/push.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { packPackage } from '../utils/pack-package.ts';
@@ -24,6 +24,7 @@ export const publishWorkspaceClosure = async ({
 	packageManager,
 	repositoryPath,
 	publishRemote,
+	pushStrategy,
 	source,
 	fresh,
 }: {
@@ -31,6 +32,7 @@ export const publishWorkspaceClosure = async ({
 	packageManager: PackageManager;
 	repositoryPath: string;
 	publishRemote: PublishRemote;
+	pushStrategy: PackagePublicationPushStrategy;
 	source: Source;
 	fresh: boolean | undefined;
 }): Promise<{ plan: WorkspacePublicationPlan;
@@ -41,11 +43,10 @@ export const publishWorkspaceClosure = async ({
 		sourceCommitId: source.commit,
 	});
 	try {
-		const pushPlan = await planPackagePublicationPush(
+		const remoteTips = await readPackagePublicationPushTips(
 			repository,
-			fresh,
+			pushStrategy,
 			plan.nodes.map(node => node.branch),
-			plan.kind === 'standalone',
 		);
 		const branches = plan.nodes.map((node, index) => ({
 			publishBranch: node.branch,
@@ -176,8 +177,8 @@ export const publishWorkspaceClosure = async ({
 					await pushPackagePublications({
 						repository,
 						publications: effective.nodes.map(node => preparations.get(node.key)!.publication),
-						pushPlan,
-						standalone: plan.kind === 'standalone',
+						strategy: pushStrategy,
+						remoteTips,
 					});
 				} catch (error) {
 					writeSubprocessErrorOutput(streamPreview, error);
