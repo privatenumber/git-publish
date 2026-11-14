@@ -7,6 +7,7 @@ import spawn, { type Options } from 'nano-spawn';
 import gunzip from 'gunzip-maybe';
 import tar from 'tar-stream';
 import { getStdout } from '../utils/get-stdout.ts';
+import { spawnAbortable } from '../utils/spawn-abortable.ts';
 
 const packedPath = (name: string) => {
 	const file = name.startsWith('package/') ? name.slice(8) : name;
@@ -86,18 +87,20 @@ const validateSymlinks = (entries: ReadonlyMap<string, PackedEntry>) => {
 };
 
 export const importTarball = async ({
-	tarball, ref, gitOptions, rewriteManifest,
+	tarball, ref, gitOptions, rewriteManifest, signal,
 }: {
 	tarball: string;
 	ref: string;
 	gitOptions: Options;
 	rewriteManifest: (content: Buffer) => Buffer;
+	signal?: AbortSignal;
 }) => {
 	const entries = new Map<string, PackedEntry>();
 	let sortedEntries: [string, PackedEntry][] = [];
-	const fastImport = spawn('git', ['fast-import', '--quiet'], {
+	const fastImport = spawnAbortable('git', ['fast-import', '--quiet'], {
 		...gitOptions,
 		stdin: 'pipe',
+		signal,
 	});
 	const result = Promise.resolve(fastImport).then(
 		() => ({ error: undefined }),
@@ -115,7 +118,7 @@ export const importTarball = async ({
 	});
 	const generate = async function* () {
 		const extract = tar.extract();
-		const extraction = pipeline(createReadStream(tarball), gunzip(), extract);
+		const extraction = pipeline(createReadStream(tarball), gunzip(), extract, { signal });
 		let nextMark = 0;
 		let originalManifest: { mark: number;
 			size: number; } | undefined;
@@ -201,7 +204,7 @@ export const importTarball = async ({
 		}
 		yield '\n';
 	};
-	const writeResult = pipeline(Readable.from(generate()), input);
+	const writeResult = pipeline(Readable.from(generate()), input, { signal });
 	const [written, imported] = await Promise.allSettled([writeResult, processResult]);
 	// Prefer Git's diagnostic over the EPIPE caused by its early exit.
 	if (written.status === 'rejected') {

@@ -63,6 +63,7 @@ const copyContained = async (
 	cwd: string,
 	packWorktreePackageRoot: string,
 	candidates: string[],
+	signal: AbortSignal,
 ) => {
 	const checkedDirectories = new Map<string, boolean>();
 	const isSafeDirectory = async (directory: string): Promise<boolean> => {
@@ -83,6 +84,7 @@ const copyContained = async (
 		return safe;
 	};
 	for (const relativePath of candidates) {
+		signal.throwIfAborted();
 		const destinationPath = path.join(packWorktreePackageRoot, relativePath);
 		if (!await isSafeDirectory(path.dirname(destinationPath))) { continue; }
 		const source = path.join(cwd, relativePath);
@@ -131,7 +133,8 @@ export const packPackage = async (
 	}
 	await fs.mkdir(packDestinationDirectory, { recursive: true });
 	const candidates = await listCandidates(cwd);
-	await copyContained(cwd, packWorktreePackageRoot, candidates);
+	signal.throwIfAborted();
+	await copyContained(cwd, packWorktreePackageRoot, candidates, signal);
 
 	// Symlink node_modules so hooks have access to dependencies
 	// Note: Remove any existing node_modules directory in worktree first

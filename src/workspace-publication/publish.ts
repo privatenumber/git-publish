@@ -19,7 +19,7 @@ import { validatePeerRanges } from '../package-publication/validate.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 import { createInstallGraph } from './install-graph.ts';
 
-const runPublication = async ({
+export const publishWorkspaceClosure = async ({
 	plan,
 	packageManager,
 	repositoryPath,
@@ -41,6 +41,7 @@ const runPublication = async ({
 		sourceRepositoryPath: repositoryPath,
 		publishRemote,
 		sourceCommitId: source.commit,
+		signal,
 	});
 	try {
 		signal.throwIfAborted();
@@ -211,26 +212,5 @@ const runPublication = async ({
 		if (!cleanup.warning) {
 			cleanup.clear();
 		}
-	}
-};
-
-export const publishWorkspaceClosure = async (options: Parameters<typeof runPublication>[0]) => {
-	const controller = new AbortController();
-	let exitCode: number | undefined;
-	const interrupt = (code: number) => {
-		if (exitCode !== undefined) { process.exit(code); }
-		exitCode = code;
-		controller.abort();
-	};
-	const onInterrupt = () => interrupt(130);
-	const onTerminate = () => interrupt(143);
-	process.on('SIGINT', onInterrupt);
-	process.on('SIGTERM', onTerminate);
-	try {
-		return await runPublication(options, controller.signal);
-	} finally {
-		process.off('SIGINT', onInterrupt);
-		process.off('SIGTERM', onTerminate);
-		if (exitCode !== undefined) { process.exitCode = exitCode; }
 	}
 };

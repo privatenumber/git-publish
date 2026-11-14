@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
+import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import { materializePublishGitConfig } from './git-config.ts';
 import {
 	configurePublishTransport, type PublishRemote,
@@ -20,10 +21,12 @@ export const createPublishRepository = async ({
 	sourceRepositoryPath,
 	publishRemote,
 	sourceCommitId,
+	signal,
 }: {
 	sourceRepositoryPath: string;
 	publishRemote: PublishRemote;
 	sourceCommitId: string;
+	signal: AbortSignal;
 }): Promise<PublishRepository> => {
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
 	const fetchRemoteName = 'publish-source';
@@ -63,10 +66,19 @@ export const createPublishRepository = async ({
 	try {
 		// The isolated client can hold credentials copied from the source remote.
 		await fs.chmod(temporaryDirectory, 0o700);
-		await spawn('git', ['clone', '--origin', fetchRemoteName, '--shared', '--no-checkout', sourceRepositoryPath, publishRepositoryPath], { env: gitEnvironment });
-		await spawn('git', ['remote', 'set-url', fetchRemoteName, publishRemote.historyUrl], gitOptions);
+		await spawnAbortable('git', ['clone', '--origin', fetchRemoteName, '--shared', '--no-checkout', sourceRepositoryPath, publishRepositoryPath], {
+			env: gitEnvironment,
+			signal,
+		});
+		await spawnAbortable('git', ['remote', 'set-url', fetchRemoteName, publishRemote.historyUrl], {
+			...gitOptions,
+			signal,
+		});
 		for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
-			await spawn('git', ['remote', 'add', pushRemoteNames[index], pushUrl], gitOptions);
+			await spawnAbortable('git', ['remote', 'add', pushRemoteNames[index], pushUrl], {
+				...gitOptions,
+				signal,
+			});
 		}
 		await materializePublishGitConfig({
 			sourceRepositoryOptions,
@@ -84,7 +96,10 @@ export const createPublishRepository = async ({
 			pushRemoteNames,
 		});
 		packWorktreeCreated = true;
-		await spawn('git', ['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], gitOptions);
+		await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], {
+			...gitOptions,
+			signal,
+		});
 	} catch (error) {
 		try {
 			await dispose();

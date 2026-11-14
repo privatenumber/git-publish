@@ -50,7 +50,28 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	return lines.join('\n');
 };
 
-(async () => {
+const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
+	const controller = new AbortController();
+	let interrupted = false;
+	const interrupt = (code: number) => {
+		if (interrupted) { process.exit(code); }
+		interrupted = true;
+		process.exitCode = code;
+		controller.abort();
+	};
+	const onInterrupt = () => interrupt(130);
+	const onTerminate = () => interrupt(143);
+	process.on('SIGINT', onInterrupt);
+	process.on('SIGTERM', onTerminate);
+	try {
+		await run(controller.signal);
+	} finally {
+		process.off('SIGINT', onInterrupt);
+		process.off('SIGTERM', onTerminate);
+	}
+};
+
+runWithSignals(async (signal) => {
 	let usedDefaultRemote = false;
 	const argv = cli({
 		name: packageMeta.name,
@@ -197,7 +218,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				pushStrategy,
 				source,
 				fresh,
-			});
+			}, signal);
 			const repositoryName = plan.kind === 'standalone' && getGitHubRepositoryName(remoteUrl);
 			if (repositoryName) {
 				const publishedCommit = prepared.preparations.get(plan.nodes[0]!.key)!.publication.commit;
@@ -234,10 +255,10 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		if (jsonWriteError) {
 			console.error(`Publication succeeded, but could not write JSON file ${stringify(argv.flags.json)}: ${redactRemote(jsonWriteError.message)}. Publication details follow:`);
 			console.error(json.trimEnd());
-			process.exitCode = 1;
+			process.exitCode ||= 1;
 		}
 	}
-})().catch((error) => {
+}).catch((error) => {
 	console.error('Error:', redactRemote(error.message));
-	process.exitCode = 1;
+	process.exitCode ||= 1;
 });

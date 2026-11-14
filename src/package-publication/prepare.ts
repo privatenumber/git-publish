@@ -127,6 +127,7 @@ export const preparePackagePublication = async ({
 		ref: importRef,
 		gitOptions,
 		rewriteManifest,
+		signal,
 	});
 	signal?.throwIfAborted();
 	if (!manifest) {
