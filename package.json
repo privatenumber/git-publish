@@ -1,7 +1,7 @@
 {
 	"name": "git-publish",
 	"version": "0.0.0-semantic-release",
-	"description": "Publish your npm package to a GitHub repository branch",
+	"description": "Publish your npm package to a Git branch",
 	"keywords": [
 		"npm",
 		"publish",
