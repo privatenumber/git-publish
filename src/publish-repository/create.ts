@@ -95,11 +95,11 @@ export const createPublishRepository = async ({
 			fetchRemoteName,
 			pushRemoteNames,
 		});
-		packWorktreeCreated = true;
 		await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], {
 			...gitOptions,
 			signal,
 		});
+		packWorktreeCreated = true;
 	} catch (error) {
 		try {
 			await dispose();

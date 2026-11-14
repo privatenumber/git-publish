@@ -9,8 +9,15 @@ export const spawnAbortable = (file: string, args: string[], options: Options) =
 		} catch (error) {
 			const child = await subprocess.nodeChildProcess.catch(() => undefined);
 			if (child && child.exitCode === null && child.signalCode === null) {
-				await new Promise<void>((resolve) => { child.once('close', () => resolve()); });
+				await new Promise<void>((resolve) => { child.once('exit', () => resolve()); });
 			}
+			if (options.signal?.aborted) {
+				// Descendants can keep inherited pipes open after the direct child exits.
+				child?.stdin?.destroy();
+				child?.stdout?.destroy();
+				child?.stderr?.destroy();
+			}
+			options.signal?.throwIfAborted();
 			throw error;
 		}
 	})();

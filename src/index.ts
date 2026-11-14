@@ -57,7 +57,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 		if (interrupted) { process.exit(code); }
 		interrupted = true;
 		process.exitCode = code;
-		controller.abort();
+		controller.abort(new Error('Publication interrupted.'));
 	};
 	const onInterrupt = () => interrupt(130);
 	const onTerminate = () => interrupt(143);
@@ -71,7 +71,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 	}
 };
 
-runWithSignals(async (signal) => {
+(async () => {
 	let usedDefaultRemote = false;
 	const argv = cli({
 		name: packageMeta.name,
@@ -198,67 +198,72 @@ runWithSignals(async (signal) => {
 	}
 	const rootsDescription = plan.roots.map(root => stringify(root)).join(', ');
 	const publishBranch = plan.nodes[0]!.branch;
-	const publication = await task(
-		plan.kind === 'standalone'
-			? `Publishing source ${stringify(source.name)} → ${stringify(publishBranch)}`
-			: `Publishing ${rootsDescription} from ${stringify(source.name)}`,
-		async ({ setTitle, setStatus }) => {
-			if (dry) {
-				setStatus('Dry run');
-				if (plan.kind === 'standalone') {
-					console.log(`Pushing branch ${stringify(publishBranch)} to remote ${stringify(redactRemote(remote))}`);
-				}
-				return;
+	const publicationTitle = plan.kind === 'standalone'
+		? `Publishing source ${stringify(source.name)} → ${stringify(publishBranch)}`
+		: `Publishing ${rootsDescription} from ${stringify(source.name)}`;
+	if (dry) {
+		await task(publicationTitle, async ({ setStatus }) => {
+			setStatus('Dry run');
+			if (plan.kind === 'standalone') {
+				console.log(`Pushing branch ${stringify(publishBranch)} to remote ${stringify(redactRemote(remote))}`);
 			}
-			const prepared = await publishWorkspaceClosure({
-				plan,
-				packageManager,
-				repositoryPath: gitRootPath,
-				publishRemote,
-				pushStrategy,
-				source,
-				fresh,
-			}, signal);
-			const repositoryName = plan.kind === 'standalone' && getGitHubRepositoryName(remoteUrl);
-			if (repositoryName) {
-				const publishedCommit = prepared.preparations.get(plan.nodes[0]!.key)!.publication.commit;
-				const branchLink = terminalLink(publishBranch, `https://github.com/${repositoryName}/tree/${publishBranch}`, { fallback: false });
-				const commitLink = terminalLink(publishedCommit.slice(0, 7), `https://github.com/${repositoryName}/commit/${publishedCommit}`, { fallback: false });
-				setTitle(`Successfully published branch: ${branchLink} ${dim(`(${commitLink})`)}`);
-			} else if (plan.kind === 'workspace') {
-				setTitle(`Published ${rootsDescription} from ${stringify(source.name)}`);
-			}
-			return prepared;
-		},
-	).catch(() => {
-		process.exitCode ||= 1;
-	});
-	if (publication) {
-		const result = createWorkspaceResult(
-			publication.plan, publication.preparations, source.name, source.commit,
-		);
-		const { presentation: _presentation, ...jsonResult } = result;
-		const json = `${stringify(jsonResult, null, 2)}\n`;
-		let jsonWriteError: Error | undefined;
-		if (argv.flags.json) {
-			// Write before printing so a closed stdout cannot prevent the file write
-			await fs.writeFile(argv.flags.json, json).catch((error: Error) => {
-				jsonWriteError = error;
-			});
-		}
-		if (!isHostedGitRemote(remoteUrl) && Object.values(result.installSets).some(set => (
-			set.required.length + set.optional.length > 1
-		))) {
-			console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
-		}
-		console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl)}`);
-		if (jsonWriteError) {
-			console.error(`Publication succeeded, but could not write JSON file ${stringify(argv.flags.json)}: ${redactRemote(jsonWriteError.message)}. Publication details follow:`);
-			console.error(json.trimEnd());
-			process.exitCode ||= 1;
-		}
+		});
+		return;
 	}
-}).catch((error) => {
+	await runWithSignals(async (signal) => {
+		const publication = await task(
+			publicationTitle,
+			async ({ setTitle }) => {
+				const prepared = await publishWorkspaceClosure({
+					plan,
+					packageManager,
+					repositoryPath: gitRootPath,
+					publishRemote,
+					pushStrategy,
+					source,
+					fresh,
+				}, signal);
+				const repositoryName = plan.kind === 'standalone' && getGitHubRepositoryName(remoteUrl);
+				if (repositoryName) {
+					const publishedCommit = prepared.preparations.get(plan.nodes[0]!.key)!.publication.commit;
+					const branchLink = terminalLink(publishBranch, `https://github.com/${repositoryName}/tree/${publishBranch}`, { fallback: false });
+					const commitLink = terminalLink(publishedCommit.slice(0, 7), `https://github.com/${repositoryName}/commit/${publishedCommit}`, { fallback: false });
+					setTitle(`Successfully published branch: ${branchLink} ${dim(`(${commitLink})`)}`);
+				} else if (plan.kind === 'workspace') {
+					setTitle(`Published ${rootsDescription} from ${stringify(source.name)}`);
+				}
+				return prepared;
+			},
+		).catch(() => {
+			process.exitCode ||= 1;
+		});
+		if (publication) {
+			const result = createWorkspaceResult(
+				publication.plan, publication.preparations, source.name, source.commit,
+			);
+			const { presentation: _presentation, ...jsonResult } = result;
+			const json = `${stringify(jsonResult, null, 2)}\n`;
+			let jsonWriteError: Error | undefined;
+			if (argv.flags.json) {
+				// Write before printing so a closed stdout cannot prevent the file write
+				await fs.writeFile(argv.flags.json, json).catch((error: Error) => {
+					jsonWriteError = error;
+				});
+			}
+			if (!isHostedGitRemote(remoteUrl) && Object.values(result.installSets).some(set => (
+				set.required.length + set.optional.length > 1
+			))) {
+				console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
+			}
+			console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl)}`);
+			if (jsonWriteError) {
+				console.error(`Publication succeeded, but could not write JSON file ${stringify(argv.flags.json)}: ${redactRemote(jsonWriteError.message)}. Publication details follow:`);
+				console.error(json.trimEnd());
+				process.exitCode ||= 1;
+			}
+		}
+	});
+})().catch((error) => {
 	console.error('Error:', redactRemote(error.message));
 	process.exitCode ||= 1;
 });

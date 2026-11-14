@@ -17,7 +17,7 @@ describe('Lifecycle hooks', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using temporary = await createFixture();
 		await using marker = await createFixture();
-		await fs.writeFile(marker.getPath('filter.cjs'), `const fs = require('node:fs'); const { execFileSync } = require('node:child_process'); fs.writeFileSync(${JSON.stringify(marker.getPath('ready'))}, ''); const parent = process.ppid; setInterval(() => { try { if (execFileSync('ps', ['-o', 'ppid=', '-p', String(parent)]).toString().trim() === '1') process.exit(); } catch { process.exit(); } }, 50);`);
+		await fs.writeFile(marker.getPath('filter.cjs'), `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(marker.getPath('ready'))}, ''); setInterval(() => {}, 1 << 30);`);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'app',
@@ -32,8 +32,9 @@ describe('Lifecycle hooks', async () => {
 		await fixture.git('config', ['filter.block.smudge', `exec "${process.execPath}" "${marker.getPath('filter.cjs')}"`]);
 		const watcher = fs.watch(marker.path, { signal: AbortSignal.timeout(30_000) });
 		const ready = (async () => {
-			for await (const event of watcher) {
-				if (event.filename === 'ready') { return; }
+			if (await marker.exists('ready')) { return; }
+			for await (const _event of watcher) {
+				if (await marker.exists('ready')) { return; }
 			}
 		})();
 		const child = spawnChild(process.execPath, [path.resolve('dist/index.js')], {
@@ -43,15 +44,20 @@ describe('Lifecycle hooks', async () => {
 				TMPDIR: temporary.path,
 				NODE_DISABLE_COMPILE_CACHE: '1',
 			},
-			stdio: 'ignore',
+			stdio: ['ignore', 'pipe', 'pipe'],
 			detached: true,
 		});
+		let output = '';
+		child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+		child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
 		const exited = once(child, 'exit');
 		try {
 			await ready;
 			child.kill('SIGTERM');
 			const [code] = await exited;
 			expect(code).toBe(143);
+			expect(output.match(/Publication interrupted\./g)?.length).toBe(1);
+			expect(output).not.toContain('Command failed');
 			expect(await temporary.readdir('')).toStrictEqual([]);
 			expect(await remote.git('for-each-ref')).toBe('');
 		} finally {
@@ -80,8 +86,9 @@ describe('Lifecycle hooks', async () => {
 			await fixture.git('remote', ['add', 'origin', remote.path]);
 			const watcher = fs.watch(marker.path, { signal: AbortSignal.timeout(30_000) });
 			const ready = (async () => {
-				for await (const event of watcher) {
-					if (event.filename === 'pid') { return; }
+				if (await marker.exists('pid')) { return; }
+				for await (const _event of watcher) {
+					if (await marker.exists('pid')) { return; }
 				}
 			})();
 			const child = spawnChild(process.execPath, [path.resolve('dist/index.js')], {

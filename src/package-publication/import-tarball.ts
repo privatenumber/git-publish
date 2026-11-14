@@ -206,6 +206,7 @@ export const importTarball = async ({
 	};
 	const writeResult = pipeline(Readable.from(generate()), input, { signal });
 	const [written, imported] = await Promise.allSettled([writeResult, processResult]);
+	signal?.throwIfAborted();
 	// Prefer Git's diagnostic over the EPIPE caused by its early exit.
 	if (written.status === 'rejected') {
 		throw imported.status === 'rejected' && (written.reason as NodeJS.ErrnoException).code === 'EPIPE' ? imported.reason : written.reason;
