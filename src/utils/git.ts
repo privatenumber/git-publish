@@ -1,4 +1,4 @@
-import spawn, { type Options as SpawnOptions } from 'nano-spawn';
+import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from './get-stdout.ts';
 
 export const gitStatusTracked = (
@@ -19,25 +19,25 @@ export const assertCleanTree = async () => {
 	}
 };
 
-export const getCurrentSourceName = async () => {
+export const getSourceCommit = async () => getStdout(spawn('git', ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])).catch((error: unknown) => {
+	if (error instanceof SubprocessError && error.exitCode === 1) {
+		throw new Error('The repository has no commits. Commit your changes before publishing.');
+	}
+	throw error;
+});
+
+export const getCurrentSourceName = async (sourceCommitId: string, sourceCommit: string) => {
 	const branch = await getStdout(spawn('git', ['branch', '--show-current']));
 	if (branch) {
 		return branch;
 	}
 
-	const tag = await getStdout(spawn('git', ['describe', '--tags', '--exact-match'])).catch(() => {
-		// Git exits with 128 when HEAD has no exact tag.
+	const tag = await getStdout(spawn('git', ['describe', '--tags', '--exact-match', sourceCommitId])).catch(() => {
+		// Git exits with 128 when the commit has no exact tag.
 	});
 	if (tag) {
 		return tag;
 	}
 
-	return await getStdout(spawn('git', ['rev-parse', '--short', 'HEAD']));
+	return sourceCommit;
 };
-
-export const getCurrentCommit = async (
-	{ short = true, ...options }: SpawnOptions & { short?: boolean } = {},
-): Promise<string | undefined> => (
-	// Can be empty if new git repository with no commits
-	getStdout(spawn('git', ['rev-parse', ...(short ? ['--short'] : []), 'HEAD'], options)).catch(() => undefined)
-);

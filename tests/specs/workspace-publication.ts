@@ -20,6 +20,48 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	for (const [description, commit] of [
+		['packs the captured commit when a prepack hook moves source HEAD', true],
+		['preserves tracked files when a prepack hook changes the live checkout', false],
+	] as const) {
+		test(description, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'package-lock.json': '{}',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					files: ['dist'],
+					dependencies: { core: 'file:../core' },
+				}),
+				'packages/app/dist/index.js': 'original content',
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+					scripts: { prepack: 'node hook.cjs' },
+				}),
+				'packages/core/hook.cjs': `const fs = require('node:fs'); const cp = require('node:child_process'); const path = require('node:path'); const root = process.env.SOURCE_REPOSITORY; fs.writeFileSync(path.join(root, 'packages/app/dist/index.js'), 'changed content'); ${commit ? "cp.execFileSync('git', ['-C', root, 'commit', '-am', 'moved']);" : ''}`,
+			}, ['--initial-branch=snapshot']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			const sourceCommit = await fixture.git('rev-parse', ['--short', 'HEAD']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const result = await gitPublish(fixture.getPath('packages/app'), [], { SOURCE_REPOSITORY: fixture.path });
+			onTestFail(() => console.log(result.stdout, result.stderr));
+			expect('exitCode' in result).toBe(false);
+			expect(await remote.git('show', ['npm/snapshot-app:dist/index.js'])).toBe('original content');
+			expect(await remote.git('log', ['-1', '--format=%s', 'npm/snapshot-app'])).toBe(`Published "app" from "snapshot" (${sourceCommit})`);
+			if (commit) {
+				expect(await fixture.git('rev-parse', ['--short', 'HEAD'])).not.toBe(sourceCommit);
+			}
+		});
+	}
+
 	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
 		test(`omits a pack-removed ${field} edge from publication and install output`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
@@ -1284,24 +1326,6 @@ exec '${npmPath}' "$@"
 			expect(await validationRemoteGit('for-each-ref')).toBe('');
 		});
 	}
-
-	test('rejects {gitSha} without a source commit before creating refs', async () => {
-		await using sourceRemoteFixture = await createGitFixture(undefined, ['--bare']);
-		const { git: sourceRemoteGit } = sourceRemoteFixture;
-		await using fixture = await createGitFixture({
-			'package.json': JSON.stringify({
-				name: 'test-package',
-				version: '1.0.0',
-			}),
-		}, ['--initial-branch=main']);
-		await fixture.git('remote', ['add', 'origin', sourceRemoteFixture.path]);
-
-		const gitPublishProcess = await gitPublish(fixture.path, ['--branch', 'preview/{gitSha}']);
-
-		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-		expect(gitPublishProcess.stderr).toContain('Branch template "preview/{gitSha}" uses {gitSha}, but the source repository has no commit.');
-		expect(await sourceRemoteGit('for-each-ref')).toBe('');
-	});
 
 	test('reports workspace dependency planning errors', async () => {
 		const branchName = 'test-workspace-invalid-specification';

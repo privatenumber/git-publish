@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
 import {
 	describe, test, expect, onFinish, onTestFail,
@@ -10,6 +11,25 @@ describe('Package contents', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
+
+	test('publishes untracked non-ignored files matched by files', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				files: ['dist'],
+			}),
+		}, ['--initial-branch=untracked']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		await fs.mkdir(fixture.getPath('dist'));
+		await fixture.writeFile('dist/index.js', 'untracked content');
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect('exitCode' in result).toBe(false);
+		expect(await remoteGit('show', ['npm/untracked:dist/index.js'])).toBe('untracked content');
+	});
 
 	test('monorepo package', async () => {
 		const branchName = 'test-monorepo';

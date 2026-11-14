@@ -48,6 +48,7 @@ export const packPackage = async (
 	cwd: string,
 	gitRootPath: string,
 	gitSubdirectory: string,
+	sourceCommitId: string,
 ): Promise<string> => {
 	// Create temp directory for pack output
 	await fs.mkdir(packDestinationDirectory, { recursive: true });
@@ -55,15 +56,14 @@ export const packPackage = async (
 	// Determine if this is a monorepo package (in a subdirectory)
 	const isMonorepo = gitSubdirectory.length > 0;
 
-	// Copy gitignored files from user's directory if they're specified in files field
-	// This handles cases where dist/ or other build artifacts are gitignored but need to be packed
-	const packageJsonPath = path.join(cwd, 'package.json');
+	// Copy untracked files matched by the manifest; tracked paths come from the captured commit.
+	const packWorktreePackageRoot = path.join(packWorktreePath, gitSubdirectory);
+	const packageJsonPath = path.join(packWorktreePackageRoot, 'package.json');
 	const packageJson = await readJson(packageJsonPath) as { files?: string[] };
 
 	if (packageJson.files && packageJson.files.length > 0) {
-		const packWorktreePackageRoot = isMonorepo
-			? path.join(packWorktreePath, gitSubdirectory)
-			: packWorktreePath;
+		const { stdout } = await spawn('git', ['ls-tree', '-r', '--name-only', '-z', sourceCommitId, '--', '.'], { cwd: packWorktreePackageRoot });
+		const trackedFiles = new Set(stdout.split('\0'));
 
 		// Transform directory entries to glob patterns
 		// npm/pnpm treat 'dist' as 'dist/**', but fast-glob needs explicit patterns
@@ -93,8 +93,11 @@ export const packPackage = async (
 			dot: true, // Include dotfiles like .env.production
 		});
 
-		// Copy all matched files to pack worktree
+		// Preserve tracked files from the captured commit.
 		for (const relativePath of matchedFiles) {
+			if (trackedFiles.has(relativePath)) {
+				continue;
+			}
 			const sourcePath = path.join(cwd, relativePath);
 			const destinationPath = path.join(packWorktreePackageRoot, relativePath);
 

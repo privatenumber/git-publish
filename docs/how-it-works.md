@@ -3,7 +3,7 @@
 `git-publish` publishes what `npm publish` would, but to a Git branch:
 
 1. Reads the publish branch's existing history, unless `--fresh` is used.
-2. Packs the package with your package manager (`npm pack`, `pnpm pack`, `yarn pack`, or `bun pm pack`), which runs `prepare` and `prepack` and includes only publishable files.
+2. Checks out the captured source commit and packs the package with your package manager (`npm pack`, `pnpm pack`, `yarn pack`, or `bun pm pack`), which runs `prepare` and `prepack` and includes only publishable files.
 3. Removes the `prepare`, `prepack`, and `postpack` scripts and the `workspaces` and `devDependencies` fields from the packed manifest, then commits the packed files. Package managers would otherwise rerun preparation when installing the Git dependency. Install lifecycle scripts remain; `build` is removed only when no install hook remains.
 4. Pushes the branch to the Git remote.
 5. Prints the command to install the package from Git.
@@ -24,7 +24,7 @@ Add your build command to the [`prepack`](https://docs.npmjs.com/cli/v11/using-n
 }
 ```
 
-You can also run the build before `git-publish`. Existing build output, including gitignored files such as `dist/`, is included when it matches the package's `files` field. For workspace builds and custom hooks in a fork, see [Preparing packages](./monorepos.md#preparing-packages).
+You can also run the build before `git-publish`. Existing untracked build output, including gitignored files such as `dist/`, is copied from your checkout when it matches the captured package manifest's `files` field. Tracked files come from the captured commit instead; lifecycle hooks can change files in the isolated checkout before packing. For workspace builds and custom hooks in a fork, see [Preparing packages](./monorepos.md#preparing-packages).
 
 After lifecycle hooks run, `git-publish` checks each positive `files` entry against the packed package. If an entry matches no packed file or directory, it warns and still publishes. That usually means the build did not run or the entry is wrong.
 

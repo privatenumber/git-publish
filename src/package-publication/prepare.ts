@@ -1,10 +1,10 @@
 import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import type { PackageJson } from '@npmcli/package-json';
 import { getStdout } from '../utils/get-stdout.ts';
-import { readJson } from '../utils/read-json.ts';
 import { findUnpublishedFilesFieldEntries } from '../utils/unpublished-files-field.ts';
 import { toPackageManagerGitUrl } from '../utils/git-url.ts';
 import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/graph.ts';
+import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { importTarball, type File } from './import-tarball.ts';
 import { validatePackedManifest } from './validate.ts';
 
@@ -38,7 +38,7 @@ export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPac
 
 export const preparePackagePublication = async ({
 	packageName,
-	sourceManifestPath,
+	sourceManifest,
 	packedTarball,
 	importRef,
 	parent,
@@ -51,7 +51,7 @@ export const preparePackagePublication = async ({
 	gitOptions,
 }: {
 	packageName: string;
-	sourceManifestPath: string;
+	sourceManifest: WorkspacePackage['packageJson'];
 	packedTarball: string;
 	importRef: string;
 	parent: string | undefined;
@@ -63,7 +63,6 @@ export const preparePackagePublication = async ({
 	peers?: WorkspacePeer[];
 	gitOptions: SpawnOptions;
 }): Promise<PackagePreparation> => {
-	const sourceManifest = await readJson(sourceManifestPath) as PackageJson;
 	let manifest: PackageJson | undefined;
 	const rewriteManifest = (content: Buffer) => {
 		manifest = JSON.parse(content.toString('utf8')) as PackageJson;

@@ -8,7 +8,7 @@ import packageMeta from '../package.json' with { type: 'json' };
 import task from './utils/task.ts';
 import { getStdout } from './utils/get-stdout.ts';
 import {
-	assertCleanTree, getCurrentSourceName, getCurrentCommit,
+	assertCleanTree, getCurrentSourceName, getSourceCommit,
 } from './utils/git.ts';
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
@@ -113,11 +113,12 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		return;
 	}
 	await assertCleanTree();
+	const sourceCommitId = await getSourceCommit();
+	const sourceCommit = await getStdout(spawn('git', ['rev-parse', '--short', sourceCommitId]));
 
 	const cwd = process.cwd();
 	const gitRootPath = await getStdout(spawn('git', ['rev-parse', '--show-toplevel']));
-	const sourceName = await getCurrentSourceName();
-	const sourceCommit = await getCurrentCommit();
+	const sourceName = await getCurrentSourceName(sourceCommitId, sourceCommit);
 	const packageJsonPath = 'package.json';
 
 	try {
@@ -131,9 +132,6 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	const {
 		branch, remote, fresh, dry,
 	} = argv.flags;
-	const sourceCommitId = branch?.includes('{gitSha}') || argv.flags.json
-		? await getCurrentCommit({ short: false })
-		: undefined;
 	const packageManager = await detectPackageManager(cwd, gitRootPath);
 	const closurePlan = await planWorkspacePublication({
 		cwd,
@@ -192,6 +190,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				publishRemote,
 				sourceName,
 				sourceCommit,
+				sourceCommitId,
 				fresh,
 			});
 			const repositoryName = plan.standalone && getGitHubRepositoryName(remoteUrl);

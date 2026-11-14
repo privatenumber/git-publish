@@ -18,9 +18,11 @@ export type PublishRepository = {
 
 export const createPublishRepository = async ({
 	sourceRepositoryPath,
+	sourceCommitId,
 	publishRemote,
 }: {
 	sourceRepositoryPath: string;
+	sourceCommitId: string;
 	publishRemote: PublishRemote;
 }): Promise<PublishRepository> => {
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
@@ -78,7 +80,7 @@ export const createPublishRepository = async ({
 			pushRemoteNames,
 		});
 		packWorktreeCreated = true;
-		await spawn('git', ['worktree', 'add', '--force', packWorktreePath, 'HEAD'], gitOptions);
+		await spawn('git', ['worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], gitOptions);
 	} catch (error) {
 		try {
 			await dispose();

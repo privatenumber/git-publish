@@ -5,6 +5,20 @@ import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Error cases', () => {
+	test('explains that a repository with no commits must be committed before publishing', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		});
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.path);
+		expect(await remote.git('for-each-ref')).toBe('');
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toMatch(/commit/i);
+	});
 	test('Rejects invalid CLI input before publishing', async () => {
 		await using markerFixture = await createFixture();
 		await using fixture = await createFixture({
@@ -225,6 +239,7 @@ Pre-bundle these dependencies before publishing.`);
 
 	test('Fails if no package.json found', async () => {
 		await using fixture = await createGitFixture();
+		await fixture.git('commit', ['--allow-empty', '-m', 'Initial commit']);
 
 		const gitPublishProcess = await gitPublish(fixture.path);
 
