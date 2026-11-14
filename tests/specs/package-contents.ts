@@ -13,7 +13,29 @@ describe('Package contents', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('detects pnpm from an ignored live lockfile', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'.gitignore': 'pnpm-lock.yaml\n',
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				scripts: { prepack: 'node -e "require(\u0027fs\u0027).writeFileSync(\u0027manager.txt\u0027,process.env.npm_config_user_agent)"' },
+			}),
+		}, ['--initial-branch=snapshot']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await fixture.writeFile('pnpm-lock.yaml', 'lockfileVersion: 9.0\n');
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('show', ['npm/snapshot:manager.txt'])).toMatch(/^pnpm\//);
+	});
+
 	for (const [description, manifest, extraFiles, file] of [
+		['copies ignored mandatory main without files', { main: 'dist/index.js' }, { '.gitignore': 'dist/' }, 'dist/index.js'],
+		['copies case-insensitive files glob', { files: ['DIST/*.js'] }, {}, 'dist/index.js'],
 		['copies gitignored output with a root npmignore and no files', {}, {
 			'.gitignore': 'dist/',
 			'.npmignore': '',

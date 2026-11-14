@@ -6,11 +6,11 @@ import { readJson } from './read-json.ts';
 import { getStdout } from './get-stdout.ts';
 import { packPathspecs } from './pack-pathspecs.ts';
 
-const isNotEnoent = (error: unknown): boolean => (
+const isNotEnoent = (error: unknown): boolean => !(
 	typeof error === 'object'
 	&& error !== null
 	&& 'code' in error
-	&& error.code !== 'ENOENT'
+	&& error.code === 'ENOENT'
 );
 
 const getPackArguments = async (
@@ -54,20 +54,49 @@ export const packPackage = async (
 	const packWorktreePackageRoot = path.join(packWorktreePath, gitSubdirectory);
 	const packageJsonPath = path.join(packWorktreePackageRoot, 'package.json');
 	const packageJson = await readJson(packageJsonPath) as Parameters<typeof packPathspecs>[0];
+	const liveDirectoryExists = await fs.stat(cwd).then(() => true, (error: unknown) => {
+		if (isNotEnoent(error)) { throw error; }
+		return false;
+	});
 	const args = ['ls-files', '--others', '-z', '--exclude=node_modules'];
-	if (!packageJson.files) {
+	if (!packageJson.files && liveDirectoryExists) {
 		const hasNpmignore = await fs.access(path.join(cwd, '.npmignore')).then(() => true, (error: unknown) => {
 			if (isNotEnoent(error)) { throw error; }
 			return false;
 		});
 		args.push(hasNpmignore ? '--exclude-per-directory=.npmignore' : '--exclude-standard');
 	}
-	args.push('--', ...packPathspecs(packageJson));
-	const { stdout } = await spawn('git', args, { cwd });
+	if (packageJson.files) { args.push('--', ...packPathspecs(packageJson)); }
+	const listings = liveDirectoryExists
+		? await Promise.all([
+			spawn('git', args, { cwd }),
+			...(packageJson.files ? [] : [spawn('git', ['ls-files', '--others', '-z', '--', ...packPathspecs(packageJson)], { cwd })]),
+		])
+		: [];
+	const checkedDirectories = new Map<string, boolean>();
+	const isSafeDirectory = async (directory: string): Promise<boolean> => {
+		const cached = checkedDirectories.get(directory);
+		if (cached !== undefined) { return cached; }
+		if (directory !== packWorktreePackageRoot && !await isSafeDirectory(path.dirname(directory))) {
+			checkedDirectories.set(directory, false);
+			return false;
+		}
+		let safe = false;
+		try {
+			const stat = await fs.lstat(directory);
+			safe = stat.isDirectory();
+		} catch (error: unknown) {
+			if (isNotEnoent(error)) { throw error; }
+			await fs.mkdir(directory);
+			safe = true;
+		}
+		checkedDirectories.set(directory, safe);
+		return safe;
+	};
 	// Git lists an untracked nested repository as one `dir/` entry without its contents
-	for (const relativePath of stdout.split('\0').filter(entry => entry && !entry.endsWith('/'))) {
+	for (const relativePath of new Set(listings.flatMap(({ stdout }) => stdout.split('\0').filter(entry => entry && !entry.endsWith('/'))))) {
 		const destinationPath = path.join(packWorktreePackageRoot, relativePath);
-		await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+		if (!await isSafeDirectory(path.dirname(destinationPath))) { continue; }
 		await fs.cp(path.join(cwd, relativePath), destinationPath, {
 			verbatimSymlinks: true,
 			force: false,

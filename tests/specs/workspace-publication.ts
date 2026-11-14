@@ -20,6 +20,48 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	for (const target of ['inside', 'outside'] as const) {
+		test(`does not copy through a captured symlink pointing ${target}`, async () => {
+			await using outside = await createFixture();
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'package-lock.json': '{}',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					files: ['out', 'real'],
+					dependencies: { core: 'file:../core' },
+				}),
+				'packages/app/real/keep.js': 'keep',
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+					scripts: { prepack: 'node hook.cjs' },
+				}),
+				'packages/core/hook.cjs': "const fs=require('fs');const cp=require('child_process');const path=require('path');const root=process.env.SOURCE_REPOSITORY;cp.execFileSync('git',['-C',root,'switch','other']);fs.mkdirSync(path.join(root,'packages/app/out'),{recursive:true});fs.writeFileSync(path.join(root,'packages/app/out/injected.js'),'injected');",
+			}, ['--initial-branch=snapshot']);
+			await fs.symlink(target === 'inside' ? 'real' : outside.path, fixture.getPath('packages/app/out'));
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('switch', ['-c', 'other']);
+			await fs.unlink(fixture.getPath('packages/app/out'));
+			await fixture.git('add', ['-A']);
+			await fixture.git('commit', ['-m', 'Remove link']);
+			await fixture.git('switch', ['snapshot']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const result = await gitPublish(fixture.getPath('packages/app'), [], { SOURCE_REPOSITORY: fixture.path });
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(await outside.exists('injected.js')).toBe(false);
+			expect(await remote.git('ls-tree', ['-r', '--name-only', 'npm/snapshot-app'])).not.toContain('injected.js');
+		});
+	}
+
 	test('plans the captured package when the live branch changes after capture', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({

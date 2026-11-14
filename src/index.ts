@@ -142,7 +142,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 
 		const packageJson = await readJson(packageJsonPath) as PackageJson;
 
-		const packageManager = await detectPackageManager(cwd, gitRootPath);
+		const packageManager = await detectPackageManager(liveCwd, liveGitRootPath);
 		const closurePlan = await planWorkspacePublication({
 			cwd,
 			gitRootPath,

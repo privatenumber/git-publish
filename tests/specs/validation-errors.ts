@@ -7,6 +7,29 @@ import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Error cases', () => {
+	for (const dry of [false, true]) {
+		test(dry ? 'dry run does not run post-checkout' : 'post-checkout cannot bypass private check', async () => {
+			await using hooks = await createFixture();
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					private: !dry,
+				}),
+			});
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await hooks.writeFile('post-checkout', `#!/bin/sh\ntouch '${hooks.getPath('called')}'\nnode -e "const fs=require('fs');const p=require('./package.json');p.private=false;fs.writeFileSync('package.json',JSON.stringify(p))"\n`);
+			await fs.chmod(hooks.getPath('post-checkout'), 0o755);
+			await fixture.git('config', ['core.hooksPath', hooks.path]);
+			const result = await gitPublish(fixture.path, dry ? ['--dry'] : []);
+			expect('exitCode' in result).toBe(!dry);
+			expect(await hooks.exists('called')).toBe(false);
+			if (!dry) { expect(result.output).toMatch(/private/i); }
+		});
+	}
 	test('explains that a repository with no commits must be committed before publishing', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
@@ -151,7 +174,8 @@ exit 1
 		const gitPath = await which('git');
 		await using commands = await createFixture({
 			git: `#!/bin/sh
-if [ "$1" = worktree ] && [ "$2" = add ]; then
+if [ "$1" = -c ] && [ "$3" = worktree ] && [ "$4" = add ]; then
+  shift 2
   exec "${gitPath}" -c "core.hooksPath=$TEST_HOOKS" "$@"
 fi
 exec "${gitPath}" "$@"

@@ -66,8 +66,8 @@ export const publishWorkspaceClosure = async ({
 				cwd: repository.packWorktreePath,
 				env: repository.gitOptions.env,
 			};
-			await spawn('git', ['reset', '--hard', sourceCommitId], packWorktreeOptions);
-			await spawn('git', ['clean', '-fdx'], packWorktreeOptions);
+			await spawn('git', ['-c', 'core.hooksPath=/dev/null', 'reset', '--hard', sourceCommitId], packWorktreeOptions);
+			await spawn('git', ['-c', 'core.hooksPath=/dev/null', 'clean', '-fdx'], packWorktreeOptions);
 			setStatus('Packing package and running lifecycle scripts');
 			const tarball = await packPackage(
 				packageManager,

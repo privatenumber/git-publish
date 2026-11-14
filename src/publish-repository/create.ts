@@ -67,7 +67,7 @@ export const createPublishRepository = async ({
 			globalConfigPath: gitEnvironment.GIT_CONFIG_GLOBAL,
 		});
 		packWorktreeCreated = true;
-		await spawn('git', ['worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], gitOptions);
+		await spawn('git', ['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], gitOptions);
 	} catch (error) {
 		try {
 			await dispose();

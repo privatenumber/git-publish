@@ -18,21 +18,28 @@ The isolated repository is a [non-bare clone without checkout](../../src/publish
 
 ### Captured commit
 
-- `git symbolic-ref -q HEAD` captures the branch ref first; `git rev-parse --verify --quiet <ref>^{commit}` resolves that exact ref, or `HEAD^{commit}` when detached. The branch name, exact-tag fallback, short SHA, `{gitSha}`, JSON `source.commit`, and commit message derive from this capture. Resolving the captured ref keeps the name and commit aligned if HEAD switches between calls.
+- `git symbolic-ref -q HEAD` captures the branch ref first; `git rev-parse --verify --quiet <ref>^{commit}` resolves that exact ref, or `HEAD^{commit}` when detached. The branch name, exact-tag fallback, short SHA, `{gitSha}`, JSON `source.commit`, and newly created publication commit message derive from this capture. A reused publication commit keeps its original message. Resolving the captured ref keeps the name and commit aligned if HEAD switches between calls.
 - `git rev-parse --verify --quiet HEAD^{commit}` exits 1 on an unborn branch and 128 outside a repository, so exit 1 alone means "no commits".
 - The isolated checkout is created at the captured SHA before planning. Planning and the private-package check read that checkout, so they describe the commit that is packed. Planning from the live checkout let a `HEAD` move publish a private commit without `--force`.
+- Internal checkout, reset, and clean operations disable Git hooks but retain smudge filters.
+- Package manager detection reads the live checkout, including ignored lockfiles.
+- Mandatory package files bypass Git ignore rules even without a `files` field.
+- Case-insensitive Git pathspecs select a superset; the package manager applies the final pack rules.
+- Copying skips destinations with symlink or non-directory ancestors in the pack checkout.
 
 ### Untracked files copied into the pack checkout
 
 npm runs `prepack` and `prepare` in the package directory and packs that directory as the hooks leave it ([libnpmpack](https://github.com/npm/cli/tree/latest/workspaces/libnpmpack), pacote `lib/dir.js:33-51`). Gitignored build output is therefore packed, and a bundler that does not empty its output directory publishes stale chunks with `npm publish` too ([#96](https://github.com/privatenumber/git-publish/issues/96)). git-publish matches this: the pack checkout gets the untracked files the package manager would see, and cleaning stale output is the build's job, for example pkgroll's `--clean-dist`.
 
-For each package, git-publish runs `git ls-files --others -z` in the live package directory and copies the listed files with `fs.cp` (`verbatimSymlinks`, no overwrite). Git lists Git paths, does not descend through tracked symlinks or into submodules, and omits files that are tracked live, so no copy can overwrite or alias captured content. The listed set is a superset; the real pack filters it.
+For each package, git-publish runs `git ls-files --others -z` in the live package directory and copies the listed files with `fs.cp` (`verbatimSymlinks`, no overwrite). Git lists Git paths, does not descend through tracked symlinks or into submodules, and omits files that are tracked live. Destination ancestor checks also prevent writing through captured symlinks. The listed set is a superset; the real pack filters it.
 
-- **With `files`:** npm normalizes each entry by stripping leading `!`, `./`, one leading `/`, and trailing `/`, expands it with `glob` (`dot: true`), and includes the contents of matched directories ([`npm-packlist` v11.3.0 `lib/index.js:334-379`](https://github.com/npm/npm-packlist/blob/v11.3.0/lib/index.js#L334-L379)). git-publish passes `:(glob)E` and `:(glob)E/**` for entries that use only `*`, `?`, `[...]`, and `**`, which Git's glob pathspecs match the same way. For entries with braces or extglobs, it passes the static prefix before the first glob segment (the package directory when the first segment has one). `!` entries are skipped, because npm applies entries as ordered last-match-wins rules and a later entry can re-include a negated path.
-- **Always included:** `main`, `browser`, and each `bin` path ([`:383-397`](https://github.com/npm/npm-packlist/blob/v11.3.0/lib/index.js#L383-L397)) as `:(literal)` pathspecs, and README, COPYING, LICENSE, and LICENCE at the package root ([`:316-319`](https://github.com/npm/npm-packlist/blob/v11.3.0/lib/index.js#L316-L319)) as `:(glob,icase)`.
-- **Without `files`:** `--exclude-per-directory=.npmignore` when the package root has `.npmignore`, otherwise `--exclude-standard`, plus `--exclude=node_modules`. In experiments, Git's lists matched `npm pack --dry-run --json --ignore-scripts` for both cases.
+- **With `files`:** npm normalizes each entry by stripping leading `!`, `./`, one leading `/`, and trailing `/`, expands it with `glob` (`dot: true`), and includes the contents of matched directories ([`npm-packlist` v11.3.0 `lib/index.js:334-379`](https://github.com/npm/npm-packlist/blob/v11.3.0/lib/index.js#L334-L379)). git-publish passes `:(glob,icase)E` and `:(glob,icase)E/**` for entries that use only `*`, `?`, `[...]`, and `**`. For entries with braces or extglobs, it passes the static prefix before the first glob segment (the package directory when the first segment has one). `!` entries are skipped, because npm applies entries as ordered last-match-wins rules and a later entry can re-include a negated path.
+- **Always included:** `main`, `browser`, and each `bin` path ([`:383-397`](https://github.com/npm/npm-packlist/blob/v11.3.0/lib/index.js#L383-L397)) as `:(literal,icase)` pathspecs, and README, COPYING, LICENSE, and LICENCE at the package root ([`:316-319`](https://github.com/npm/npm-packlist/blob/v11.3.0/lib/index.js#L316-L319)) as `:(glob,icase)`.
+- **Without `files`:** `--exclude-per-directory=.npmignore` when the package root has `.npmignore`, otherwise `--exclude-standard`, plus `--exclude=node_modules`. A second listing without excludes selects mandatory paths.
 
 ### Measurements
+
+These measurements predate the second mandatory-path listing and directory checks; they do not measure their added cost.
 
 In rolldown (11,408 tracked files and 9.3 GB untracked, mostly `target/`), `packages/rolldown` with `files: ["bin", "cli", "dist", "!dist/*.node"]`:
 

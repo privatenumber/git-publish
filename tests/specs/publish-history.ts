@@ -372,7 +372,6 @@ describe('Publish history', async () => {
 		const destinationTag = `publish-history-tag-${branchName}`;
 		await using secondPushFixture = await createGitFixture(undefined, ['--bare']);
 		await using commandsFixture = await createFixture(async (fixture) => {
-			const headersPath = fixture.getPath('headers');
 			await fixture.writeFile('upload-pack', `#!/bin/sh
 	printf x >> '${fixture.getPath('upload-pack-called')}'
 	exec git-upload-pack "$@"
@@ -381,21 +380,17 @@ describe('Publish history', async () => {
 	printf x >> '${fixture.getPath('receive-pack-called')}'
 	exec git-receive-pack "$@"
 	`);
-			// Observe the isolated repository's materialized config during checkout.
-			await fixture.writeFile('post-checkout', `#!/bin/sh
-	git config --null --get-all http.extraHeader > '${headersPath}'
-	`);
 			await fixture.writeFile('system-config', '');
 			await Promise.all([
 				fs.chmod(fixture.getPath('upload-pack'), 0o755),
 				fs.chmod(fixture.getPath('receive-pack'), 0o755),
-				fs.chmod(fixture.getPath('post-checkout'), 0o755),
 			]);
 		});
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
+				scripts: { prepack: `git config --null --get-all http.extraHeader > '${commandsFixture.getPath('headers')}'` },
 			}, null, 2),
 			'index.js': 'export const version = 1;',
 		}, [`--initial-branch=${branchName}`]);
@@ -413,7 +408,6 @@ describe('Publish history', async () => {
 		await git('config', ['--file', globalConfigPath, `includeIf.gitdir:${fixture.path}/.git.path`, remoteConfigPath]);
 		await git('config', ['--file', globalConfigPath, '--add', 'http.extraHeader', 'X-Test: first']);
 		await git('config', ['--file', globalConfigPath, '--add', 'http.extraHeader', 'X-Test: second']);
-		await git('config', ['core.hooksPath', commandsFixture.path]);
 		const environment = {
 			GIT_CONFIG_SYSTEM: commandsFixture.getPath('system-config'),
 			GIT_CONFIG_GLOBAL: globalConfigPath,
