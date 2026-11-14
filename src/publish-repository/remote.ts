@@ -1,7 +1,7 @@
 import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
-import { isLocalGitUrl } from '../utils/git-url.ts';
+import { isLocalGitUrl, toPackageManagerGitUrl } from '../utils/git-url.ts';
 import { getPublicationUrls } from './destination.ts';
 
 export type PublishRemote = {
@@ -17,37 +17,41 @@ export const getPublishRemote = async (
 	usesDefaultRemote: boolean,
 ): Promise<PublishRemote> => {
 	const options = { cwd: repositoryPath };
+	const getAll = (key: string) => spawn('git', ['config', '--null', '--get-all', key], options).then(({ stdout }) => stdout.split('\0').slice(0, -1));
 	let configuredName: string | undefined = remote;
-	const urlOutput = await getStdout(spawn('git', ['config', '--get-all', `remote.${remote}.url`], options)).catch(() => {
+	const urls = await getAll(`remote.${remote}.url`).catch(() => {
 		configuredName = undefined;
 		if (usesDefaultRemote) {
 			throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
 		}
 
-		return remote;
+		return [remote];
 	});
-	const urls = urlOutput.split('\n');
 	const fetchUrl = urls[0]!;
-	const pushUrlOutput = configuredName
-		? await getStdout(spawn('git', ['config', '--get-all', `remote.${remote}.pushurl`], options)).catch(async () => {
+	const rawPushUrls = configuredName
+		? await getAll(`remote.${remote}.pushurl`).catch(async () => {
 			if (urls.length > 1) {
-				return urlOutput;
+				return urls;
 			}
 			const [expandedFetch, expandedPush] = await Promise.all([
-				getStdout(spawn('git', ['remote', 'get-url', remote], options)),
-				getStdout(spawn('git', ['remote', 'get-url', '--push', remote], options)),
+				spawn('git', ['remote', 'get-url', remote], options),
+				spawn('git', ['remote', 'get-url', '--push', remote], options),
 			]);
-			return expandedPush === expandedFetch ? fetchUrl : expandedPush;
+			return [expandedPush.stdout === expandedFetch.stdout ? fetchUrl : expandedPush.stdout];
 		})
-		: fetchUrl;
+		: [fetchUrl];
 	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')
 		? path.resolve(repositoryPath, url)
 		: url);
-	const normalizedFetch = normalizeLocal(fetchUrl);
-	const pushUrls = pushUrlOutput.split('\n').map(normalizeLocal);
+	for (const url of [fetchUrl, ...rawPushUrls]) {
+		toPackageManagerGitUrl(url, configuredName);
+	}
+	const publicationUrls = getPublicationUrls(fetchUrl, rawPushUrls, repositoryPath);
+	const pushUrls = rawPushUrls.map(normalizeLocal);
 	return {
 		pushUrls,
-		...getPublicationUrls(normalizedFetch, pushUrls, repositoryPath),
+		installUrl: normalizeLocal(publicationUrls.installUrl),
+		historyUrl: normalizeLocal(publicationUrls.historyUrl),
 		configuredName,
 	};
 };

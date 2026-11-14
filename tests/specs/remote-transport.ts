@@ -5,10 +5,136 @@ import {
 import { createFixture } from 'fs-fixture';
 import { getPublicationUrls } from '../../src/publish-repository/destination.ts';
 import { getPublishRemote } from '../../src/publish-repository/remote.ts';
-import { createGitFixture } from '../utils/create-git.ts';
+import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Remote transport', async () => {
+	test('rejects a whitespace-containing remote before dry-run output', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		const result = await gitPublish(fixture.path, ['--dry', '--remote', 'https://user:hello secret@host/repo.git']);
+		expect('exitCode' in result && result.exitCode).not.toBe(false);
+		expect(result.stdout + result.stderr).not.toContain('secret');
+	});
+
+	test('rejects embedded newlines in configured remote URLs', async () => {
+		await using fixture = await createGitFixture();
+		await fixture.git('remote', ['add', 'origin', 'https://host/repo.git']);
+		await fixture.git('config', ['remote.origin.url', 'https://host/repo.git\nsecret']);
+		const result = getPublishRemote(fixture.path, 'origin', true);
+		await expect(result).rejects.toThrow('Remote "origin" uses a URL');
+		await expect(result).rejects.not.toThrow('secret');
+	});
+
+	test('names the configured remote when rejecting an IPv6 SCP host', async () => {
+		await using fixture = await createGitFixture();
+		await fixture.git('remote', ['add', 'origin', 'git@[2001:db8::1]:repo.git']);
+		await expect(getPublishRemote(fixture.path, 'origin', true)).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
+	});
+	test('publishes to a local path containing a hash', async () => {
+		await using destination = await createFixture();
+		const remotePath = destination.getPath('repo#1');
+		await fs.mkdir(remotePath);
+		const remoteGit = createGit(remotePath);
+		await remoteGit.init(['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=source']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		const result = await gitPublish(fixture.path, ['--remote', remotePath]);
+		expect('exitCode' in result).toBe(false);
+		expect(result.stdout).toContain('repo%231');
+		expect(await remoteGit('rev-parse', ['npm/source'])).toMatch(/^[0-9a-f]{40}$/);
+	});
+	test('rejects an unsupported fetch URL before packing even with a local push destination', async () => {
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using marker = await createFixture();
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				scripts: { prepack: `node -e "require('node:fs').writeFileSync('${marker.getPath('packed')}', '')"` },
+			}),
+		}, ['--initial-branch=source']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		await fixture.git('remote', ['add', 'origin', 's3://user:secret@bucket/repo.git']);
+		await fixture.git('config', ['remote.origin.pushurl', destination.path]);
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result && result.exitCode).not.toBe(false);
+		expect(result.stdout + result.stderr).toContain('Remote "origin" uses a URL that package managers cannot install from.');
+		expect(result.stdout + result.stderr).not.toContain('secret');
+		expect(await marker.exists('packed')).toBe(false);
+		expect(await destination.git('for-each-ref')).toBe('');
+	});
+
+	for (const [label, pushUrls] of [
+		['hosted scp query', ['git@github.com:fork/r.git?token=secret']],
+		['hosted helper', ['github.com::user:secret@host/repo.git']],
+		['second push query', ['https://github.com/a/r.git', 'git@github.com:fork/r.git?token=secret']],
+	] as const) {
+		test(`rejects ${label} before destination selection`, async () => {
+			await using fixture = await createGitFixture();
+			await fixture.git('remote', ['add', 'origin', 'https://github.com/a/r.git']);
+			for (const pushUrl of pushUrls) {
+				await fixture.git('config', ['--add', 'remote.origin.pushurl', pushUrl]);
+			}
+			const result = getPublishRemote(fixture.path, 'origin', true);
+			await expect(result).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
+			await expect(result).rejects.not.toThrow('secret');
+		});
+	}
+	test('rejects unsupported install transports before packing', async () => {
+		await using marker = await createFixture();
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				scripts: { prepack: `node -e "require('node:fs').writeFileSync('${marker.getPath('packed')}', '')"` },
+			}),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		const result = await gitPublish(fixture.path, ['--remote', 's3://key:secret@bucket/repo.git']);
+		expect('exitCode' in result && result.exitCode).not.toBe(false);
+		expect(result.stdout + result.stderr).toContain('The remote URL uses a URL that package managers cannot install from.');
+		expect(result.stdout).not.toContain('secret');
+		expect(result.stderr).not.toContain('secret');
+		expect(await marker.exists('packed')).toBe(false);
+	});
+
+	test('rejects single-letter helper syntax during remote resolution', async () => {
+		await using fixture = await createGitFixture();
+		await expect(getPublishRemote(fixture.path, 'x::address', false)).rejects.toThrow('The remote URL uses a URL that package managers cannot install from.');
+	});
+
+	test('names configured remotes without exposing their URLs', async () => {
+		await using fixture = await createGitFixture();
+		await fixture.git('remote', ['add', 'origin', 's3://user:secret@host/r']);
+		const result = getPublishRemote(fixture.path, 'origin', true);
+		await expect(result).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
+		await expect(result).rejects.not.toThrow('secret');
+	});
+
+	if (process.platform !== 'win32') {
+		test('rejects single-letter URL remotes before local normalization', async () => {
+			await using fixture = await createGitFixture();
+			const result = getPublishRemote(fixture.path, 'x://user:secret@host/r', false);
+			await expect(result).rejects.toThrow('The remote URL uses a URL');
+			await expect(result).rejects.not.toThrow('secret');
+		});
+	}
+
 	test('prints the rejection reason for a standalone push', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		const hook = remote.getPath('hooks/pre-receive');
@@ -189,10 +315,10 @@ describe('Remote transport', async () => {
 		const token = await gitPublish(fixture.path, ['--dry', '--remote', 'https://ghp_secret@github.com/o/r.git']);
 		expect('exitCode' in token).toBe(false);
 		expect(token.stdout).not.toContain('ghp_secret');
-		expect(token.stdout).toContain('https://[redacted]@github.com/o/r.git');
+		expect(token.stdout).toContain('https://[redacted]');
 		expect(token.stderr).not.toContain('ghp_secret');
 		const query = await gitPublish(fixture.path, ['--dry', '--remote', 'https://host/repo.git?access_token=secret']);
-		expect('exitCode' in query).toBe(false);
+		expect('exitCode' in query).toBe(true);
 		expect(query.stdout).not.toContain('secret');
 		expect(query.stderr).not.toContain('secret');
 	});
