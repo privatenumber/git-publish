@@ -20,6 +20,269 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('includes ignored workspace member output when publishing a public root', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				version: '1.0.0',
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/a/package.json': JSON.stringify({
+				name: 'a',
+				version: '1.0.0',
+			}),
+			'packages/a/.gitignore': 'dist/\n',
+		}, ['--initial-branch=snapshot']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await fs.mkdir(fixture.getPath('packages/a/dist'));
+		await fixture.writeFile('packages/a/dist/index.js', 'output');
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('show', ['npm/snapshot:packages/a/dist/index.js'])).toBe('output');
+	});
+
+	test('reads ignored pnpm configuration when planning workspace links', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'.gitignore': '.npmrc\n',
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+			}),
+			'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=snapshot']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await fixture.writeFile('.npmrc', 'link-workspace-packages=true\n');
+		const result = await gitPublish(fixture.getPath('packages/app'), ['--dry']);
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		expect(result.output).toContain('core');
+	});
+
+	for (const variant of ['symlink', 'file'] as const) {
+		test(`preserves a captured ${variant} when live untracked files collide`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					files: ['out', 'real', 'result.txt'],
+					scripts: { prepack: variant === 'symlink' ? "node -e \"require('fs').writeFileSync('result.txt',require('fs').readlinkSync('out'))\"" : "node -e \"require('fs').writeFileSync('result.txt',require('fs').readFileSync('out'))\"" },
+				}),
+				'real/keep.js': 'keep',
+			}, ['--initial-branch=snapshot']);
+			if (variant === 'symlink') {
+				await fs.symlink('real', fixture.getPath('out'));
+			} else {
+				await fixture.writeFile('out', 'captured');
+			}
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await fixture.git('update-index', ['--assume-unchanged', 'out']);
+			await fs.unlink(fixture.getPath('out'));
+			await fs.mkdir(fixture.getPath('out'));
+			await fixture.writeFile('out/injected.js', 'injected');
+			expect(await fixture.git('status', ['--porcelain', '--untracked-files=no'])).toBe('');
+			const result = await gitPublish(fixture.path);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(await remote.git('show', ['npm/snapshot:result.txt'])).toBe(variant === 'symlink' ? 'real' : 'captured');
+			expect(await remote.git('ls-tree', ['-r', '--name-only', 'npm/snapshot'])).toBe(variant === 'symlink' ? 'package.json\nreal/keep.js\nresult.txt' : 'out\npackage.json\nreal/keep.js\nresult.txt');
+			if (variant === 'file') {
+				expect(await remote.git('show', ['npm/snapshot:out'])).toBe('captured');
+			}
+		});
+	}
+
+	test('aborts before copying through a captured symlink pointing outside', async () => {
+		await using outside = await createFixture();
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				files: ['out', 'real'],
+				dependencies: { core: 'file:../core' },
+			}),
+			'packages/app/real/keep.js': 'keep',
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+				scripts: { prepack: 'node hook.cjs' },
+			}),
+			'packages/core/hook.cjs': "const fs=require('fs');const cp=require('child_process');const path=require('path');const root=process.env.SOURCE_REPOSITORY;cp.execFileSync('git',['-C',root,'switch','other']);fs.mkdirSync(path.join(root,'packages/app/out'),{recursive:true});fs.writeFileSync(path.join(root,'packages/app/out/injected.js'),'injected');",
+		}, ['--initial-branch=snapshot']);
+		await fs.symlink(outside.path, fixture.getPath('packages/app/out'));
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('switch', ['-c', 'other']);
+		await fs.unlink(fixture.getPath('packages/app/out'));
+		await fixture.git('add', ['-A']);
+		await fixture.git('commit', ['-m', 'Remove link']);
+		await fixture.git('switch', ['snapshot']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'), [], { SOURCE_REPOSITORY: fixture.path });
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain('The source checkout changed during publication.');
+		expect(await outside.exists('injected.js')).toBe(false);
+		expect(await remote.git('branch', ['--list'])).toBe('');
+	});
+
+	test('aborts when the live branch changes before planning', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'original',
+				version: '1.0.0',
+			}),
+			'index.js': 'original',
+		}, ['--initial-branch=snapshot']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Original']);
+		const sourceCommit = await fixture.git('rev-parse', ['--short', 'HEAD']);
+		await fixture.git('switch', ['-c', 'other']);
+		await fixture.writeFile('package.json', JSON.stringify({
+			name: 'private',
+			version: '1.0.0',
+		}));
+		await fixture.git('commit', ['-am', 'Private']);
+		await fixture.git('switch', ['snapshot']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const gitPath = await which('git');
+		// Intercept src/index.ts's rev-parse --short source capture.
+		await using commands = await createFixture({
+			git: `#!/bin/sh
+if [ "$1" = rev-parse ] && [ "$2" = --short ]; then
+  "${gitPath}" "$@"
+  status=$?
+  "${gitPath}" -C "$SOURCE_REPOSITORY" switch other >&2
+  exit "$status"
+fi
+exec "${gitPath}" "$@"
+`,
+		});
+		await fs.chmod(commands.getPath('git'), 0o755);
+		await using output = await createFixture();
+		const result = await gitPublish(fixture.path, ['--json', output.getPath('result.json')], {
+			SOURCE_REPOSITORY: fixture.path,
+			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+		});
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain(`The source checkout changed during publication. Keep snapshot at ${sourceCommit} until git-publish finishes.`);
+		expect(await remote.git('branch', ['--list'])).toBe('');
+		expect(await fixture.git('branch', ['--show-current'])).toBe('other');
+	});
+
+	for (const [description, commit] of [
+		['aborts when a prepack hook moves source HEAD', true],
+		['aborts when a prepack hook changes tracked files', false],
+	] as const) {
+		test(description, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'package-lock.json': '{}',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					files: ['./dist'],
+					dependencies: { core: 'file:../core' },
+				}),
+				'packages/app/dist/index.js': 'original content',
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+					scripts: { prepack: 'node hook.cjs' },
+				}),
+				'packages/core/hook.cjs': `const fs = require('node:fs'); const cp = require('node:child_process'); const path = require('node:path'); const root = process.env.SOURCE_REPOSITORY; fs.writeFileSync(path.join(root, 'packages/app/dist/index.js'), 'changed content'); ${commit ? "cp.execFileSync('git', ['-C', root, 'commit', '-am', 'moved']);" : ''}`,
+			}, ['--initial-branch=snapshot']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			const sourceCommit = await fixture.git('rev-parse', ['--short', 'HEAD']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const result = await gitPublish(fixture.getPath('packages/app'), [], { SOURCE_REPOSITORY: fixture.path });
+			onTestFail(() => console.log(result.stdout, result.stderr));
+			expect('exitCode' in result).toBe(true);
+			expect(result.output).toContain(`The source checkout changed during publication. Keep snapshot at ${sourceCommit} until git-publish finishes.`);
+			expect(await remote.git('branch', ['--list'])).toBe('');
+			if (commit) {
+				expect(await fixture.git('rev-parse', ['--short', 'HEAD'])).not.toBe(sourceCommit);
+			}
+		});
+	}
+
+	test('aborts after a prepack branch switch', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				files: ['out', 'real'],
+				dependencies: { core: 'file:../core' },
+			}),
+			'packages/app/real/index.js': 'original content',
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+				scripts: { prepack: 'node hook.cjs' },
+			}),
+			'packages/core/hook.cjs': "require('node:child_process').execFileSync('git', ['-C', process.env.SOURCE_REPOSITORY, 'switch', 'other'])",
+		}, ['--initial-branch=snapshot']);
+		await fs.symlink('real', fixture.getPath('packages/app/out'));
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('switch', ['-c', 'other']);
+		await fixture.writeFile('packages/app/package.json', JSON.stringify({
+			name: 'other',
+			version: '1.0.0',
+			private: true,
+		}));
+		await fixture.git('commit', ['-am', 'Private package']);
+		await fixture.git('switch', ['snapshot']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await using output = await createFixture();
+		const result = await gitPublish(fixture.getPath('packages/app'), ['--json', output.getPath('result.json')], { SOURCE_REPOSITORY: fixture.path });
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain('The source checkout changed during publication.');
+		expect(await remote.git('branch', ['--list'])).toBe('');
+	});
+
 	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
 		test(`omits a pack-removed ${field} edge from publication and install output`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
@@ -1284,24 +1547,6 @@ exec '${npmPath}' "$@"
 			expect(await validationRemoteGit('for-each-ref')).toBe('');
 		});
 	}
-
-	test('rejects {gitSha} without a source commit before creating refs', async () => {
-		await using sourceRemoteFixture = await createGitFixture(undefined, ['--bare']);
-		const { git: sourceRemoteGit } = sourceRemoteFixture;
-		await using fixture = await createGitFixture({
-			'package.json': JSON.stringify({
-				name: 'test-package',
-				version: '1.0.0',
-			}),
-		}, ['--initial-branch=main']);
-		await fixture.git('remote', ['add', 'origin', sourceRemoteFixture.path]);
-
-		const gitPublishProcess = await gitPublish(fixture.path, ['--branch', 'preview/{gitSha}']);
-
-		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-		expect(gitPublishProcess.stderr).toContain('Branch template "preview/{gitSha}" uses {gitSha}, but the source repository has no commit.');
-		expect(await sourceRemoteGit('for-each-ref')).toBe('');
-	});
 
 	test('reports workspace dependency planning errors', async () => {
 		const branchName = 'test-workspace-invalid-specification';

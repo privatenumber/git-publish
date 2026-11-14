@@ -8,7 +8,7 @@ import packageMeta from '../package.json' with { type: 'json' };
 import task from './utils/task.ts';
 import { getStdout } from './utils/get-stdout.ts';
 import {
-	assertCleanTree, getCurrentSourceName, getCurrentCommit,
+	assertCleanTree, assertSourceUnchanged, getSourceName, getSourceCommit,
 } from './utils/git.ts';
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
@@ -114,10 +114,16 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	}
 	await assertCleanTree();
 
+	const { ref, commit } = await getSourceCommit();
+	const shortCommit = await getStdout(spawn('git', ['rev-parse', '--short', commit]));
 	const cwd = process.cwd();
 	const gitRootPath = await getStdout(spawn('git', ['rev-parse', '--show-toplevel']));
-	const sourceName = await getCurrentSourceName();
-	const sourceCommit = await getCurrentCommit();
+	const source = {
+		ref,
+		commit,
+		shortCommit,
+		name: await getSourceName(ref, commit, shortCommit),
+	};
 	const packageJsonPath = 'package.json';
 
 	try {
@@ -131,15 +137,12 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	const {
 		branch, remote, fresh, dry,
 	} = argv.flags;
-	const sourceCommitId = branch?.includes('{gitSha}') || argv.flags.json
-		? await getCurrentCommit({ short: false })
-		: undefined;
 	const packageManager = await detectPackageManager(cwd, gitRootPath);
 	const closurePlan = await planWorkspacePublication({
 		cwd,
 		gitRootPath,
-		sourceName,
-		sourceCommitId,
+		sourceName: source.name,
+		sourceCommitId: source.commit,
 		packageManager,
 		publishBranch: branch,
 		force: argv.flags.force,
@@ -155,17 +158,18 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 		cwd,
 		gitRootPath,
 		packageJson,
-		sourceName,
-		sourceCommitId,
+		sourceName: source.name,
+		sourceCommitId: source.commit,
 		publishBranch: branch,
 	});
+	await assertSourceUnchanged(source);
 	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
 	const remoteUrl = publishRemote.installUrl;
 	if (plan.nodes.length > 1) {
 		assertAtomicPackagePublicationDestination(publishRemote.pushUrls);
 	}
 	if (dry && !plan.standalone) {
-		console.log(formatWorkspacePublicationPlan(plan, sourceName));
+		console.log(formatWorkspacePublicationPlan(plan, source.name));
 	}
 	const peerDiagnostics = formatWorkspacePeerDiagnostics(plan);
 	if (peerDiagnostics) {
@@ -175,8 +179,8 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	const publishBranch = plan.nodes[0]!.branch;
 	const publication = await task(
 		plan.standalone
-			? `Publishing source ${stringify(sourceName)} → ${stringify(publishBranch)}`
-			: `Publishing ${rootsDescription} from ${stringify(sourceName)}`,
+			? `Publishing source ${stringify(source.name)} → ${stringify(publishBranch)}`
+			: `Publishing ${rootsDescription} from ${stringify(source.name)}`,
 		async ({ setTitle, setStatus }) => {
 			if (dry) {
 				setStatus('Dry run');
@@ -190,18 +194,17 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				packageManager,
 				repositoryPath: gitRootPath,
 				publishRemote,
-				sourceName,
-				sourceCommit,
+				source,
 				fresh,
 			});
 			const repositoryName = plan.standalone && getGitHubRepositoryName(remoteUrl);
 			if (repositoryName) {
-				const { commit } = prepared.preparations.get(plan.nodes[0]!.key)!.publication;
+				const publishedCommit = prepared.preparations.get(plan.nodes[0]!.key)!.publication.commit;
 				const branchLink = terminalLink(publishBranch, `https://github.com/${repositoryName}/tree/${publishBranch}`, { fallback: false });
-				const commitLink = terminalLink(commit.slice(0, 7), `https://github.com/${repositoryName}/commit/${commit}`, { fallback: false });
+				const commitLink = terminalLink(publishedCommit.slice(0, 7), `https://github.com/${repositoryName}/commit/${publishedCommit}`, { fallback: false });
 				setTitle(`Successfully published branch: ${branchLink} ${dim(`(${commitLink})`)}`);
 			} else if (!plan.standalone) {
-				setTitle(`Published ${rootsDescription} from ${stringify(sourceName)}`);
+				setTitle(`Published ${rootsDescription} from ${stringify(source.name)}`);
 			}
 			return prepared;
 		},
@@ -210,7 +213,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 	});
 	if (publication) {
 		const result = createWorkspaceResult(
-			publication.plan, publication.preparations, sourceName, sourceCommitId,
+			publication.plan, publication.preparations, source.name, source.commit,
 		);
 		const { presentation: _presentation, ...jsonResult } = result;
 		const json = `${stringify(jsonResult, null, 2)}\n`;

@@ -10,7 +10,7 @@ export const renderPackageBranch = ({
 }: {
 	template: string;
 	gitRef: string;
-	gitSha: string | undefined;
+	gitSha: string;
 	packageName: string;
 }): string => {
 	const values = {
@@ -22,10 +22,7 @@ export const renderPackageBranch = ({
 		if (!(placeholder in values)) {
 			throw new Error(`Unknown branch template placeholder ${JSON.stringify(placeholder)}. Supported placeholders: ${supportedPlaceholders}.`);
 		}
-		if (placeholder === '{gitSha}' && !gitSha) {
-			throw new Error(`Branch template ${JSON.stringify(template)} uses {gitSha}, but the source repository has no commit.`);
-		}
-		return values[placeholder as keyof typeof values]!;
+		return values[placeholder as keyof typeof values];
 	});
 	if (rendered.includes('{') || rendered.includes('}')) {
 		throw new Error(`Invalid branch template ${JSON.stringify(template)}. Supported placeholders: ${supportedPlaceholders}.`);

@@ -1,8 +1,10 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
+import spawn from 'nano-spawn';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
@@ -10,6 +12,141 @@ describe('Package contents', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
+
+	test('detects pnpm from an ignored live lockfile', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'.gitignore': 'pnpm-lock.yaml\n',
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				scripts: { prepack: 'node -e "require(\u0027fs\u0027).writeFileSync(\u0027manager.txt\u0027,process.env.npm_config_user_agent)"' },
+			}),
+		}, ['--initial-branch=snapshot']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await fixture.writeFile('pnpm-lock.yaml', 'lockfileVersion: 9.0\n');
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('show', ['npm/snapshot:manager.txt'])).toMatch(/^pnpm\//);
+	});
+
+	for (const [description, manifest, extraFiles, file, gitExclude] of [
+		['copies ignored mandatory main without files', { main: 'dist/index.js' }, { '.gitignore': 'dist/' }, 'dist/index.js'],
+		['copies gitignored output with a root npmignore and no files', {}, {
+			'.gitignore': 'dist/',
+			'.npmignore': '',
+		}, 'dist/index.js'],
+		['copies untracked main outside files', {
+			files: ['dist'],
+			main: 'entry.js',
+		}, {}, 'entry.js'],
+		['copies a string bin outside files', {
+			files: [],
+			bin: './cli.js',
+		}, {}, 'cli.js'],
+		['copies an object bin outside files', {
+			files: [],
+			bin: { app: './cli.js' },
+		}, {}, 'cli.js'],
+		['copies directories.bin outside files', {
+			files: [],
+			directories: { bin: 'bin' },
+		}, {}, 'bin/cli.js'],
+		['copies nested files matched by a directory glob', { files: ['src/*'] }, {}, 'src/sub/x.js'],
+		['copies files excluded by git info exclude', {}, {}, 'excluded.js', 'excluded.js\n'],
+		['prefers nested npmignore over gitignore', {}, {
+			'sub/.gitignore': 'index.js',
+			'sub/.npmignore': '',
+		}, 'sub/index.js'],
+	] as const) {
+		test(description, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					...manifest,
+				}),
+				...extraFiles,
+			}, ['--initial-branch=snapshot']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			if (gitExclude) {
+				await fs.writeFile(fixture.getPath('.git/info/exclude'), gitExclude);
+			}
+			await fs.mkdir(path.dirname(fixture.getPath(file)), { recursive: true });
+			await fixture.writeFile(file, 'untracked content');
+			const result = await gitPublish(fixture.path);
+			onTestFail(() => console.log(result.stdout, result.stderr));
+			expect('exitCode' in result).toBe(false);
+			expect(await remote.git('show', [`npm/snapshot:${file}`])).toBe('untracked content');
+		});
+	}
+
+	test('publishes files inside an untracked nested repository', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				files: ['dist'],
+			}),
+		}, ['--initial-branch=snapshot']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await fs.mkdir(fixture.getPath('dist/nested'), { recursive: true });
+		await fixture.writeFile('dist/index.js', 'untracked content');
+		await fixture.writeFile('dist/nested/index.js', 'nested repository content');
+		await spawn('git', ['init', '-q'], { cwd: fixture.getPath('dist/nested') });
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('ls-tree', ['-r', '--name-only', 'npm/snapshot'])).toBe('dist/index.js\ndist/nested/index.js\npackage.json');
+	});
+
+	test('publishes output ignored by a parent repository gitignore', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'.gitignore': 'dist/\n',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=snapshot']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await fs.mkdir(fixture.getPath('packages/app/dist'));
+		await fixture.writeFile('packages/app/dist/index.js', 'untracked content');
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('show', ['npm/snapshot-app:dist/index.js'])).toBe('untracked content');
+	});
+
+	test('publishes untracked non-ignored files matched by files', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				files: ['dist'],
+			}),
+		}, ['--initial-branch=untracked']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		await fs.mkdir(fixture.getPath('dist'));
+		await fixture.writeFile('dist/index.js', 'untracked content');
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect('exitCode' in result).toBe(false);
+		expect(await remoteGit('show', ['npm/untracked:dist/index.js'])).toBe('untracked content');
+	});
 
 	test('monorepo package', async () => {
 		const branchName = 'test-monorepo';

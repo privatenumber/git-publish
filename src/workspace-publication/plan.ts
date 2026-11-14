@@ -32,7 +32,7 @@ export const planStandalonePublication = async ({
 	gitRootPath: string;
 	packageJson: PackageJson;
 	sourceName: string;
-	sourceCommitId: string | undefined;
+	sourceCommitId: string;
 	publishBranch: string | undefined;
 }): Promise<WorkspacePublicationPlan> => {
 	const workspaceDependencies: string[] = [];
@@ -92,7 +92,7 @@ export const planWorkspacePublication = async ({
 	cwd: string;
 	gitRootPath: string;
 	sourceName: string;
-	sourceCommitId: string | undefined;
+	sourceCommitId: string;
 	packageManager: PackageManager;
 	publishBranch?: string;
 	force: boolean | undefined;

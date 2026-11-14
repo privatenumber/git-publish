@@ -32,14 +32,16 @@
 		"prepack": "pnpm build && clean-pkg-json"
 	},
 	"engines": {
-		"node": ">=22"
+		"node": "^22.22.2 || ^24.15.0 || >=26.0.0"
 	},
 	"dependencies": {
 		"@manypkg/get-packages": "^3.1.0",
 		"@manypkg/tools": "^2.1.2",
-		"fast-glob": "^3.3.3",
+		"@npmcli/map-workspaces": "^6.0.0",
+		"@npmcli/package-json": "^8.0.1",
 		"gunzip-maybe": "^1.4.2",
 		"micromatch": "^4.0.8",
+		"npm-packlist": "~11.3.1",
 		"tar-stream": "^3.1.8",
 		"tasuku": "3.0.0-beta.7"
 	},

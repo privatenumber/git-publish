@@ -41,13 +41,4 @@ describe('Branch templates', () => {
 			packageName: '@test/adapter',
 		})).toThrow('Unknown branch template placeholder "{version}". Supported placeholders: {gitRef}, {gitSha}, {package}.');
 	});
-
-	test('rejects {gitSha} without a source commit', () => {
-		expect(() => renderPackageBranch({
-			template: 'preview/{gitSha}',
-			gitRef: 'main',
-			gitSha: undefined,
-			packageName: 'test-package',
-		})).toThrow('Branch template "preview/{gitSha}" uses {gitSha}, but the source repository has no commit.');
-	});
 });

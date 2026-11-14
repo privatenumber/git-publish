@@ -10,7 +10,7 @@ export const createWorkspaceResult = (
 	plan: WorkspacePublicationPlan,
 	preparations: ReadonlyMap<string, PackagePreparation>,
 	ref: string,
-	commit: string | undefined,
+	commit: string,
 ) => {
 	const { edges, edgesBySource, reachable } = createInstallGraph(plan);
 	const isRequired = (edge: (typeof edges)[number]) => edge.kind === 'dependency' || edge.kind === 'peer';
