@@ -82,7 +82,8 @@ export const pushPackagePublications = async ({
 			} catch (error) {
 				const outcomes = strategy.destinations.map((destination, destinationIndex) => {
 					const status = destinationIndex < index ? 'succeeded' : (destinationIndex === index ? 'failed; remote outcome unknown' : 'not attempted');
-					return `${redactRemote(destination)}: ${status}`;
+					// Numbered because redaction can make credential-bearing URLs identical
+					return `${destinationIndex + 1}. ${redactRemote(destination)}: ${status}`;
 				});
 				throw new Error(`Push destinations:\n${outcomes.join('\n')}\n${getErrorDetails(error)}`, { cause: error });
 			}
