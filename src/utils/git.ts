@@ -19,17 +19,33 @@ export const assertCleanTree = async () => {
 	}
 };
 
-export const getSourceCommit = async () => getStdout(spawn('git', ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])).catch((error: unknown) => {
-	if (error instanceof SubprocessError && error.exitCode === 1) {
-		throw new Error('The repository has no commits. Commit your changes before publishing.');
-	}
-	throw error;
-});
+export const getSourceCommit = async () => {
+	const ref = await getStdout(spawn('git', ['symbolic-ref', '-q', 'HEAD'])).catch((error: unknown) => {
+		if (error instanceof SubprocessError && error.exitCode === 1) {
+			return undefined;
+		}
+		throw error;
+	});
+	// Resolving the captured ref keeps the branch name and commit aligned if HEAD switches.
+	const commit = await getStdout(spawn('git', ['rev-parse', '--verify', '--quiet', `${ref ?? 'HEAD'}^{commit}`])).catch((error: unknown) => {
+		if (error instanceof SubprocessError && error.exitCode === 1) {
+			throw new Error('The repository has no commits. Commit your changes before publishing.');
+		}
+		throw error;
+	});
+	return {
+		ref,
+		commit,
+	};
+};
 
-export const getCurrentSourceName = async (sourceCommitId: string, sourceCommit: string) => {
-	const branch = await getStdout(spawn('git', ['branch', '--show-current']));
-	if (branch) {
-		return branch;
+export const getCurrentSourceName = async (
+	ref: string | undefined,
+	sourceCommitId: string,
+	sourceCommit: string,
+) => {
+	if (ref) {
+		return ref.replace(/^refs\/heads\//, '');
 	}
 
 	const tag = await getStdout(spawn('git', ['describe', '--tags', '--exact-match', sourceCommitId])).catch(() => {

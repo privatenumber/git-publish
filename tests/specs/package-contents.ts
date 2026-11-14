@@ -4,6 +4,7 @@ import { stripVTControlCharacters } from 'node:util';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
+import spawn from 'nano-spawn';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
@@ -11,6 +12,61 @@ describe('Package contents', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
+
+	for (const [description, manifest, extraFiles, file] of [
+		['copies gitignored output with a root npmignore and no files', {}, {
+			'.gitignore': 'dist/',
+			'.npmignore': '',
+		}, 'dist/index.js'],
+		['copies untracked main outside files', {
+			files: ['dist'],
+			main: 'entry.js',
+		}, {}, 'entry.js'],
+		['copies nested files matched by a directory glob', { files: ['src/*'] }, {}, 'src/sub/x.js'],
+	] as const) {
+		test(description, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					...manifest,
+				}),
+				...extraFiles,
+			}, ['--initial-branch=snapshot']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await fs.mkdir(path.dirname(fixture.getPath(file)), { recursive: true });
+			await fixture.writeFile(file, 'untracked content');
+			const result = await gitPublish(fixture.path);
+			onTestFail(() => console.log(result.stdout, result.stderr));
+			expect('exitCode' in result).toBe(false);
+			expect(await remote.git('show', [`npm/snapshot:${file}`])).toBe('untracked content');
+		});
+	}
+
+	test('skips an untracked nested repository under files', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				files: ['dist'],
+			}),
+		}, ['--initial-branch=snapshot']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await fs.mkdir(fixture.getPath('dist/nested'), { recursive: true });
+		await fixture.writeFile('dist/index.js', 'untracked content');
+		await fixture.writeFile('dist/nested/index.js', 'nested repository content');
+		await spawn('git', ['init', '-q'], { cwd: fixture.getPath('dist/nested') });
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.stdout, result.stderr));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('ls-tree', ['-r', '--name-only', 'npm/snapshot'])).toBe('dist/index.js\npackage.json');
+	});
 
 	test('publishes untracked non-ignored files matched by files', async () => {
 		await using fixture = await createGitFixture({

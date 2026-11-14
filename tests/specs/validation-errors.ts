@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
+import which from 'which';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
@@ -145,11 +147,23 @@ exit 1
 		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
-		await git('config', ['core.hooksPath', hooksFixture.path]);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
+		const gitPath = await which('git');
+		await using commands = await createFixture({
+			git: `#!/bin/sh
+if [ "$1" = worktree ] && [ "$2" = add ]; then
+  exec "${gitPath}" -c "core.hooksPath=$TEST_HOOKS" "$@"
+fi
+exec "${gitPath}" "$@"
+`,
+		});
+		await fs.chmod(commands.getPath('git'), 0o755);
 
 		try {
-			const gitPublishProcess = await gitPublish(fixture.path);
+			const gitPublishProcess = await gitPublish(fixture.path, [], {
+				TEST_HOOKS: hooksFixture.path,
+				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+			});
 			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
 			expect(await hooksFixture.exists('pack-checkout')).toBe(true);
 			expect(await hooksFixture.readFile('temporary-directory-mode', 'utf8')).toBe('700\n');
@@ -172,7 +186,7 @@ exit 1
 		}
 	});
 
-	test('Does not create a workspace during dry runs', async () => {
+	test('Cleans up the isolated checkout during dry runs without pushing', async () => {
 		await using remoteFixture = await createGitFixture(undefined, ['--bare']);
 		await using temporaryFixture = await createFixture();
 		await using fixture = await createGitFixture({
@@ -190,6 +204,27 @@ exit 1
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(gitPublishProcess.stdout).not.toContain('→ Install command');
 		expect(await temporaryFixture.readdir('')).toStrictEqual([]);
+		expect(await remoteFixture.git('for-each-ref')).toBe('');
+	});
+
+	test('Cleans up the isolated checkout when planning fails', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using temporary = await createFixture();
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'private',
+				version: '1.0.0',
+				private: true,
+			}),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.path, [], { TMPDIR: temporary.path });
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.stderr).toContain('marked as private');
+		expect(await temporary.readdir('')).toStrictEqual([]);
+		expect(await remote.git('for-each-ref')).toBe('');
 	});
 
 	test('Workspace dependencies', async () => {

@@ -37,7 +37,6 @@
 	"dependencies": {
 		"@manypkg/get-packages": "^3.1.0",
 		"@manypkg/tools": "^2.1.2",
-		"fast-glob": "^3.3.3",
 		"gunzip-maybe": "^1.4.2",
 		"micromatch": "^4.0.8",
 		"tar-stream": "^3.1.8",

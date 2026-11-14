@@ -1,15 +1,10 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
-import glob from 'fast-glob';
 import type { PackageManager } from './detect-package-manager.ts';
 import { readJson } from './read-json.ts';
 import { getStdout } from './get-stdout.ts';
-
-const copyFile = async (source: string, destination: string): Promise<void> => {
-	await fs.mkdir(path.dirname(destination), { recursive: true });
-	await fs.copyFile(source, destination);
-};
+import { packPathspecs } from './pack-pathspecs.ts';
 
 const isNotEnoent = (error: unknown): boolean => (
 	typeof error === 'object'
@@ -48,7 +43,6 @@ export const packPackage = async (
 	cwd: string,
 	gitRootPath: string,
 	gitSubdirectory: string,
-	sourceCommitId: string,
 ): Promise<string> => {
 	// Create temp directory for pack output
 	await fs.mkdir(packDestinationDirectory, { recursive: true });
@@ -59,50 +53,26 @@ export const packPackage = async (
 	// Copy untracked files matched by the manifest; tracked paths come from the captured commit.
 	const packWorktreePackageRoot = path.join(packWorktreePath, gitSubdirectory);
 	const packageJsonPath = path.join(packWorktreePackageRoot, 'package.json');
-	const packageJson = await readJson(packageJsonPath) as { files?: string[] };
-
-	if (packageJson.files && packageJson.files.length > 0) {
-		const { stdout } = await spawn('git', ['ls-tree', '-r', '--name-only', '-z', sourceCommitId, '--', '.'], { cwd: packWorktreePackageRoot });
-		const trackedFiles = new Set(stdout.split('\0'));
-
-		// Transform directory entries to glob patterns
-		// npm/pnpm treat 'dist' as 'dist/**', but fast-glob needs explicit patterns
-		const patterns = await Promise.all(
-			packageJson.files.map(async (entry) => {
-				const fullPath = path.join(cwd, entry);
-				try {
-					const stats = await fs.stat(fullPath);
-					// If it's a directory, expand to recursive pattern
-					return stats.isDirectory() ? `${entry}/**` : entry;
-				} catch (error: unknown) {
-					// Only catch ENOENT (file not found) - treat as glob pattern
-					// Re-throw other errors like EPERM (permission denied)
-					if (isNotEnoent(error)) {
-						throw error;
-					}
-					return entry;
-				}
-			}),
-		);
-
-		// Use fast-glob to resolve patterns in files field
-		// This handles glob patterns like "dist/*.js", directories like "dist", and dotfiles
-		// fast-glob doesn't respect .gitignore by default, so gitignored files are included
-		const matchedFiles = await glob(patterns, {
-			cwd,
-			dot: true, // Include dotfiles like .env.production
+	const packageJson = await readJson(packageJsonPath) as Parameters<typeof packPathspecs>[0];
+	const args = ['ls-files', '--others', '-z', '--exclude=node_modules'];
+	if (!packageJson.files) {
+		const hasNpmignore = await fs.access(path.join(cwd, '.npmignore')).then(() => true, (error: unknown) => {
+			if (isNotEnoent(error)) { throw error; }
+			return false;
 		});
-
-		// Preserve tracked files from the captured commit.
-		for (const relativePath of matchedFiles) {
-			if (trackedFiles.has(relativePath)) {
-				continue;
-			}
-			const sourcePath = path.join(cwd, relativePath);
-			const destinationPath = path.join(packWorktreePackageRoot, relativePath);
-
-			await copyFile(sourcePath, destinationPath);
-		}
+		args.push(hasNpmignore ? '--exclude-per-directory=.npmignore' : '--exclude-standard');
+	}
+	args.push('--', ...packPathspecs(packageJson));
+	const { stdout } = await spawn('git', args, { cwd });
+	// Git lists an untracked nested repository as one `dir/` entry without its contents
+	for (const relativePath of stdout.split('\0').filter(entry => entry && !entry.endsWith('/'))) {
+		const destinationPath = path.join(packWorktreePackageRoot, relativePath);
+		await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+		await fs.cp(path.join(cwd, relativePath), destinationPath, {
+			verbatimSymlinks: true,
+			force: false,
+			errorOnExist: false,
+		});
 	}
 
 	// Symlink node_modules so hooks have access to dependencies

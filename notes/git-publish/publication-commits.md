@@ -18,7 +18,7 @@ The isolated repository is a [non-bare clone without checkout](../../src/publish
 
 ### Captured commit
 
-- One `git rev-parse` reads the full SHA of `HEAD^{commit}` and the symbolic ref of `HEAD` together. The branch name, the exact-tag fallback, the short SHA, `{gitSha}`, the JSON `source.commit`, and the commit message all derive from this capture. Reading the ref separately let a branch switch publish commit A to `npm/B`.
+- `git symbolic-ref -q HEAD` captures the branch ref first; `git rev-parse --verify --quiet <ref>^{commit}` resolves that exact ref, or `HEAD^{commit}` when detached. The branch name, exact-tag fallback, short SHA, `{gitSha}`, JSON `source.commit`, and commit message derive from this capture. Resolving the captured ref keeps the name and commit aligned if HEAD switches between calls.
 - `git rev-parse --verify --quiet HEAD^{commit}` exits 1 on an unborn branch and 128 outside a repository, so exit 1 alone means "no commits".
 - The isolated checkout is created at the captured SHA before planning. Planning and the private-package check read that checkout, so they describe the commit that is packed. Planning from the live checkout let a `HEAD` move publish a private commit without `--force`.
 
@@ -56,7 +56,7 @@ Precedent: [pkg.pr.new](https://github.com/stackblitz-labs/pkg.pr.new/blob/65731
 
 ### Limits
 
-- Untracked files inside submodules are not copied.
+- Untracked files inside submodules and untracked nested repositories are not copied. Git lists a nested repository as one `dir/` entry without its contents.
 - Nested `.npmignore` and `.gitignore` precedence, and package managers whose rules differ from npm's, are approximated by the superset. Bun omits an untracked `main` outside `files`; npm and pnpm include it.
 - `directories.bin` is not expanded.
 

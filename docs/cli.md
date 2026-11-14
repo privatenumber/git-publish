@@ -92,7 +92,7 @@ By default, `git-publish` adds a commit to the existing branch. Lockfiles record
 }
 ```
 
-- `source.commit` is the full source commit ID, or `null` when the source has no commit.
+- `source.commit` is the full source commit ID.
 - Each package's `role` is `root`, `dependency`, or `peer`. `reused` is `true` when the existing publication commit was unchanged.
 - Each install set lists the required and optional package names for one selected package. Look up their commit-pinned specifiers in `packages`.
 - `aliases` maps each selected package to its internal runtime and peer aliases and their target package names. Install commands include required aliases as root arguments.

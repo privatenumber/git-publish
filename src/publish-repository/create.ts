@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
-import { materializePublishGitConfig } from './git-config.ts';
+import { materializeSourceGitConfig, materializeRemoteGitConfig, type GitConfigEntry } from './git-config.ts';
 import {
 	configurePublishTransport, type PublishRemote,
 } from './remote.ts';
@@ -11,21 +11,21 @@ export type PublishRepository = {
 	packWorktreePath: string;
 	packTemporaryDirectory: string;
 	gitOptions: SpawnOptions;
-	pushRemoteNames: string[];
 	fetchRemoteName: string;
+	temporaryDirectory: string;
+	remoteConfig: GitConfigEntry[];
 	dispose(): Promise<void>;
 };
+
+export type ConfiguredPublishRepository = PublishRepository & { pushRemoteNames: string[] };
 
 export const createPublishRepository = async ({
 	sourceRepositoryPath,
 	sourceCommitId,
-	publishRemote,
 }: {
 	sourceRepositoryPath: string;
 	sourceCommitId: string;
-	publishRemote: PublishRemote;
 }): Promise<PublishRepository> => {
-	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
 	const fetchRemoteName = 'publish-source';
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');
@@ -39,8 +39,8 @@ export const createPublishRepository = async ({
 		cwd: publishRepositoryPath,
 		env: gitEnvironment,
 	};
-	const pushRemoteNames = publishRemote.pushUrls.map((_, index) => `publish-${index}`);
 	let packWorktreeCreated = false;
+	let remoteConfig: GitConfigEntry[];
 
 	const dispose = async () => {
 		const cleanupErrors: unknown[] = [];
@@ -60,24 +60,11 @@ export const createPublishRepository = async ({
 		// The isolated client can hold credentials copied from the source remote.
 		await fs.chmod(temporaryDirectory, 0o700);
 		await spawn('git', ['clone', '--origin', fetchRemoteName, '--shared', '--no-checkout', sourceRepositoryPath, publishRepositoryPath], { env: gitEnvironment });
-		await spawn('git', ['remote', 'set-url', fetchRemoteName, publishRemote.historyUrl], gitOptions);
-		for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
-			await spawn('git', ['remote', 'add', pushRemoteNames[index], pushUrl], gitOptions);
-		}
-		await materializePublishGitConfig({
-			sourceRepositoryOptions,
+		remoteConfig = await materializeSourceGitConfig({
+			sourceRepositoryOptions: { cwd: sourceRepositoryPath },
 			destinationRepositoryPath: publishRepositoryPath,
-			remote: publishRemote,
-			fetchRemoteName,
-			pushRemoteNames,
 			systemConfigPath: gitEnvironment.GIT_CONFIG_SYSTEM,
 			globalConfigPath: gitEnvironment.GIT_CONFIG_GLOBAL,
-		});
-		await configurePublishTransport({
-			gitOptions,
-			publishRemote,
-			fetchRemoteName,
-			pushRemoteNames,
 		});
 		packWorktreeCreated = true;
 		await spawn('git', ['worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], gitOptions);
@@ -95,8 +82,38 @@ export const createPublishRepository = async ({
 		packWorktreePath,
 		packTemporaryDirectory,
 		gitOptions,
-		pushRemoteNames,
 		fetchRemoteName,
+		temporaryDirectory,
+		remoteConfig,
 		dispose,
+	};
+};
+
+export const configurePublishRemotes = async (
+	repository: PublishRepository,
+	publishRemote: PublishRemote,
+): Promise<ConfiguredPublishRepository> => {
+	const { gitOptions, fetchRemoteName, temporaryDirectory } = repository;
+	const pushRemoteNames = publishRemote.pushUrls.map((_, index) => `publish-${index}`);
+	await spawn('git', ['remote', 'set-url', fetchRemoteName, publishRemote.historyUrl], gitOptions);
+	for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
+		await spawn('git', ['remote', 'add', pushRemoteNames[index], pushUrl], gitOptions);
+	}
+	await materializeRemoteGitConfig({
+		sourceConfig: repository.remoteConfig,
+		destinationRepositoryPath: path.join(temporaryDirectory, 'publish-repository'),
+		remote: publishRemote,
+		fetchRemoteName,
+		pushRemoteNames,
+	});
+	await configurePublishTransport({
+		gitOptions,
+		publishRemote,
+		fetchRemoteName,
+		pushRemoteNames,
+	});
+	return {
+		...repository,
+		pushRemoteNames,
 	};
 };
