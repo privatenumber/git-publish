@@ -4,6 +4,19 @@
 
 Verified 2026-11-07 against npm 11.21.2 and 12.2.2, pnpm 10.34.9, 11.28.11, and 12.18.0, Yarn 1.22.22 and 4.18.1, and Bun 1.4.4.
 
+## Packing and the publication graph
+
+The publication graph is planned from source manifests. After packing, runtime and peer edges removed by pack hooks are dropped from the pushed closure and install sets. pnpm exposes [`beforePacking`](https://pnpm.io/pnpmfile), and Yarn exposes [`beforeWorkspacePacking`](https://yarnpkg.com/api/plugin-pack/interface/Hooks).
+
+Known limits:
+
+- Detection of added or redirected internal dependencies is incomplete. Existing validation rejects added unresolved `workspace:` specifications and planned runtime edges changed to non-semver specifications, except valid npm aliases to their planned targets. Packing also rejects moving a planned key to a field that did not previously declare it, and rejects removing an optional override while its dependency remains. Complete detection would require resolving every alias, catalog, and protocol form.
+- The planner does not resolve pnpm `catalog:` entries that point at workspace packages, as on develop.
+- A peer included only because a runtime edge selected its target can still cause a peer-range mismatch error after the runtime edge is removed. This fails closed and is rare.
+- The plan is fixed before packing. Every planned package is packed and validated, even if a later pack hook makes it unreachable. Plan-time checks, including multiple push URLs and branch-template collisions, use the planned closure.
+
+Removal behavior is covered by [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts).
+
 ## Why the set is installed at the root
 
 Current package managers block Git dependencies that are declared by another Git dependency unless the consumer opts in:

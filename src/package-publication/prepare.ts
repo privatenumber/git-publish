@@ -4,7 +4,7 @@ import { getStdout } from '../utils/get-stdout.ts';
 import { readJson } from '../utils/read-json.ts';
 import { findUnpublishedFilesFieldEntries } from '../utils/unpublished-files-field.ts';
 import { toPackageManagerGitUrl } from '../utils/git-url.ts';
-import type { WorkspacePeer } from '../workspace-publication/graph.ts';
+import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/graph.ts';
 import { importTarball, type File } from './import-tarball.ts';
 import { validatePackedManifest } from './validate.ts';
 
@@ -24,6 +24,8 @@ export type PackagePreparation = {
 	reusedExistingCommit: boolean;
 	version: string | undefined;
 	peerDependencies: Partial<Record<string, string>>;
+	dependencies: PublishGraphEdge[];
+	peers: WorkspacePeer[];
 };
 
 export type PackagePublicationDependency = {
@@ -66,6 +68,26 @@ export const preparePackagePublication = async ({
 	const rewriteManifest = (content: Buffer) => {
 		manifest = JSON.parse(content.toString('utf8')) as PackageJson;
 		const original = stringify(manifest);
+		for (const { key, field } of [
+			...dependencyEdges,
+			...peers.map(peer => ({
+				key: peer.key,
+				field: 'peerDependencies' as const,
+			})),
+		]) {
+			if (Object.hasOwn(manifest[field] ?? {}, key)) {
+				continue;
+			}
+			if (field === 'optionalDependencies' && Object.hasOwn(manifest.dependencies ?? {}, key)) {
+				throw new Error(`Package ${stringify(packageName)} removes optionalDependencies ${stringify(key)} during packing while it remains in dependencies.`);
+			}
+			for (const other of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+				if (Object.hasOwn(manifest[other] ?? {}, key)
+					&& !Object.hasOwn(sourceManifest[other] ?? {}, key)) {
+					throw new Error(`Package ${stringify(packageName)} moves ${stringify(key)} from ${field} to ${other} during packing. Pack hooks may remove internal dependencies but not move them.`);
+				}
+			}
+		}
 		validatePackedManifest(packageName, manifest, sourceManifest, dependencyEdges, peers);
 		for (const edge of dependencyEdges) {
 			const field = manifest[edge.field];
@@ -107,6 +129,8 @@ export const preparePackagePublication = async ({
 	if (!manifest) {
 		throw new Error('Packed package is missing package.json');
 	}
+	const packedManifest = manifest;
+	const { peerDependencies, peerDependenciesMeta } = packedManifest;
 	const parentRevisions = parent
 		? await getStdout(spawn('git', ['rev-parse', parent, `${parent}^{tree}`], gitOptions))
 		: '';
@@ -152,11 +176,20 @@ export const preparePackagePublication = async ({
 		},
 		files,
 		unpublishedFilesFieldEntries: findUnpublishedFilesFieldEntries(
-			manifest.files,
+			packedManifest.files,
 			files.map(file => file.file),
 		),
 		reusedExistingCommit,
-		version: manifest.version,
-		peerDependencies: manifest.peerDependencies ?? {},
+		version: packedManifest.version,
+		peerDependencies: peerDependencies ?? {},
+		dependencies: dependencyEdges.filter(edge => (
+			Object.hasOwn(packedManifest[edge.field] ?? {}, edge.key)
+		)),
+		peers: peers.filter(peer => (
+			Object.hasOwn(peerDependencies ?? {}, peer.key)
+		)).map(peer => ({
+			...peer,
+			optional: peerDependenciesMeta?.[peer.key]?.optional === true,
+		})),
 	};
 };

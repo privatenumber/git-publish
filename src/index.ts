@@ -185,7 +185,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 				}
 				return;
 			}
-			const preparations = await publishWorkspaceClosure({
+			const prepared = await publishWorkspaceClosure({
 				plan,
 				packageManager,
 				repositoryPath: gitRootPath,
@@ -196,20 +196,22 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			});
 			const repositoryName = plan.standalone && getGitHubRepositoryName(remoteUrl);
 			if (repositoryName) {
-				const { commit } = preparations.get(plan.nodes[0]!.key)!.publication;
+				const { commit } = prepared.preparations.get(plan.nodes[0]!.key)!.publication;
 				const branchLink = terminalLink(publishBranch, `https://github.com/${repositoryName}/tree/${publishBranch}`, { fallback: false });
 				const commitLink = terminalLink(commit.slice(0, 7), `https://github.com/${repositoryName}/commit/${commit}`, { fallback: false });
 				setTitle(`Successfully published branch: ${branchLink} ${dim(`(${commitLink})`)}`);
 			} else if (!plan.standalone) {
 				setTitle(`Published ${rootsDescription} from ${stringify(sourceName)}`);
 			}
-			return preparations;
+			return prepared;
 		},
 	).catch(() => {
 		process.exitCode = 1;
 	});
 	if (publication) {
-		const result = createWorkspaceResult(plan, publication, sourceName, sourceCommitId);
+		const result = createWorkspaceResult(
+			publication.plan, publication.preparations, sourceName, sourceCommitId,
+		);
 		const { presentation: _presentation, ...jsonResult } = result;
 		const json = `${stringify(jsonResult, null, 2)}\n`;
 		let jsonWriteError: Error | undefined;

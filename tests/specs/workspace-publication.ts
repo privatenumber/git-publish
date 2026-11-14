@@ -15,6 +15,173 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+		test(`omits a pack-removed ${field} edge from publication and install output`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'package-lock.json': '{}',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					[field]: { core: 'workspace:*' },
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=removed']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await using commands = await createFixture({
+				npm: `#!/bin/sh
+if [ "$1" = pack ] && [ -f package.json ]; then
+  "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.${field}) { delete p.${field}.core; fs.writeFileSync("package.json", JSON.stringify(p)); }'
+fi
+exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+`,
+			});
+			await fs.chmod(commands.getPath('npm'), 0o755);
+			await using output = await createFixture();
+			const result = await gitPublish(fixture.getPath('packages/app'), ['--json', output.getPath('result.json')], {
+				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+			});
+			onTestFail(() => console.log(result.stdout, result.stderr));
+			expect('exitCode' in result).toBe(false);
+			const json = JSON.parse(await output.readFile('result.json', 'utf8'));
+			expect(json.installSets.app).toStrictEqual({
+				required: ['app'],
+				optional: [],
+			});
+			expect(json.packages.map((item: { name: string }) => item.name)).toStrictEqual(['app']);
+			const installOutput = result.stdout.slice(result.stdout.indexOf('→ Install'));
+			expect(installOutput.split('git+file://')).toHaveLength(2);
+			expect(await remote.git('branch', ['--list'])).not.toContain('npm/removed-core');
+		});
+	}
+
+	for (const [label, source, mutation, from, to] of [
+		['removes an optional override', {
+			dependencies: { core: 'file:../core' },
+			optionalDependencies: { core: 'file:../core' },
+		}, 'delete p.optionalDependencies.core', 'optionalDependencies', 'dependencies'],
+		['moves runtime to peer', { dependencies: { core: 'file:../core' } }, 'delete p.dependencies.core; p.peerDependencies = { core: "^1.0.0" }', 'dependencies', 'peerDependencies'],
+		['moves peer to runtime', { peerDependencies: { core: '^1.0.0' } }, 'delete p.peerDependencies.core; p.dependencies = { core: "^1.0.0" }', 'peerDependencies', 'dependencies'],
+	] as const) {
+		test(`rejects pack hook that ${label}`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'package-lock.json': '{}',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					...source,
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=move']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await using commands = await createFixture({
+				npm: `#!/bin/sh
+if [ "$1" = pack ] && [ -f package.json ]; then
+  "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.name === "app") { ${mutation}; fs.writeFileSync("package.json", JSON.stringify(p)); }'
+fi
+exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+`,
+			});
+			await fs.chmod(commands.getPath('npm'), 0o755);
+			const result = await gitPublish(fixture.getPath('packages/app'), [], {
+				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+			});
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(true);
+			expect(result.output).toContain(label === 'removes an optional override'
+				? 'Package "app" removes optionalDependencies "core" during packing while it remains in dependencies.'
+				: `Package "app" moves "core" from ${from} to ${to} during packing. Pack hooks may remove internal dependencies but not move them.`);
+			expect(await remote.git('for-each-ref')).toBe('');
+		});
+	}
+
+	test('uses the standalone branch for a nested public workspace root', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'web/package.json': JSON.stringify({
+				name: 'web',
+				version: '1.0.0',
+				workspaces: ['packages/*'],
+			}),
+			'web/package-lock.json': '{}',
+			'web/packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=nested-root']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('web'));
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('branch', ['--list'])).toContain('npm/nested-root-web');
+	});
+
+	test('reclassifies a dependency reachable only as a peer after packing', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: 'file:../core' },
+				peerDependencies: { core: '^1.0.0' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=role']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await using commands = await createFixture({
+			npm: `#!/bin/sh
+if [ "$1" = pack ] && [ -f package.json ]; then
+  "${process.execPath}" -e 'const fs = require("fs"); const p = JSON.parse(fs.readFileSync("package.json")); if (p.name === "app") { delete p.dependencies.core; fs.writeFileSync("package.json", JSON.stringify(p)); }'
+fi
+exec "${path.join(path.dirname(process.execPath), 'npm')}" "$@"
+`,
+		});
+		await fs.chmod(commands.getPath('npm'), 0o755);
+		await using output = await createFixture();
+		const result = await gitPublish(fixture.getPath('packages/app'), ['--json', output.getPath('result.json')], {
+			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+		});
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		const json = await output.readJson<{ packages: { name: string;
+			role: string; }[]; }>('result.json');
+		expect(json.packages.find(item => item.name === 'core')?.role).toBe('peer');
+	});
+
 	test('publishes and pins an npm sibling file dependency', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
