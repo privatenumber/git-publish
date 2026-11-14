@@ -1152,12 +1152,32 @@ exec "${npmPath}" "$@"
 				'added local dependency': 'file:../core',
 			}[scenario]!;
 			expect(result.output).toContain(expected);
+			if (scenario === 'unchanged range') {
+				expect(result.output).toContain('dependency "core" requires "^1.0.0", but its packed version is "2.0.0"');
+			}
 			expect(await remote.git('for-each-ref')).toBe('');
 		});
 	}
 
 	test('rejects a non-string packed internal peer', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using commands = await createFixture({
+			'package/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				peerDependencies: { core: 42 },
+			}),
+		});
+		const tarball = commands.getPath('invalid.tgz');
+		await spawn('tar', ['-czf', tarball, '-C', commands.path, 'package']);
+		await commands.writeFile('npm', `#!/bin/sh
+if [ "$1" = pack ] && [ "$(basename "$PWD")" = app ]; then
+  cp '${tarball}' "$3/invalid.tgz"
+  exit $?
+fi
+exec '${npmPath}' "$@"
+`);
+		await fs.chmod(commands.getPath('npm'), 0o755);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				private: true,
@@ -1168,9 +1188,7 @@ exec "${npmPath}" "$@"
 				name: 'app',
 				version: '1.0.0',
 				peerDependencies: { core: '^1.0.0' },
-				scripts: { prepack: 'node hook.cjs' },
 			}),
-			'packages/app/hook.cjs': 'const fs = require("fs"); const p = require("./package.json"); p.peerDependencies.core = 42; fs.writeFileSync("package.json", JSON.stringify(p));',
 			'packages/core/package.json': JSON.stringify({
 				name: 'core',
 				version: '1.0.0',
@@ -1179,10 +1197,41 @@ exec "${npmPath}" "$@"
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
-		const result = await gitPublish(fixture.getPath('packages/app'));
+		const result = await gitPublish(fixture.getPath('packages/app'), [], { PATH: `${commands.path}:${process.env.PATH}` });
 		onTestFail(() => console.log(result.output));
 		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain('Package "app" has invalid packed peer "core": 42.');
 		expect(await remote.git('for-each-ref')).toBe('');
+	});
+
+	test('publishes a shadowed dependency with a planned optional path', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: 'file:../core' },
+				optionalDependencies: { core: 'file:../core' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=shadowed-path']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		const manifest = JSON.parse(await remote.git('show', ['npm/shadowed-path-app:package.json']));
+		const commit = await remote.git('rev-parse', ['npm/shadowed-path-core']);
+		expect(manifest.optionalDependencies.core).toBe(`git+file://${remote.path}#${commit}`);
 	});
 
 	test('does not validate peers of packages removed from the effective plan', async () => {

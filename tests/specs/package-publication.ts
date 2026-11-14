@@ -10,10 +10,32 @@ import { importTarball } from '../../src/package-publication/import-tarball.ts';
 import {
 	preparePackagePublication, toInstallSpecifier,
 } from '../../src/package-publication/prepare.ts';
-import { validatePackedWorkspaceDependencies } from '../../src/package-publication/validate.ts';
+import { validatePackedManifest, validatePackedWorkspaceDependencies } from '../../src/package-publication/validate.ts';
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	test('validates unplanned local paths against the package boundary', () => {
+		const context = {
+			from: '/repo/packages/app',
+			root: '/repo',
+			targets: new Map(),
+		};
+		for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+			for (const value of ['file:../core', 'link:../core', 'workspace:../core', 'file:/repo/packages/app/core', 'file:../thing::local', 'file:../core::locator=app%40workspace%3Apackages%2Fapp']) {
+				expect(() => validatePackedManifest('app', {
+					name: 'app',
+					[field]: { core: value },
+				}, [], [], context))
+					.toThrow(`Package "app" has ${field} "core": ${JSON.stringify(value)}, a local path outside the package that consumers can't install.`);
+			}
+			for (const value of ['file:./core', 'link:./core', 'file:./thing::local', 'file:./core::locator=app%40workspace%3Apackages%2Fapp']) {
+				validatePackedManifest('app', {
+					name: 'app',
+					[field]: { core: value },
+				}, [], [], context);
+			}
+		}
+	});
 	test('rejects case-colliding packed symlinks', async () => {
 		await using fixture = await createFixture();
 		await using repository = await createGitFixture();
@@ -449,7 +471,6 @@ describe('Package publication', () => {
 			validationContext: {
 				from: packageFixture.getPath('package'),
 				root: packageFixture.path,
-				workspaceDirectories: [],
 				targets: new Map([
 					['@test/core', {
 						dir: packageFixture.getPath('core'),

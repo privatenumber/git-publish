@@ -11,7 +11,6 @@ const { stringify } = JSON;
 export type PackedManifestValidationContext = {
 	from: string;
 	root: string;
-	workspaceDirectories: readonly string[];
 	targets: ReadonlyMap<string, {
 		dir: string;
 		version?: string;
@@ -38,18 +37,24 @@ export const validatePackedManifest = (
 	if (manifest.name !== packageName) {
 		throw new Error(`Package ${stringify(packageName)} has packed name ${stringify(manifest.name)}.`);
 	}
-	const resolvePath = (key: string, packed: string) => {
-		const [specifier, suffix] = packed.split('::', 2);
+	const resolvePath = (packed: string) => {
+		let specifier = packed;
 		let base = context.from;
-		if (suffix) {
+		const separator = packed.indexOf('::');
+		if (separator !== -1) {
+			const suffix = packed.slice(separator + 2);
 			const locator = new URLSearchParams(suffix).get('locator');
-			const match = locator && /@workspace:(.*)$/.exec(locator);
-			if (!match) {
-				throw new Error(`Package ${stringify(packageName)} dependency ${stringify(key)} has an invalid packed locator.`);
+			const match = locator && /^.+@workspace:(.+)$/.exec(locator);
+			if (match) {
+				specifier = packed.slice(0, separator);
+				base = path.resolve(context.root, match[1]!);
 			}
-			base = path.resolve(context.root, match[1]!);
 		}
-		return path.resolve(base, specifier!.slice(specifier!.indexOf(':') + 1));
+		const localPath = specifier.slice(specifier.indexOf(':') + 1);
+		return {
+			localPath,
+			resolved: path.resolve(base, localPath),
+		};
 	};
 	for (const edge of dependencyEdges) {
 		const packed = manifest[edge.field]?.[edge.key];
@@ -68,25 +73,31 @@ export const validatePackedManifest = (
 			valid = satisfiesPackedPeer(packed, edge.target, target.version);
 		}
 		if (!valid && target && /^(?:file|link):/.test(packed)) {
-			valid = resolvePath(edge.key, packed) === path.resolve(target.dir);
+			valid = resolvePath(packed).resolved === path.resolve(target.dir);
 		}
 		if (!valid) {
+			if (packed === source && semver.validRange(range)) {
+				throw new Error(`Package ${stringify(packageName)} dependency ${stringify(edge.key)} requires ${stringify(packed)}, but its packed version is ${stringify(target?.version)}.`);
+			}
 			throw new Error(`Package ${stringify(packageName)} dependency ${stringify(edge.key)} changed during packing from ${stringify(source)} to ${stringify(packed)}.`);
 		}
 	}
-	const directories = new Set(context.workspaceDirectories.map(directory => (
-		path.resolve(directory)
-	)));
 	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
 		for (const [key, value] of Object.entries(manifest[field] ?? {})) {
 			if (typeof value !== 'string' || dependencyEdges.some(edge => edge.field === field && edge.key === key)
+				|| (field === 'dependencies' && Object.hasOwn(manifest.optionalDependencies ?? {}, key))
 				|| (field === 'peerDependencies' && peers.some(peer => peer.key === key && peer.target))) {
 				continue;
 			}
 			const workspace = parseWorkspaceSpecification(value);
-			if ((/^(?:file|link):/.test(value) || workspace?.kind === 'path')
-				&& directories.has(resolvePath(key, value))) {
-				throw new Error(`Package ${stringify(packageName)} has unplanned ${field} ${stringify(key)}: ${stringify(value)} pointing to a workspace package.`);
+			if (/^(?:file|link):/.test(value) || workspace?.kind === 'path'
+				|| (value.startsWith('workspace:') && (path.isAbsolute(value.slice(10)) || path.win32.isAbsolute(value.slice(10))))) {
+				const { localPath, resolved } = resolvePath(value);
+				const relative = path.relative(context.from, resolved);
+				if (path.isAbsolute(localPath) || path.win32.isAbsolute(localPath)
+					|| relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+					throw new Error(`Package ${stringify(packageName)} has ${field} ${stringify(key)}: ${stringify(value)}, a local path outside the package that consumers can't install.`);
+				}
 			}
 		}
 	}
@@ -96,13 +107,16 @@ export const validatePackedManifest = (
 			rewritten[edge.field]![edge.key] = '';
 		}
 	}
-	validatePackedWorkspaceDependencies(packageName, rewritten);
 	for (const peer of peers) {
 		const range = manifest.peerDependencies?.[peer.key];
+		if (peer.target && range !== undefined && typeof range !== 'string') {
+			throw new Error(`Package ${stringify(peer.from)} has invalid packed peer ${stringify(peer.key)}: ${stringify(range)}.`);
+		}
 		if (peer.target && range !== undefined && /^(?:file|link):/.test(range)) {
 			throw new Error(`Package ${stringify(peer.from)} declares peer ${stringify(peer.key)} as ${stringify(range)}, which consumers cannot resolve. Use a workspace: specifier or a version range.`);
 		}
 	}
+	validatePackedWorkspaceDependencies(packageName, rewritten);
 };
 
 export const validatePeerRanges = (
