@@ -6,12 +6,11 @@ Verified 2026-11-07 against npm 11.21.2 and 12.2.2, pnpm 10.34.9, 11.28.11, and 
 
 ## Packing and the publication graph
 
-The publication graph is planned from source manifests. After packing, runtime and peer edges removed by pack hooks are dropped from the pushed closure and install sets. pnpm exposes [`beforePacking`](https://pnpm.io/pnpmfile), and Yarn exposes [`beforeWorkspacePacking`](https://yarnpkg.com/api/plugin-pack/interface/Hooks).
+The publication graph is planned from source manifests. The planner resolves `catalog:` entries for pnpm, Yarn, and Bun before deciding whether they point at workspace packages; see [workspace dependency resolution](./workspace-dependency-resolution.md#which-entries-are-internal). After packing, runtime and peer edges removed by pack hooks are dropped from the pushed closure and install sets. pnpm exposes [`beforePacking`](https://pnpm.io/pnpmfile), and Yarn exposes [`beforeWorkspacePacking`](https://yarnpkg.com/api/plugin-pack/interface/Hooks).
 
 Known limits:
 
-- Detection of added or redirected internal dependencies is incomplete. Existing validation rejects added unresolved `workspace:` specifications and planned runtime edges changed to non-semver specifications, except valid npm aliases to their planned targets. Packing also rejects moving a planned key to a field that did not previously declare it, and rejects removing an optional override while its dependency remains. Complete detection would require resolving every alias, catalog, and protocol form.
-- The planner does not resolve pnpm `catalog:` entries that point at workspace packages, as on develop.
+- Detection of added or redirected internal dependencies is incomplete. Tracked in [#108](https://github.com/privatenumber/git-publish/issues/108). Existing validation rejects added unresolved `workspace:` specifications and planned runtime edges changed to non-semver specifications, except valid npm aliases to their planned targets. Packing also rejects moving a planned key to a field that did not previously declare it, and rejects removing an optional override while its dependency remains. Complete detection would require resolving every alias, catalog, and protocol form.
 - A peer included only because a runtime edge selected its target can still cause a peer-range mismatch error after the runtime edge is removed. This fails closed and is rare.
 - The plan is fixed before packing. Every planned package is packed and validated, even if a later pack hook makes it unreachable. Plan-time checks, including multiple push URLs and branch-template collisions, use the planned closure.
 

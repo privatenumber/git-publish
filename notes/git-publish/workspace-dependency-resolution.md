@@ -1,6 +1,6 @@
 # Workspace dependency resolution
 
-**Decision.** git-publish builds the publication graph from source manifests before packing, because packing erases `workspace:` intent. An entry is an internal edge when it resolves to a workspace package the way the repository's package manager would link it. Verified 2026-11-07.
+**Decision.** git-publish builds the publication graph from source manifests before packing, because packing erases `workspace:` intent. It classifies internal edges using the rules below, which approximate package-manager linking but do not cover every linked dependency. In particular, it omits an `npm:` alias that Yarn or Bun links to a workspace in the [read-install experiment](./read-install-experiment.md#results). Verified 2026-11-14.
 
 ## Which entries are internal
 
