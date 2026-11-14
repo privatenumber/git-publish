@@ -22,12 +22,14 @@ A selection publishes the selected packages plus every workspace package they ne
 
 - `workspace:` references, including aliases such as `workspace:core@*`. An explicit range, such as `workspace:^2.0.0`, must match the target's version.
 - `file:` and `link:` paths to workspace packages.
+- pnpm, Bun, and Yarn `catalog:` references, using the same rules as the range in the catalog.
 - Plain semver runtime ranges whose range the workspace package's version satisfies: for npm and Bun always, for Yarn unless transparent workspaces are disabled, and for pnpm when `linkWorkspacePackages` is enabled (`true` or `deep`). Plain peer ranges are considered for every package manager.
 
 In each published package, internal runtime dependencies are rewritten to commit-pinned Git URLs of the published packages. Internal peers keep their packed ranges.
 
 Publication fails before pushing if:
 
+- a catalog reference for a workspace package cannot be resolved,
 - a packed peer range does not match its target's packed version,
 - a packed dependency or peer still uses `workspace:`,
 - or a lifecycle hook changed or added an internal dependency during packing. Hooks may remove internal dependencies.

@@ -9,10 +9,15 @@
 | `workspace:*`, `workspace:^`, `workspace:~`, aliases such as `workspace:core@*` | always; an explicit range (`workspace:^2.0.0`, also inside an alias) must be satisfied by the target's version | "rejects mismatched explicit workspace ranges before packing", "rejects an aliased workspace range that does not match its target" |
 | plain semver range (`^1.0.0`) | the target's version satisfies it, and the package manager links plain ranges: npm and Bun always; Yarn unless transparent workspaces are disabled; pnpm only when `linkWorkspacePackages` is enabled | "links pnpm plain ranges when workspace linking is enabled", "reads Yarn transparent workspace configuration at the workspace root" |
 | `file:<path>`, `link:<path>` | the path resolves to a workspace package directory | "publishes and pins an npm sibling file dependency" |
+| `catalog:` | the effective catalog entry resolves to an internal dependency by the rules above | "publishes pnpm included catalog dependency", "publishes a Yarn catalog workspace dependency" |
 
 Tests are in [`tests/specs/publish-graph.ts`](../../tests/specs/publish-graph.ts) and [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts).
 
 The plain-range rule matters because npm has no `workspace:` protocol: an npm workspace links siblings only through ranges or `file:` paths, so a `workspace:`-only rule would publish no closure for npm monorepos. In a survey of 40 public monorepos, 11% of internal edges were plain ranges. pnpm does not link plain ranges by default, so treating them as internal there would replace a registry dependency with a sibling commit.
+
+Catalogs are resolved before graph construction using effective package-manager configuration, so included pnpm configuration and Yarn configuration inherited from the environment or home directory are not missed. Yarn's unnamed `catalog:` and named `catalog:default` are distinct ([Yarn 4.18.1 source](https://github.com/yarnpkg/berry/blob/%40yarnpkg/cli/4.18.1/packages/plugin-catalog/sources/utils.ts#L21-L36)); the "distinguishes Yarn unnamed and named default catalogs" test publishes both cases. Missing catalog entries for workspace names stop publication before packing rather than silently omitting an edge.
+
+The isolated pack checkout does not inherit package-manager configuration located above the Git repository, such as an ancestor `.yarnrc.yml`. A catalog that depends on that configuration can therefore resolve during planning but fail during packing, before publication.
 
 Explicit `workspace:` ranges are checked by git-publish because the package manager does not always check them. pnpm 10.34.9 installs a workspace where `app` declares `core: "workspace:^2.0.0"` and the local `core` is `1.0.0`; pnpm 12.18.0 rejects it (`No matching version found for core@workspace:^2.0.0 inside` the workspace).
 
@@ -37,6 +42,8 @@ A package reachable only through `optionalDependencies` or an optional peer (`pe
 ## Pack hooks and published manifests
 
 Lifecycle hooks may remove an internal dependency from the packed manifest; the removal is kept. Changing an internal dependency to an alias of another package or to a URL, Git, or `file:` value that differs from the source manifest fails before pushing. Adding internal dependencies during packing is not supported. After rewriting, a leftover `workspace:` value in any dependency field fails before pushing.
+
+Changed packed dependency ranges are checked against the dependency's packed version, not its source version, because a prepack hook can change that version. Yarn uses `0.0.0` for a versionless workspace target, so the check uses that fallback for Yarn only. With a versionless `core` workspace and an `app` depending on `core` via `workspace:*`, `workspace:^`, or `workspace:~`, `yarn install` followed by `yarn pack --out out.tgz` with Yarn 4.18.1 produced `0.0.0`, `^0.0.0`, and `~0.0.0` respectively in the packed app manifest. With the same inputs, `pnpm install` and `pnpm pack --pack-destination .` on pnpm 12.18.0 failed with `ERR_PNPM_CANNOT_RESOLVE_WORKSPACE_PROTOCOL`; `bun install` and `bun pm pack --destination .` on Bun 1.4.4 failed with `Failed to resolve workspace version`. Verified 2026-11-14. The real-publication tests cover all three Yarn forms and the incompatible packed-version rejection.
 
 The published manifest drops `scripts.prepare`, `scripts.prepack`, `scripts.postpack`, the `workspaces` field, and `devDependencies`. npm reruns preparation for a Git dependency that has `prepare`, `build`, install hooks, or `workspaces` ([npm package.json docs, "git URLs as dependencies"](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#git-urls-as-dependencies)), and Yarn 4 packs Git dependencies with `yarn pack`, which runs `postpack`. Dropping `devDependencies` keeps that preparation from fetching unpublished private siblings. `scripts.build` is removed too, unless an install hook remains that may call it.
 

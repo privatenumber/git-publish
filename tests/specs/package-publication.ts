@@ -423,11 +423,13 @@ describe('Package publication', () => {
 					key: 'core-alias',
 					field: 'dependencies',
 					target: '@test/core',
+					specification: 'workspace:@test/core@*',
 				},
 				{
 					key: '@test/optional',
 					field: 'optionalDependencies',
 					target: '@test/optional',
+					specification: 'workspace:*',
 				},
 			],
 			dependencyPublications: new Map([
@@ -444,6 +446,20 @@ describe('Package publication', () => {
 					installSpecifier: 'git+file:///remote.git#optional-commit',
 				}],
 			]),
+			validationContext: {
+				from: packageFixture.getPath('package'),
+				root: packageFixture.path,
+				targets: new Map([
+					['@test/core', {
+						dir: packageFixture.getPath('core'),
+						version: '1.0.0',
+					}],
+					['@test/optional', {
+						dir: packageFixture.getPath('optional'),
+						version: '1.0.0',
+					}],
+				]),
+			},
 			gitOptions: { cwd: publishFixture.path },
 		});
 		const manifest = JSON.parse(await publishFixture.git('show', [`${preparation.publication.commit}:package.json`]));
