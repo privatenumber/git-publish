@@ -8,11 +8,23 @@ import {
 } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { detectPackageManager } from '../../src/utils/detect-package-manager.ts';
+import { spawnAbortable } from '../../src/utils/spawn-abortable.ts';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
 
 describe('Lifecycle hooks', async () => {
+	test('stops a subprocess when aborted immediately after spawn', async () => {
+		const controller = new AbortController();
+		const reason = new Error('interrupted');
+		const subprocess = spawnAbortable(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+			signal: controller.signal,
+		});
+		controller.abort(reason);
+		const child = await subprocess.nodeChildProcess;
+		expect(await subprocess.catch(error => error)).toBe(reason);
+		expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+	});
 	test('cleans up after SIGTERM during worktree creation', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using temporary = await createFixture();
@@ -50,7 +62,7 @@ describe('Lifecycle hooks', async () => {
 		let output = '';
 		child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString(); });
 		child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
-		const exited = once(child, 'exit');
+		const exited = once(child, 'close');
 		try {
 			await ready;
 			child.kill('SIGTERM');
@@ -108,9 +120,12 @@ describe('Lifecycle hooks', async () => {
 				child.kill(signal);
 				const [code] = await exited;
 				expect(code).toBe(exitCode);
-				if (signal === 'SIGTERM') {
-					expect(() => process.kill(hookPid, 0)).toThrow();
-				}
+				const ps = await spawn('ps', ['-o', 'stat=', '-p', String(hookPid)])
+					.catch((error: { exitCode?: number }) => {
+						if (error.exitCode !== 1) { throw error; }
+						return undefined;
+					});
+				expect(!ps || ps.stdout.trim().startsWith('Z')).toBe(true);
 				expect(await temporary.readdir('')).toStrictEqual([]);
 				expect(await remote.git('for-each-ref')).toBe('');
 			} finally {

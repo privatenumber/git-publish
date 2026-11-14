@@ -73,7 +73,9 @@ On the develop implementation, the tests "publishes packed files excluded by glo
 
 ## Known limitations
 
-On interruption, git-publish signals and waits for the direct subprocess to exit, not its descendants. Processes started by that subprocess, such as Git filters or commands in a compound lifecycle hook, may continue running. Ctrl-C in a terminal signals the foreground process group, so this limitation does not apply to processes that remain in that group.
+On POSIX, interruption sends SIGTERM to the subprocess's process group and waits for the direct subprocess to exit. Descendants that create another process group or session, or ignore SIGTERM, can survive. On Windows, only the direct child is signalled.
+
+The earlier direct-child-only decision was reversed after testing on Debian 12 with Node 26.13.0. npm ran a prepack hook through a separate `/bin/sh -c` process; after git-publish exited, the hook was orphaned with PPID 1 and state `Sl` in three of three runs.
 
 A consumer with a custom symmetric clean/smudge filter for a path in the packed `.gitattributes` may get transformed bytes on checkout. Git LFS 3.8.1 passes ordinary content through: in a fresh repository, `printf 'hello\n' | git lfs smudge x.txt` printed `hello`, reported `Pointer file error: Unable to parse pointer`, and exited 0; the former clean-filtered pointers were also unsafe because git-publish [pushes with `--no-verify`](../../src/package-publication/push.ts), skipping LFS's pre-push upload.
 
