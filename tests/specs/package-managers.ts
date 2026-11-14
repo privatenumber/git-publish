@@ -107,13 +107,13 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 				}, [`--initial-branch=${branchName}`]);
 
 				// Pack with npm so these output tests do not require every package manager.
-				// Yarn's pack flags differ from npm's, so it uses the bundled Yarn 1 binary.
+				// Yarn's pack flags differ from npm's, so it uses the bundled Yarn binary.
 				await using commandsFixture = await createFixture();
 				let environment: Record<string, string> = {
 					PATH: `${commandsFixture.path}${path.delimiter}${process.env.PATH}`,
 				};
 				if (packageManager === 'yarn') {
-					environment = await createYarnEnvironment(commandsFixture, 'node_modules/yarn-classic/bin/yarn.js');
+					environment = await createYarnEnvironment(commandsFixture, 'node_modules/yarn-berry/bin/yarn.js');
 				} else if (packageManager !== 'npm') {
 					await commandsFixture.writeFile(packageManager, `#!/bin/sh
 if [ "$1" = pm ]; then exec npm pack --pack-destination "$4"; fi
@@ -140,6 +140,30 @@ exec npm "$@"
 	});
 
 	describe('Yarn', () => {
+		test('rejects Yarn 1 before pushing', async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using commands = await createFixture({
+				yarn: '#!/bin/sh\nif [ "$1" = --version ]; then echo 1.22.22; exit 0; fi\nexit 99\n',
+			});
+			await fs.chmod(commands.getPath('yarn'), 0o755);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+				}),
+				'yarn.lock': '',
+			});
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const result = await gitPublish(fixture.path, [], {
+				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+			});
+			expect('exitCode' in result).toBe(true);
+			expect(result.stdout + result.stderr).toContain('Yarn 1 is not supported. Use Yarn 4 or later');
+			expect(await remote.git('branch', ['--list'])).toBe('');
+		});
+
 		test('catalog protocol is resolved', async () => {
 			const branchName = 'test-yarn-catalog';
 			const msVersion = '2.1.3';
@@ -174,49 +198,44 @@ exec npm "$@"
 			expect(packageJson.dependencies.ms).toBe(msVersion);
 		});
 
-		for (const [release, binPath] of [
-			['1', 'node_modules/yarn-classic/bin/yarn.js'],
-			['4', 'node_modules/yarn-berry/bin/yarn.js'],
-		] as const) {
-			test(`packs with Yarn ${release}`, async () => {
-				const branchName = `test-yarn-${release}-pack`;
-				await using commandsFixture = await createFixture();
-				const environment = await createYarnEnvironment(commandsFixture, binPath, {
-					isolatedCache: true,
-				});
-
-				await using fixture = await createGitFixture({
-					'package.json': JSON.stringify({
-						name: 'test-yarn-pkg',
-						version: '1.0.0',
-						files: ['dist'],
-						scripts: {
-							prepack: 'node -e "fs.mkdirSync(\'dist\', { recursive: true }); fs.writeFileSync(\'dist/index.js\', \'built\')"',
-						},
-					}, null, 2),
-					'yarn.lock': '',
-					'.gitignore': 'dist',
-				}, [`--initial-branch=${branchName}`]);
-				await spawn('yarn', ['install'], {
-					cwd: fixture.path,
-					env: environment,
-				});
-
-				const { git } = fixture;
-				await git('add', ['.']);
-				await git('commit', ['-m', 'Initial commit']);
-				await git('remote', ['add', 'origin', remoteFixture.path]);
-
-				const result = await gitPublish(fixture.path, ['--fresh'], environment);
-				onTestFail(() => console.log(result));
-				expect('exitCode' in result).toBe(false);
-
-				const publishedBranch = `npm/${branchName}`;
-				const files = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
-				expect(files.split('\n')).toStrictEqual(['dist/index.js', 'package.json']);
-				expect(await remoteGit('show', [`${publishedBranch}:dist/index.js`])).toBe('built');
+		test('packs with Yarn 4', async () => {
+			const branchName = 'test-yarn-4-pack';
+			await using commandsFixture = await createFixture();
+			const environment = await createYarnEnvironment(commandsFixture, 'node_modules/yarn-berry/bin/yarn.js', {
+				isolatedCache: true,
 			});
-		}
+
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'test-yarn-pkg',
+					version: '1.0.0',
+					files: ['dist'],
+					scripts: {
+						prepack: 'node -e "fs.mkdirSync(\'dist\', { recursive: true }); fs.writeFileSync(\'dist/index.js\', \'built\')"',
+					},
+				}, null, 2),
+				'yarn.lock': '',
+				'.gitignore': 'dist',
+			}, [`--initial-branch=${branchName}`]);
+			await spawn('yarn', ['install'], {
+				cwd: fixture.path,
+				env: environment,
+			});
+
+			const { git } = fixture;
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', remoteFixture.path]);
+
+			const result = await gitPublish(fixture.path, ['--fresh'], environment);
+			onTestFail(() => console.log(result));
+			expect('exitCode' in result).toBe(false);
+
+			const publishedBranch = `npm/${branchName}`;
+			const files = await remoteGit('ls-tree', ['-r', '--name-only', publishedBranch]);
+			expect(files.split('\n')).toStrictEqual(['dist/index.js', 'package.json']);
+			expect(await remoteGit('show', [`${publishedBranch}:dist/index.js`])).toBe('built');
+		});
 	});
 
 	describe('pnpm', () => {

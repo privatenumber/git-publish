@@ -1698,9 +1698,9 @@ exec "${npmPath}" "$@"
 			await fixture.git('commit', ['-m', 'Select package manager']);
 			await using commands = await createFixture({
 				[manager]: `#!/bin/sh
-if [ "$1" = --version ]; then echo 1.22.22; exit 0; fi
+if [ "$1" = --version ]; then echo 4.18.1; exit 0; fi
 if [ "$1" = pm ]; then exec '${npmPath}' pack --pack-destination "$4"; fi
-if [ "$1" = pack ] && [ "$2" = --filename ]; then exec '${npmPath}' pack --pack-destination "$(dirname "$3")"; fi
+if [ "$1" = pack ] && [ "$2" = --out ]; then exec '${npmPath}' pack --pack-destination "$(dirname "$3")"; fi
 exec '${npmPath}' "$@"
 `,
 			});

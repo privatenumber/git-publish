@@ -26,14 +26,11 @@ const getPackArguments = async (
 	}
 
 	if (packageManager === 'yarn') {
-		// Yarn has no destination-directory flag: Yarn 2+ takes `--out`, Yarn 1 takes
-		// `--filename`, and each rejects or ignores the other. Ask the Yarn that this
-		// package resolves to (packageManager, yarnPath) which major it is.
-		const tarballPath = path.join(packDestinationDirectory, 'package.tgz');
 		const version = await getStdout(spawnAbortable('yarn', ['--version'], packOptions));
-		return Number.parseInt(version, 10) >= 2
-			? ['pack', '--out', tarballPath]
-			: ['pack', '--filename', tarballPath];
+		if (Number.parseInt(version, 10) === 1) {
+			throw new Error('Yarn 1 is not supported. Use Yarn 4 or later, for example through Corepack.');
+		}
+		return ['pack', '--out', path.join(packDestinationDirectory, 'package.tgz')];
 	}
 
 	return ['pack', '--pack-destination', packDestinationDirectory];

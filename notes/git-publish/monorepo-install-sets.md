@@ -2,7 +2,11 @@
 
 **Decision.** A workspace publication puts each package on its own branch, rewrites internal runtime dependencies in the packed manifests to commit-pinned Git URLs, and updates all branches in one `git push --atomic`. After the push, git-publish prints one install command per selected package that installs its whole set (the package, its internal runtime closure, and internal peer targets) as root dependencies. Every specifier in a multi-package set is commit-pinned and byte-identical to the pins inside the packed manifests.
 
-Verified 2026-11-07 against npm 11.21.2 and 12.2.2, pnpm 10.34.9, 11.28.11, and 12.18.0, Yarn 1.22.22 and 4.18.1, and Bun 1.4.4.
+Verified 2026-11-07 against npm 11.21.2 and 12.2.2, pnpm 10.34.9, 11.28.11, and 12.18.0, Yarn 1.22.22 and 4.18.1, and Bun 1.4.4. Yarn 1 results below are historical consumer measurements, not a supported publishing configuration.
+
+**Yarn publishing policy.** Yarn 1 is rejected before packing each package, so the check uses the Yarn version resolved in that package's pack directory. Dry runs do not perform this check. Yarn 2 and later remain accepted, with Yarn 4 recommended. Yarn 1.0.0 was released on 2017-09-05 and 1.22.22 on 2024-03-09 ([release tags](https://github.com/yarnpkg/yarn/releases)); [Yarn 2's January 2020 announcement](https://yarnpkg.com/blog/release/2.0) put Yarn 1 in maintenance mode. The project's next release is already a major, so retaining the separate Yarn 1 packing path is not justified. No revisit is expected.
+
+Yarn 2 and 3 were released on [2020-01-24](https://yarnpkg.com/blog/release/2.0) and [2021-07-26](https://yarnpkg.com/blog/release/3.0), respectively. Yarn's maintainers [say they have no formal LTS and do not usually backport fixes](https://github.com/yarnpkg/berry/discussions/2814), although critical fixes may be considered. Yarn 3 received [3.8.7 on 2024-12-04](https://github.com/yarnpkg/berry/releases/tag/%40yarnpkg%2Fcli%2F3.8.7), after Yarn 4. This is not evidence of an explicit end-of-support date for either major. Their acceptance remains unchanged; current tests exercise Yarn 4, not 2 or 3.
 
 ## Packing and the publication graph
 
@@ -70,7 +74,7 @@ Revisit the bundling option if npm installs bundled dependencies from Git depend
 Internal closures in real monorepos are usually small but have a long tail. A survey of 40 public monorepos (1,525 non-private packages, name-matched estimates, scanned 2026-11-07) found a per-package internal runtime closure of p50 = 1, p90 = 13, p99 = 94, and max = 160 (`@pnpm/exec.commands`).
 
 - **Publishing:** about 0.7 s per package on a local remote (Changesets: 14 packages in 9.1 s; Lexical: 24 packages in 18.4 s), dominated by `pack`. Remote round trips are constant per run because branch lookups and fetches are batched into one `ls-remote` and one `fetch` ([test "batches remote branch lookups and fetches for a workspace closure"](../../tests/specs/workspace-publication.ts)).
-- **Installing:** a synthetic 100-package set (depth 8, 256 internal edges) installed on npm 11 and 12, pnpm 10 and 12, Yarn 4, and Bun; the slowest root install was 45 s (npm 12, local daemon, four concurrent Git clients). Yarn 1 timed out after 600 s at 100 packages and took 197 s at 20, so Yarn 1 is best effort.
+- **Installing:** a synthetic 100-package set (depth 8, 256 internal edges) installed on npm 11 and 12, pnpm 10 and 12, Yarn 4, and Bun; the slowest root install was 45 s (npm 12, local daemon, four concurrent Git clients). In the historical consumer experiment, Yarn 1 timed out after 600 s at 100 packages and took 197 s at 20.
 - **Storage:** Git stores identical file contents once, so republishing unchanged packages is cheap; unchanged packages also reuse their existing commit.
 
 These timings are local measurements and do not predict GitHub latency.
