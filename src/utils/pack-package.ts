@@ -104,9 +104,17 @@ export const packPackage = async (
 	gitRootPath: string,
 	gitSubdirectory: string,
 ): Promise<string> => {
-	await fs.mkdir(packDestinationDirectory, { recursive: true });
 	const isMonorepo = gitSubdirectory.length > 0;
 	const packWorktreePackageRoot = path.join(packWorktreePath, gitSubdirectory);
+	const [checkoutRealPath, packageRealPath] = await Promise.all([
+		fs.realpath(packWorktreePath),
+		fs.realpath(packWorktreePackageRoot),
+	]);
+	const relativePackagePath = path.relative(checkoutRealPath, packageRealPath);
+	if (relativePackagePath === '..' || relativePackagePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePackagePath)) {
+		throw new Error(`Cannot pack ${gitSubdirectory || '.'}: the path leaves the isolated checkout through a symlink.`);
+	}
+	await fs.mkdir(packDestinationDirectory, { recursive: true });
 	const candidates = await listCandidates(cwd);
 	await copyContained(cwd, packWorktreePackageRoot, candidates);
 

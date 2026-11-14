@@ -20,6 +20,61 @@ describe('Workspace publication', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('rejects a package path that escapes the pack checkout', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'.gitignore': 'node_modules/\n',
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'real/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=snapshot']);
+		await fs.symlink(fixture.getPath('real'), fixture.getPath('packages'));
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await fs.mkdir(fixture.getPath('real/app/node_modules'));
+		await fixture.writeFile('real/app/node_modules/keep.txt', 'keep');
+
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.output));
+		expect(await fs.readFile(fixture.getPath('real/app/node_modules/keep.txt'), 'utf8')).toBe('keep');
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain('Cannot pack packages/app: the path leaves the isolated checkout through a symlink.');
+		expect(await remote.git('branch', ['--list'])).toBe('');
+	});
+
+	test('packs a symlinked package path contained in the pack checkout', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'package-lock.json': '{}',
+			'real/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=snapshot']);
+		await fs.symlink('real', fixture.getPath('packages'));
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('branch', ['--list'])).toContain('npm/snapshot');
+	});
+
 	test('includes ignored workspace member output when publishing a public root', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({

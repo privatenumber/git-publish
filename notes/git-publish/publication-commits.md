@@ -26,6 +26,7 @@ The isolated repository is a [non-bare clone without checkout](../../src/publish
 - Internal checkout, reset, and clean operations disable Git hooks but retain smudge filters.
 - Package manager detection reads the live checkout, including ignored lockfiles.
 - Copying skips destinations with symlink or non-directory ancestors in the pack checkout.
+- Package paths must resolve inside the isolated checkout; symlinks that escape it are rejected before copying or packing.
 
 ### Untracked files copied into the pack checkout
 
