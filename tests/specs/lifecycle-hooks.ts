@@ -181,7 +181,8 @@ describe('Lifecycle hooks', async () => {
 			const closed = once(socket, 'close', { signal: AbortSignal.timeout(30_000) });
 			child.kill('SIGTERM');
 			const [message] = await received;
-			expect(String(message)).toBe('term');
+			// The group SIGTERM and npm's forwarded SIGTERM can both arrive and coalesce into one chunk
+			expect(String(message)).toMatch(/^(?:term)+$/);
 			expect(child.exitCode).toBe(null);
 			child.kill('SIGTERM');
 			const [code] = await exited;
