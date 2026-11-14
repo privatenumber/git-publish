@@ -449,6 +449,7 @@ describe('Package publication', () => {
 			validationContext: {
 				from: packageFixture.getPath('package'),
 				root: packageFixture.path,
+				workspaceDirectories: [],
 				targets: new Map([
 					['@test/core', {
 						dir: packageFixture.getPath('core'),

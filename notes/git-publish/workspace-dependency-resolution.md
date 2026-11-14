@@ -43,7 +43,17 @@ A package reachable only through `optionalDependencies` or an optional peer (`pe
 
 Lifecycle hooks may remove an internal dependency from the packed manifest; the removal is kept. Changing an internal dependency to an alias of another package or to a URL, Git, or `file:` value that differs from the source manifest fails before pushing. Adding internal dependencies during packing is not supported. After rewriting, a leftover `workspace:` value in any dependency field fails before pushing.
 
-Changed packed dependency ranges are checked against the dependency's packed version, not its source version, because a prepack hook can change that version. Yarn uses `0.0.0` for a versionless workspace target, so the check uses that fallback for Yarn only. With a versionless `core` workspace and an `app` depending on `core` via `workspace:*`, `workspace:^`, or `workspace:~`, `yarn install` followed by `yarn pack --out out.tgz` with Yarn 4.18.1 produced `0.0.0`, `^0.0.0`, and `~0.0.0` respectively in the packed app manifest. With the same inputs, `pnpm install` and `pnpm pack --pack-destination .` on pnpm 12.18.0 failed with `ERR_PNPM_CANNOT_RESOLVE_WORKSPACE_PROTOCOL`; `bun install` and `bun pm pack --destination .` on Bun 1.4.4 failed with `Failed to resolve workspace version`. Verified 2026-11-14. The real-publication tests cover all three Yarn forms and the incompatible packed-version rejection.
+Packed dependency ranges are checked against the dependency's packed version even if unchanged, because a prepack hook can change that version. A packed name different from the planned name and an unplanned local path to a discovered workspace package are rejected before pushing. Yarn uses `0.0.0` for a versionless workspace target, so the check uses that fallback for Yarn only. With a versionless `core` workspace and an `app` depending on `core` via `workspace:*`, `workspace:^`, or `workspace:~`, `yarn install` followed by `yarn pack --out out.tgz` with Yarn 4.18.1 produced `0.0.0`, `^0.0.0`, and `~0.0.0` respectively in the packed app manifest. With the same inputs, `pnpm install` and `pnpm pack --pack-destination .` on pnpm 12.18.0 failed with `ERR_PNPM_CANNOT_RESOLVE_WORKSPACE_PROTOCOL`; `bun install` and `bun pm pack --destination .` on Bun 1.4.4 failed with `Failed to resolve workspace version`. Verified 2026-11-14. The real-publication tests cover all three Yarn forms and the incompatible packed-version rejection.
+
+### Rejected alternative
+
+A single consolidated packed-manifest rule was tried on `fix/packed-manifest-invariant` and rejected after two review rounds found regressions:
+
+- Non-string planned peer values were accepted.
+- Peer ranges were checked against the full plan instead of the effective reachable plan.
+- Yarn registry aliases whose target name matched an incompatible workspace package were rejected.
+
+A packed `catalog:` resolving to an alias also bypassed the guard; that was pre-existing. Revisit consolidation if the planner exposes a single packed-manifest classification result covering catalogs and aliases.
 
 The published manifest drops `scripts.prepare`, `scripts.prepack`, `scripts.postpack`, the `workspaces` field, and `devDependencies`. npm reruns preparation for a Git dependency that has `prepare`, `build`, install hooks, or `workspaces` ([npm package.json docs, "git URLs as dependencies"](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#git-urls-as-dependencies)), and Yarn 4 packs Git dependencies with `yarn pack`, which runs `postpack`. Dropping `devDependencies` keeps that preparation from fetching unpublished private siblings. `scripts.build` is removed too, unless an install hook remains that may call it.
 

@@ -184,6 +184,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 			sourceName: source.name,
 			sourceCommitId: source.commit,
 			publishBranch: branch,
+			workspaceDirectories: closurePlan.workspaceDirectories,
 		});
 	await assertSourceUnchanged(source);
 	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);

@@ -114,6 +114,7 @@ export const publishWorkspaceClosure = async ({
 						from: node.package.dir,
 						root: plan.kind === 'workspace' ? plan.rootDirectory : repositoryPath,
 						targets,
+						workspaceDirectories: plan.workspaceDirectories ?? [],
 					},
 					peers: plan.peers.filter(peer => peer.from === node.key),
 					gitOptions: repository.gitOptions,

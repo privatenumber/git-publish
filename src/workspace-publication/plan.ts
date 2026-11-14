@@ -21,6 +21,7 @@ type PlanFields = {
 	roots: string[];
 	nodes: WorkspacePublicationNode[];
 	peers: WorkspacePeer[];
+	workspaceDirectories?: string[];
 };
 
 type CatalogConfiguration = {
@@ -68,7 +69,7 @@ export type WorkspacePublicationPlan = PlanFields & (
 );
 
 export const planStandalonePublication = async ({
-	cwd, gitRootPath, packageJson, sourceName, sourceCommitId, publishBranch,
+	cwd, gitRootPath, packageJson, sourceName, sourceCommitId, publishBranch, workspaceDirectories,
 }: {
 	cwd: string;
 	gitRootPath: string;
@@ -76,6 +77,7 @@ export const planStandalonePublication = async ({
 	sourceName: string;
 	sourceCommitId: string;
 	publishBranch: string | undefined;
+	workspaceDirectories?: string[];
 }): Promise<WorkspacePublicationPlan> => {
 	const workspaceDependencies: string[] = [];
 	for (const field of ['dependencies', 'optionalDependencies'] as const) {
@@ -104,6 +106,7 @@ export const planStandalonePublication = async ({
 	}
 	return {
 		kind: 'standalone',
+		workspaceDirectories,
 		roots: [name],
 		peers: [],
 		nodes: [{
@@ -138,7 +141,8 @@ export const planWorkspacePublication = async ({
 	publishBranch?: string;
 	force: boolean | undefined;
 	selection: string[];
-}): Promise<Extract<WorkspacePublicationPlan, { kind: 'workspace' }> | { kind: 'standalone' }> => {
+}): Promise<Extract<WorkspacePublicationPlan, { kind: 'workspace' }> | { kind: 'standalone';
+	workspaceDirectories?: string[]; }> => {
 	const workspace = await findWorkspacePackages(cwd, packageManager, gitRootPath);
 	if (!workspace) {
 		return { kind: 'standalone' };
@@ -336,7 +340,10 @@ export const planWorkspacePublication = async ({
 		},
 	});
 	if (publicRoot && graph.nodes.length === 1 && graph.peers.length === 0) {
-		return { kind: 'standalone' };
+		return {
+			kind: 'standalone',
+			workspaceDirectories: candidates.map(candidate => candidate.dir),
+		};
 	}
 	if (!force) {
 		const privatePackage = graph.nodes.find(node => (
@@ -381,6 +388,7 @@ export const planWorkspacePublication = async ({
 	const plan = {
 		kind: 'workspace' as const,
 		rootDirectory: workspace.rootDirectory,
+		workspaceDirectories: candidates.map(candidate => candidate.dir),
 		roots: [...roots],
 		selection: selectionMode,
 		nodes,

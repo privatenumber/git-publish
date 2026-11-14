@@ -1,7 +1,8 @@
 import path from 'node:path';
+import semver from 'semver';
 import type { PackageJson } from '@npmcli/package-json';
 import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
-import type { WorkspacePeer } from '../workspace-publication/graph.ts';
+import { parseWorkspaceSpecification, type WorkspacePeer } from '../workspace-publication/graph.ts';
 import { satisfiesPackedPeer } from '../workspace-publication/satisfies-range.ts';
 import type { PackagePreparation, PackagePublicationDependency } from './prepare.ts';
 
@@ -10,6 +11,7 @@ const { stringify } = JSON;
 export type PackedManifestValidationContext = {
 	from: string;
 	root: string;
+	workspaceDirectories: readonly string[];
 	targets: ReadonlyMap<string, {
 		dir: string;
 		version?: string;
@@ -33,6 +35,22 @@ export const validatePackedManifest = (
 	peers: WorkspacePeer[],
 	context: PackedManifestValidationContext,
 ) => {
+	if (manifest.name !== packageName) {
+		throw new Error(`Package ${stringify(packageName)} has packed name ${stringify(manifest.name)}.`);
+	}
+	const resolvePath = (key: string, packed: string) => {
+		const [specifier, suffix] = packed.split('::', 2);
+		let base = context.from;
+		if (suffix) {
+			const locator = new URLSearchParams(suffix).get('locator');
+			const match = locator && /@workspace:(.*)$/.exec(locator);
+			if (!match) {
+				throw new Error(`Package ${stringify(packageName)} dependency ${stringify(key)} has an invalid packed locator.`);
+			}
+			base = path.resolve(context.root, match[1]!);
+		}
+		return path.resolve(base, specifier!.slice(specifier!.indexOf(':') + 1));
+	};
 	for (const edge of dependencyEdges) {
 		const packed = manifest[edge.field]?.[edge.key];
 		if (packed === undefined) {
@@ -40,25 +58,36 @@ export const validatePackedManifest = (
 		}
 		const source = edge.specification;
 		const target = context.targets.get(edge.target);
-		let valid = packed === source;
+		const workspace = parseWorkspaceSpecification(packed);
+		const range = workspace && workspace.kind !== 'path'
+			? (['*', '^', '~'].includes(workspace.range) ? '*' : workspace.range)
+			: packed;
+		let valid = packed === source && (!semver.validRange(range)
+			|| Boolean(target?.version && satisfiesPackedPeer(range, edge.target, target.version)));
 		if (!valid && target?.version) {
 			valid = satisfiesPackedPeer(packed, edge.target, target.version);
 		}
 		if (!valid && target && /^(?:file|link):/.test(packed)) {
-			const [specifier, suffix] = packed.split('::', 2);
-			let base = context.from;
-			if (suffix) {
-				const locator = new URLSearchParams(suffix).get('locator');
-				const match = locator && /@workspace:(.*)$/.exec(locator);
-				if (!match) {
-					throw new Error(`Package ${stringify(packageName)} dependency ${stringify(edge.key)} has an invalid packed locator.`);
-				}
-				base = path.resolve(context.root, match[1]!);
-			}
-			valid = path.resolve(base, specifier!.slice(specifier!.indexOf(':') + 1)) === path.resolve(target.dir);
+			valid = resolvePath(edge.key, packed) === path.resolve(target.dir);
 		}
 		if (!valid) {
 			throw new Error(`Package ${stringify(packageName)} dependency ${stringify(edge.key)} changed during packing from ${stringify(source)} to ${stringify(packed)}.`);
+		}
+	}
+	const directories = new Set(context.workspaceDirectories.map(directory => (
+		path.resolve(directory)
+	)));
+	for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+		for (const [key, value] of Object.entries(manifest[field] ?? {})) {
+			if (typeof value !== 'string' || dependencyEdges.some(edge => edge.field === field && edge.key === key)
+				|| (field === 'peerDependencies' && peers.some(peer => peer.key === key && peer.target))) {
+				continue;
+			}
+			const workspace = parseWorkspaceSpecification(value);
+			if ((/^(?:file|link):/.test(value) || workspace?.kind === 'path')
+				&& directories.has(resolvePath(key, value))) {
+				throw new Error(`Package ${stringify(packageName)} has unplanned ${field} ${stringify(key)}: ${stringify(value)} pointing to a workspace package.`);
+			}
 		}
 	}
 	const rewritten = structuredClone(manifest);
