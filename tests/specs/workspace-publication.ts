@@ -1066,6 +1066,8 @@ exec "${npmPath}" "$@"
 			const environment = {
 				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
 				YARN_ENABLE_TELEMETRY: '0',
+				// Yarn 4 enables immutable installs under CI; the fixture install creates the lockfile
+				YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
 			};
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
@@ -1107,6 +1109,8 @@ exec "${npmPath}" "$@"
 			const environment = {
 				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
 				YARN_ENABLE_TELEMETRY: '0',
+				// Yarn 4 enables immutable installs under CI; the fixture install creates the lockfile
+				YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
 			};
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
@@ -1153,6 +1157,8 @@ exec "${npmPath}" "$@"
 		const environment = {
 			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
 			YARN_ENABLE_TELEMETRY: '0',
+			// Yarn 4 enables immutable installs under CI; the fixture install creates the lockfile
+			YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
 		};
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
@@ -1195,6 +1201,8 @@ exec "${npmPath}" "$@"
 		const environment = {
 			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
 			YARN_ENABLE_TELEMETRY: '0',
+			// Yarn 4 enables immutable installs under CI; the fixture install creates the lockfile
+			YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
 		};
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
