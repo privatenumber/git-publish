@@ -10,6 +10,7 @@ import which from 'which';
 import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
+import { createYarnEnvironment } from '../utils/yarn-environment.ts';
 
 // npm is not always next to process.execPath (pnpm-managed Node runtimes ship
 // without it). Absolute, because the shims run from other directories.
@@ -1061,14 +1062,8 @@ exec "${npmPath}" "$@"
 	for (const reference of ['*', '^', '~']) {
 		test(`publishes a Yarn versionless workspace dependency with workspace:${reference}`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
-			await using commands = await createFixture({ yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n` });
-			await fs.chmod(commands.getPath('yarn'), 0o755);
-			const environment = {
-				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
-				YARN_ENABLE_TELEMETRY: '0',
-				// Yarn 4 enables immutable installs under CI; the fixture install creates the lockfile
-				YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
-			};
+			await using commands = await createFixture();
+			const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
 					name: 'root',
@@ -1102,16 +1097,8 @@ exec "${npmPath}" "$@"
 	for (const [description, entry] of [['workspace', 'workspace:*'], ['path', 'file:./packages/core']] as const) {
 		test(`publishes a Yarn catalog ${description} dependency`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
-			await using commands = await createFixture({
-				yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n`,
-			});
-			await fs.chmod(commands.getPath('yarn'), 0o755);
-			const environment = {
-				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
-				YARN_ENABLE_TELEMETRY: '0',
-				// Yarn 4 enables immutable installs under CI; the fixture install creates the lockfile
-				YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
-			};
+			await using commands = await createFixture();
+			const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
 					name: 'root',
@@ -1152,14 +1139,8 @@ exec "${npmPath}" "$@"
 
 	test('uses Yarn catalog configuration from each package directory', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
-		await using commands = await createFixture({ yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n` });
-		await fs.chmod(commands.getPath('yarn'), 0o755);
-		const environment = {
-			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
-			YARN_ENABLE_TELEMETRY: '0',
-			// Yarn 4 enables immutable installs under CI; the fixture install creates the lockfile
-			YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
-		};
+		await using commands = await createFixture();
+		const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'root',
@@ -1196,14 +1177,8 @@ exec "${npmPath}" "$@"
 
 	test('distinguishes Yarn unnamed and named default catalogs', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
-		await using commands = await createFixture({ yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n` });
-		await fs.chmod(commands.getPath('yarn'), 0o755);
-		const environment = {
-			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
-			YARN_ENABLE_TELEMETRY: '0',
-			// Yarn 4 enables immutable installs under CI; the fixture install creates the lockfile
-			YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
-		};
+		await using commands = await createFixture();
+		const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'root',
