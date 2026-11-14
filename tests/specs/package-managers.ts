@@ -113,7 +113,7 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 					PATH: `${commandsFixture.path}${path.delimiter}${process.env.PATH}`,
 				};
 				if (packageManager === 'yarn') {
-					environment = await createYarnEnvironment(commandsFixture, 'node_modules/yarn-berry/bin/yarn.js');
+					environment = await createYarnEnvironment(commandsFixture);
 				} else if (packageManager !== 'npm') {
 					await commandsFixture.writeFile(packageManager, `#!/bin/sh
 if [ "$1" = pm ]; then exec npm pack --pack-destination "$4"; fi
@@ -168,7 +168,7 @@ exec npm "$@"
 			const branchName = 'test-yarn-catalog';
 			const msVersion = '2.1.3';
 			await using commandsFixture = await createFixture();
-			const environment = await createYarnEnvironment(commandsFixture, 'node_modules/yarn-berry/bin/yarn.js');
+			const environment = await createYarnEnvironment(commandsFixture);
 			await using fixture = await createGitFixture({
 				'.yarnrc.yml': yaml.dump({
 					catalog: { ms: msVersion },
@@ -201,7 +201,7 @@ exec npm "$@"
 		test('packs with Yarn 4', async () => {
 			const branchName = 'test-yarn-4-pack';
 			await using commandsFixture = await createFixture();
-			const environment = await createYarnEnvironment(commandsFixture, 'node_modules/yarn-berry/bin/yarn.js', {
+			const environment = await createYarnEnvironment(commandsFixture, {
 				isolatedCache: true,
 			});
 

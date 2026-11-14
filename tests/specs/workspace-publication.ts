@@ -1063,7 +1063,7 @@ exec "${npmPath}" "$@"
 		test(`publishes a Yarn versionless workspace dependency with workspace:${reference}`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
 			await using commands = await createFixture();
-			const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
+			const environment = await createYarnEnvironment(commands);
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
 					name: 'root',
@@ -1098,7 +1098,7 @@ exec "${npmPath}" "$@"
 		test(`publishes a Yarn catalog ${description} dependency`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
 			await using commands = await createFixture();
-			const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
+			const environment = await createYarnEnvironment(commands);
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
 					name: 'root',
@@ -1140,7 +1140,7 @@ exec "${npmPath}" "$@"
 	test('uses Yarn catalog configuration from each package directory', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using commands = await createFixture();
-		const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
+		const environment = await createYarnEnvironment(commands);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'root',
@@ -1178,7 +1178,7 @@ exec "${npmPath}" "$@"
 	test('distinguishes Yarn unnamed and named default catalogs', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using commands = await createFixture();
-		const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
+		const environment = await createYarnEnvironment(commands);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'root',
