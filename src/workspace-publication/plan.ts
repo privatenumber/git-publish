@@ -189,18 +189,25 @@ export const planWorkspacePublication = async ({
 		})
 		: '';
 	const yarnSettings = yaml.load(yarnConfig) as
-		| { enableTransparentWorkspaces?: boolean }
+		| { enableTransparentWorkspaces?: boolean;
+			catalog?: Record<string, string>;
+			catalogs?: Record<string, Record<string, string>>; }
 		| undefined;
 	const yarnEnvironment = process.env.YARN_ENABLE_TRANSPARENT_WORKSPACES;
 	const transparentWorkspaces = yarnEnvironment === undefined
 		? yarnSettings?.enableTransparentWorkspaces !== false
 		: !['false', '0'].includes(yarnEnvironment.toLowerCase());
 	let pnpmLinkWorkspacePackages = false;
+	let catalogs: { catalog?: Record<string, string>;
+		catalogs?: Record<string, Record<string, string>>; } = packageManager === 'yarn' ? yarnSettings ?? {} : {};
 	if (packageManager === 'pnpm') {
 		const workspaceConfig = (yaml.load(await fs.readFile(path.join(workspace.rootDirectory, 'pnpm-workspace.yaml'), 'utf8')) ?? {}) as {
 			linkWorkspacePackages?: boolean | string;
 			'link-workspace-packages'?: boolean | string;
+			catalog?: Record<string, string>;
+			catalogs?: Record<string, Record<string, string>>;
 		};
+		catalogs = workspaceConfig;
 		const npmrc = await fs.readFile(path.join(workspace.rootDirectory, '.npmrc'), 'utf8').catch((error: NodeJS.ErrnoException) => {
 			if (error.code === 'ENOENT') {
 				return '';
@@ -214,6 +221,25 @@ export const planWorkspacePublication = async ({
 			?? /^\s*link-workspace-packages\s*=\s*(\S+)\s*$/m.exec(npmrc)?.[1];
 		pnpmLinkWorkspacePackages = configured === true || configured === 'true' || configured === 'deep';
 	}
+	if (packageManager === 'bun') {
+		const root = workspace.rootPackage?.packageJson as (WorkspacePackage['packageJson'] & {
+			catalog?: Record<string, string>;
+			catalogs?: Record<string, Record<string, string>>;
+			workspaces?: { catalog?: Record<string, string>;
+				catalogs?: Record<string, Record<string, string>>; };
+		}) | undefined;
+		const workspaces = root?.workspaces;
+		catalogs = {
+			catalog: {
+				...root?.catalog,
+				...(Array.isArray(workspaces) ? undefined : workspaces?.catalog),
+			},
+			catalogs: {
+				...root?.catalogs,
+				...(Array.isArray(workspaces) ? undefined : workspaces?.catalogs),
+			},
+		};
+	}
 	const policy = {
 		plainRanges: (packageManager !== 'pnpm' || pnpmLinkWorkspacePackages)
 			&& (packageManager !== 'yarn' || transparentWorkspaces),
@@ -222,7 +248,26 @@ export const planWorkspacePublication = async ({
 	const graph = createPublishGraph({
 		...workspace,
 		packages: candidates,
-	}, [...roots], { policy });
+	}, [...roots], {
+		policy,
+		resolveSpecification: (from, key, specification) => {
+			if (!specification.startsWith('catalog:')) {
+				return specification;
+			}
+			const name = specification.slice('catalog:'.length) || 'default';
+			const range = name === 'default'
+				? catalogs.catalog?.[key] ?? catalogs.catalogs?.default?.[key]
+				: catalogs.catalogs?.[name]?.[key];
+			if (typeof range !== 'string') {
+				return specification;
+			}
+			if (packageManager === 'pnpm' && /^(?:file|link|workspace):\.{1,2}\//.test(range)) {
+				const separator = range.indexOf(':');
+				return `${range.slice(0, separator + 1)}${path.relative(from.dir, path.resolve(workspace.rootDirectory, range.slice(separator + 1)))}`;
+			}
+			return range;
+		},
+	});
 	if (publicRoot && graph.nodes.length === 1 && graph.peers.length === 0) {
 		return { kind: 'standalone' };
 	}

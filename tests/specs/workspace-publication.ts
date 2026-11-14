@@ -915,6 +915,138 @@ exec "${npmPath}" "$@"
 		});
 	}
 
+	for (const reference of ['catalog:', 'catalog:default', 'catalog:named']) {
+		test(`publishes pnpm workspace dependency from ${reference}`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({ private: true }),
+				'pnpm-workspace.yaml': 'packages:\n  - packages/*\ncatalog:\n  core: workspace:*\ncatalogs:\n  named:\n    core: workspace:*\n',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					dependencies: { core: reference },
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=catalog']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const app = fixture.getPath('packages/app');
+			const dry = await gitPublish(app, ['--dry']);
+			onTestFail(() => console.log(dry.output));
+			expect('exitCode' in dry).toBe(false);
+			expect(dry.stdout).toContain('npm/catalog-core');
+			const result = await gitPublish(app);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			const commit = await remote.git('rev-parse', ['npm/catalog-core']);
+			const manifest = JSON.parse(await remote.git('show', ['npm/catalog-app:package.json']));
+			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+		});
+	}
+
+	test('plans a Yarn catalog workspace dependency', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'root',
+				private: true,
+				workspaces: ['packages/*'],
+			}),
+			'yarn.lock': '',
+			'.yarnrc.yml': 'catalogs:\n  named:\n    core: "workspace:*"\n',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: 'catalog:named' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=yarn-catalog']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const dry = await gitPublish(fixture.getPath('packages/app'), ['--dry']);
+		onTestFail(() => console.log(dry.output));
+		expect('exitCode' in dry).toBe(false);
+		expect(dry.stdout).toContain('npm/yarn-catalog-core');
+	});
+
+	for (const enabled of [false, true]) {
+		test(`pnpm catalog semver respects link-workspace-packages=${enabled}`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({ private: true }),
+				'pnpm-workspace.yaml': `packages:\n  - packages/*\nlinkWorkspacePackages: ${enabled}\ncatalog:\n  core: ^1.0.0\n`,
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					dependencies: { core: 'catalog:' },
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=catalog-policy']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const dry = await gitPublish(fixture.getPath('packages/app'), ['--dry']);
+			onTestFail(() => console.log(dry.output));
+			expect('exitCode' in dry).toBe(false);
+			expect(dry.stdout.includes('npm/catalog-policy-core')).toBe(enabled);
+		});
+	}
+
+	for (const location of ['top-level', 'workspaces']) {
+		test(`publishes Bun workspace dependency from ${location} catalog`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			const catalog = { core: 'workspace:*' };
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: location === 'workspaces'
+						? {
+							packages: ['packages/*'],
+							catalog,
+						}
+						: ['packages/*'],
+					...(location === 'top-level' ? { catalog } : {}),
+				}),
+				'bun.lock': '',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					dependencies: { core: 'catalog:' },
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=bun-catalog']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const app = fixture.getPath('packages/app');
+			const dry = await gitPublish(app, ['--dry']);
+			onTestFail(() => console.log(dry.output));
+			expect('exitCode' in dry).toBe(false);
+			expect(dry.stdout).toContain('npm/bun-catalog-core');
+			const result = await gitPublish(app);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			const commit = await remote.git('rev-parse', ['npm/bun-catalog-core']);
+			const manifest = JSON.parse(await remote.git('show', ['npm/bun-catalog-app:package.json']));
+			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+		});
+	}
+
 	test('publishes private workspace members as dependencies and selected packages', async () => {
 		const branchName = 'test-private-workspace-dependency';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {

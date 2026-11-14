@@ -126,8 +126,13 @@ export const findWorkspacePackageDirectory = (
 export const createPublishGraph = (
 	workspace: Workspace,
 	roots: string[],
-	{ policy }: { policy: { plainRanges: boolean;
-		plainPeers: boolean; }; },
+	{ policy, resolveSpecification }: {
+		policy: {
+			plainRanges: boolean;
+			plainPeers: boolean;
+		};
+		resolveSpecification?: (from: WorkspacePackage, key: string, specification: string) => string;
+	},
 ): PublishGraph => {
 	const rootNames = new Set(roots);
 	const byName = new Map<string, WorkspacePackage[]>();
@@ -216,6 +221,7 @@ export const createPublishGraph = (
 	const resolveEdge = (
 		from: WorkspacePackage, key: string, specification: string, peer: boolean,
 	) => {
+		specification = resolveSpecification?.(from, key, specification) ?? specification;
 		const workspaceProtocol = specification.startsWith('workspace:');
 		const target = workspaceProtocol
 			? (peer
@@ -275,7 +281,8 @@ export const createPublishGraph = (
 			if (typeof specification !== 'string') {
 				continue;
 			}
-			const isWorkspaceProtocol = specification.startsWith('workspace:');
+			const resolved = resolveSpecification?.(current, key, specification) ?? specification;
+			const isWorkspaceProtocol = resolved.startsWith('workspace:');
 			const optional = current.packageJson.peerDependenciesMeta?.[key]?.optional === true;
 			const target = resolveEdge(current, key, specification, true);
 			if (target === undefined && !isWorkspaceProtocol) {
