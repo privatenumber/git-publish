@@ -1,3 +1,7 @@
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import { spawn as spawnChild } from 'node:child_process';
+import { once } from 'node:events';
 import spawn from 'nano-spawn';
 import {
 	describe, test, expect, onFinish, onTestFail,
@@ -9,6 +13,60 @@ import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
 
 describe('Lifecycle hooks', async () => {
+	for (const [signal, exitCode] of [['SIGTERM', 143], ['SIGINT', 130]] as const) {
+		test(`cleans up after ${signal} during npm prepack`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using temporary = await createFixture();
+			await using marker = await createFixture();
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					scripts: { prepack: `"${process.execPath}" hook.cjs` },
+				}),
+				'hook.cjs': `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(marker.getPath('pending'))}, String(process.pid)); fs.renameSync(${JSON.stringify(marker.getPath('pending'))}, ${JSON.stringify(marker.getPath('pid'))}); setInterval(() => {}, 1000);`,
+			}, ['--initial-branch=signal']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const watcher = fs.watch(marker.path, { signal: AbortSignal.timeout(30_000) });
+			const ready = (async () => {
+				for await (const event of watcher) {
+					if (event.filename === 'pid') { return; }
+				}
+			})();
+			const child = spawnChild(process.execPath, [path.resolve('dist/index.js')], {
+				cwd: fixture.path,
+				env: {
+					...process.env,
+					TMPDIR: temporary.path,
+					NODE_DISABLE_COMPILE_CACHE: '1',
+				},
+				stdio: 'ignore',
+				detached: true,
+			});
+			const exited = once(child, 'exit');
+			try {
+				await ready;
+				const hookPid = Number(await marker.readFile('pid', 'utf8'));
+				child.kill(signal);
+				const [code] = await exited;
+				expect(code).toBe(exitCode);
+				if (signal === 'SIGTERM') {
+					expect(() => process.kill(hookPid, 0)).toThrow();
+				}
+				expect(await temporary.readdir('')).toStrictEqual([]);
+				expect(await remote.git('for-each-ref')).toBe('');
+			} finally {
+				await watcher.return?.();
+				if (child.pid) {
+					try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Already exited. */ }
+				}
+				await exited;
+			}
+		});
+	}
+
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;

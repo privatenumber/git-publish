@@ -42,18 +42,22 @@ export const createPublishRepository = async ({
 	const pushRemoteNames = publishRemote.pushUrls.map((_, index) => `publish-${index}`);
 	let packWorktreeCreated = false;
 
-	const dispose = async () => {
-		const cleanupErrors: unknown[] = [];
-		if (packWorktreeCreated) {
-			await spawn('git', ['worktree', 'remove', '--force', packWorktreePath], gitOptions).catch(error => cleanupErrors.push(error));
-		}
-		await fs.rm(temporaryDirectory, {
-			recursive: true,
-			force: true,
-		}).catch(error => cleanupErrors.push(error));
-		if (cleanupErrors.length > 0) {
-			throw new AggregateError(cleanupErrors, 'Failed to clean up temporary publish resources.');
-		}
+	let disposal: Promise<void> | undefined;
+	const dispose = () => {
+		disposal ??= (async () => {
+			const cleanupErrors: unknown[] = [];
+			if (packWorktreeCreated) {
+				await spawn('git', ['worktree', 'remove', '--force', packWorktreePath], gitOptions).catch(error => cleanupErrors.push(error));
+			}
+			await fs.rm(temporaryDirectory, {
+				recursive: true,
+				force: true,
+			}).catch(error => cleanupErrors.push(error));
+			if (cleanupErrors.length > 0) {
+				throw new AggregateError(cleanupErrors, 'Failed to clean up temporary publish resources.');
+			}
+		})();
+		return disposal;
 	};
 
 	try {

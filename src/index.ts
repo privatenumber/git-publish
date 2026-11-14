@@ -210,7 +210,7 @@ const formatWorkspacePeerDiagnostics = (plan: WorkspacePublicationPlan): string 
 			return prepared;
 		},
 	).catch(() => {
-		process.exitCode = 1;
+		process.exitCode ||= 1;
 	});
 	if (publication) {
 		const result = createWorkspaceResult(

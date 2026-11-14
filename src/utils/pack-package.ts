@@ -1,12 +1,13 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
-import spawn, { type Options as SpawnOptions } from 'nano-spawn';
+import type { Options as SpawnOptions } from 'nano-spawn';
 import packlist from 'npm-packlist';
 import PackageJson from '@npmcli/package-json';
 import mapWorkspaces from '@npmcli/map-workspaces';
 import type { PackageManager } from './detect-package-manager.ts';
 import { getStdout } from './get-stdout.ts';
+import { spawnAbortable } from './spawn-abortable.ts';
 
 const hasErrorCode = (error: unknown, ...codes: string[]): boolean => (
 	typeof error === 'object'
@@ -29,7 +30,7 @@ const getPackArguments = async (
 		// `--filename`, and each rejects or ignores the other. Ask the Yarn that this
 		// package resolves to (packageManager, yarnPath) which major it is.
 		const tarballPath = path.join(packDestinationDirectory, 'package.tgz');
-		const version = await getStdout(spawn('yarn', ['--version'], packOptions));
+		const version = await getStdout(spawnAbortable('yarn', ['--version'], packOptions));
 		return Number.parseInt(version, 10) >= 2
 			? ['pack', '--out', tarballPath]
 			: ['pack', '--filename', tarballPath];
@@ -103,6 +104,7 @@ export const packPackage = async (
 	cwd: string,
 	gitRootPath: string,
 	gitSubdirectory: string,
+	signal: AbortSignal,
 ): Promise<string> => {
 	const isMonorepo = gitSubdirectory.length > 0;
 	const packWorktreePackageRoot = path.join(packWorktreePath, gitSubdirectory);
@@ -199,12 +201,14 @@ export const packPackage = async (
 
 	const packOptions = {
 		cwd: packWorktreePackageRoot,
+		signal,
 		env: {
 			PATH: [...binaryPaths].filter(pathEntry => pathEntry !== undefined).join(path.delimiter),
 		},
 	};
 	const packArgs = await getPackArguments(packageManager, packDestinationDirectory, packOptions);
-	await spawn(packageManager, packArgs, packOptions);
+	signal.throwIfAborted();
+	await spawnAbortable(packageManager, packArgs, packOptions);
 
 	// Find the generated tarball (package managers create it with their own naming)
 	const files = await fs.readdir(packDestinationDirectory);

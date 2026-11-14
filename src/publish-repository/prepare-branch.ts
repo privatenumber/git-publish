@@ -1,4 +1,5 @@
-import spawn, { SubprocessError } from 'nano-spawn';
+import { SubprocessError } from 'nano-spawn';
+import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import type { PublishRepository } from './create.ts';
 
 export const loadPublishBranches = async (
@@ -8,6 +9,7 @@ export const loadPublishBranches = async (
 		localRef: string;
 	}[],
 	fresh: boolean | undefined,
+	signal: AbortSignal,
 ): Promise<Set<string>> => {
 	const existing = new Set<string>();
 	if (fresh) {
@@ -16,13 +18,16 @@ export const loadPublishBranches = async (
 	const { gitOptions, fetchRemoteName } = repository;
 	let output: string;
 	try {
-		({ stdout: output } = await spawn('git', [
+		({ stdout: output } = await spawnAbortable('git', [
 			'ls-remote',
 			'--exit-code',
 			'--branches',
 			fetchRemoteName,
 			...branches.map(({ publishBranch }) => `refs/heads/${publishBranch}`),
-		], gitOptions));
+		], {
+			...gitOptions,
+			signal,
+		}));
 	} catch (error) {
 		if (error instanceof SubprocessError && error.exitCode === 2) {
 			return existing;
@@ -38,7 +43,10 @@ export const loadPublishBranches = async (
 		}
 	}
 	if (refspecs.length > 0) {
-		await spawn('git', ['fetch', '--depth=1', '--no-tags', fetchRemoteName, ...refspecs], gitOptions);
+		await spawnAbortable('git', ['fetch', '--depth=1', '--no-tags', fetchRemoteName, ...refspecs], {
+			...gitOptions,
+			signal,
+		});
 	}
 	return existing;
 };

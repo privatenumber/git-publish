@@ -1,5 +1,4 @@
 import path from 'node:path';
-import spawn from 'nano-spawn';
 import type { TaskInnerAPI } from 'tasuku';
 import byteSize from 'byte-size';
 import { blueBright, dim } from 'ansis';
@@ -13,13 +12,14 @@ import { readPackagePublicationPushTips, pushPackagePublications, type PackagePu
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { packPackage } from '../utils/pack-package.ts';
+import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import { assertSourceUnchanged, type Source } from '../utils/git.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 import { validatePeerRanges } from '../package-publication/validate.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 import { createInstallGraph } from './install-graph.ts';
 
-export const publishWorkspaceClosure = async ({
+const runPublication = async ({
 	plan,
 	packageManager,
 	repositoryPath,
@@ -35,7 +35,7 @@ export const publishWorkspaceClosure = async ({
 	pushStrategy: PackagePublicationPushStrategy;
 	source: Source;
 	fresh: boolean | undefined;
-}): Promise<{ plan: WorkspacePublicationPlan;
+}, signal: AbortSignal): Promise<{ plan: WorkspacePublicationPlan;
 	preparations: ReadonlyMap<string, PackagePreparation>; }> => {
 	const repository = await createPublishRepository({
 		sourceRepositoryPath: repositoryPath,
@@ -43,16 +43,18 @@ export const publishWorkspaceClosure = async ({
 		sourceCommitId: source.commit,
 	});
 	try {
+		signal.throwIfAborted();
 		const remoteTips = await readPackagePublicationPushTips(
 			repository,
 			pushStrategy,
 			plan.nodes.map(node => node.branch),
+			signal,
 		);
 		const branches = plan.nodes.map((node, index) => ({
 			publishBranch: node.branch,
 			localRef: `refs/git-publish/tips/${index}`,
 		}));
-		const existingBranches = await loadPublishBranches(repository, branches, fresh);
+		const existingBranches = await loadPublishBranches(repository, branches, fresh, signal);
 		const preparations = new Map<string, PackagePreparation>();
 		const processPackage = async (index: number, {
 			streamPreview,
@@ -61,15 +63,17 @@ export const publishWorkspaceClosure = async ({
 			startTime,
 		}: TaskInnerAPI) => {
 			const node = plan.nodes[index]!;
+			signal.throwIfAborted();
 			startTime();
 			try {
 				setStatus('Preparing isolated checkout');
 				const packWorktreeOptions = {
 					cwd: repository.packWorktreePath,
 					env: repository.gitOptions.env,
+					signal,
 				};
-				await spawn('git', ['-c', 'core.hooksPath=/dev/null', 'reset', '--hard', source.commit], packWorktreeOptions);
-				await spawn('git', ['-c', 'core.hooksPath=/dev/null', 'clean', '-fdx'], packWorktreeOptions);
+				await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'reset', '--hard', source.commit], packWorktreeOptions);
+				await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'clean', '-fdx'], packWorktreeOptions);
 				setStatus('Packing package and running lifecycle scripts');
 				await assertSourceUnchanged(source);
 				const tarball = await packPackage(
@@ -79,6 +83,7 @@ export const publishWorkspaceClosure = async ({
 					node.package.dir,
 					repositoryPath,
 					path.relative(repositoryPath, node.package.dir),
+					signal,
 				);
 				setStatus('Preparing publication commit');
 				const dependencyPublications = new Map<string, PackagePublication>();
@@ -98,6 +103,7 @@ export const publishWorkspaceClosure = async ({
 					dependencyPublications,
 					peers: plan.peers.filter(peer => peer.from === node.key),
 					gitOptions: repository.gitOptions,
+					signal,
 				});
 				preparations.set(node.key, preparation);
 				if (plan.kind === 'standalone') {
@@ -170,6 +176,7 @@ export const publishWorkspaceClosure = async ({
 		};
 		validatePeerRanges(effective, preparations);
 		const packageCount = effective.nodes.length;
+		signal.throwIfAborted();
 		await task(
 			`Pushing ${packageCount} ${packageCount === 1 ? 'package' : 'packages'}${packageCount === 1 ? '' : ' together'}`,
 			async ({ streamPreview }) => {
@@ -179,6 +186,7 @@ export const publishWorkspaceClosure = async ({
 						publications: effective.nodes.map(node => preparations.get(node.key)!.publication),
 						strategy: pushStrategy,
 						remoteTips,
+						signal,
 					});
 				} catch (error) {
 					writeSubprocessErrorOutput(streamPreview, error);
@@ -186,6 +194,7 @@ export const publishWorkspaceClosure = async ({
 				}
 			},
 		);
+		// A completed push is reported even if a signal arrived; the wrapper still sets the signal's exit code
 		return {
 			plan: effective,
 			preparations,
@@ -202,5 +211,26 @@ export const publishWorkspaceClosure = async ({
 		if (!cleanup.warning) {
 			cleanup.clear();
 		}
+	}
+};
+
+export const publishWorkspaceClosure = async (options: Parameters<typeof runPublication>[0]) => {
+	const controller = new AbortController();
+	let exitCode: number | undefined;
+	const interrupt = (code: number) => {
+		if (exitCode !== undefined) { process.exit(code); }
+		exitCode = code;
+		controller.abort();
+	};
+	const onInterrupt = () => interrupt(130);
+	const onTerminate = () => interrupt(143);
+	process.on('SIGINT', onInterrupt);
+	process.on('SIGTERM', onTerminate);
+	try {
+		return await runPublication(options, controller.signal);
+	} finally {
+		process.off('SIGINT', onInterrupt);
+		process.off('SIGTERM', onTerminate);
+		if (exitCode !== undefined) { process.exitCode = exitCode; }
 	}
 };

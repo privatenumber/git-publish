@@ -73,6 +73,8 @@ On the develop implementation, the tests "publishes packed files excluded by glo
 
 ## Known limitations
 
+On interruption, git-publish signals the direct pack subprocess, not its process group. If only git-publish receives SIGTERM, a compound lifecycle command such as `a && b` can leave the running command alive after its shell exits. Ctrl-C in a terminal signals the foreground process group, so this specific limitation does not apply to processes that remain in that group.
+
 A consumer with a custom symmetric clean/smudge filter for a path in the packed `.gitattributes` may get transformed bytes on checkout. Git LFS 3.8.1 passes ordinary content through: in a fresh repository, `printf 'hello\n' | git lfs smudge x.txt` printed `hello`, reported `Pointer file error: Unable to parse pointer`, and exited 0; the former clean-filtered pointers were also unsafe because git-publish [pushes with `--no-verify`](../../src/package-publication/push.ts), skipping LFS's pre-push upload.
 
 LFS-tracked files are published as regular Git blobs, so hosting limits apply; for example, [GitHub rejects files larger than 100 MiB](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github). Publishing LFS pointers instead would require applying clean filters again, which would change the packed bytes.
