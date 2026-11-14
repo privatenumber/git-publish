@@ -8,6 +8,7 @@ import { satisfiesPackedPeer } from '../workspace-publication/satisfies-range.ts
 import type { PackagePreparation, PackagePublicationDependency } from './prepare.ts';
 
 const { stringify } = JSON;
+const absoluteOrHomePath = /^(?:[/\\~]|[a-z]:)/i;
 
 export type PackedManifestValidationContext = {
 	from: string;
@@ -67,22 +68,20 @@ export const validatePackedManifest = (
 		}
 		const source = edge.specification;
 		const target = context.targets.get(edge.target);
-		const workspace = parseWorkspaceSpecification(packed);
-		const range = workspace && workspace.kind !== 'path'
-			? (['^', '~'].includes(workspace.range) ? `${workspace.range}${target?.sourceVersion ?? '*'}` : workspace.range)
-			: packed;
-		let valid = packed === source && (!semver.validRange(range)
-			|| Boolean(target?.version && satisfiesPackedPeer(range, edge.target, target.version)));
-		if (!valid && target?.version) {
-			valid = satisfiesPackedPeer(packed, edge.target, target.version);
-		}
-		if (!valid && target && /^(?:file|link):/.test(packed)) {
-			valid = resolvePath(packed).resolved === path.resolve(target.dir);
-		}
-		if (!valid) {
-			if (packed === source && semver.validRange(range)) {
+		if (packed === source) {
+			const workspace = parseWorkspaceSpecification(packed);
+			const range = workspace && workspace.kind !== 'path'
+				? (['^', '~'].includes(workspace.range) ? `${workspace.range}${target?.sourceVersion ?? '*'}` : workspace.range)
+				: packed;
+			if (semver.validRange(range)
+				&& !(target?.version && satisfiesPackedPeer(range, edge.target, target.version))) {
 				throw new Error(`Package ${stringify(packageName)} dependency ${stringify(edge.key)} requires ${stringify(packed)}, but its packed version is ${stringify(target?.version)}.`);
 			}
+			continue;
+		}
+		const valid = (target?.version && satisfiesPackedPeer(packed, edge.target, target.version))
+			|| (target && /^(?:file|link):/.test(packed) && resolvePath(packed).resolved === path.resolve(target.dir));
+		if (!valid) {
 			throw new Error(`Package ${stringify(packageName)} dependency ${stringify(edge.key)} changed during packing from ${stringify(source)} to ${stringify(packed)}.`);
 		}
 	}
@@ -93,16 +92,15 @@ export const validatePackedManifest = (
 				|| (field === 'peerDependencies' && peers.some(peer => peer.key === key && peer.target))) {
 				continue;
 			}
-			const workspace = parseWorkspaceSpecification(value);
-			if (!/^(?:file|link|portal):/.test(value) && workspace?.kind !== 'path'
-				&& !(value.startsWith('workspace:') && /^[/~]|^[a-z]:|^\\/i.test(value.slice(10)))
-				&& !/^(?:\.{1,2}(?:\/|$)|\/|~\/)/.test(value)) {
+			const isLocal = /^(?:file|link|portal):/.test(value)
+				|| (value.startsWith('workspace:') && (/^\./.test(value.slice(10)) || absoluteOrHomePath.test(value.slice(10))))
+				|| /^(?:\.{1,2}(?:\/|$)|\/|~\/)/.test(value);
+			if (!isLocal) {
 				continue;
 			}
 			const { localPath, base } = resolvePath(value);
-			const normalized = path.posix.normalize(localPath.replaceAll('\\', '/'));
-			const relative = path.relative(context.from, path.resolve(base, normalized));
-			if (/^[/~]|^[a-z]:/i.test(localPath) || path.win32.isAbsolute(localPath)
+			const relative = path.relative(context.from, path.resolve(base, localPath.replaceAll('\\', '/')));
+			if (absoluteOrHomePath.test(localPath)
 				|| relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
 				throw new Error(`Package ${stringify(packageName)} has ${field} ${stringify(key)}: ${stringify(value)}, a local path that consumers installing from Git can't resolve. Use a path inside the package, such as file:./vendor/core.`);
 			}
@@ -116,13 +114,18 @@ export const validatePackedManifest = (
 	}
 	for (const peer of peers) {
 		const range = manifest.peerDependencies?.[peer.key];
-		if (peer.target && range !== undefined && typeof range !== 'string') {
-			throw new Error(`Package ${stringify(peer.from)} has invalid packed peer ${stringify(peer.key)}: ${stringify(range)}.`);
-		}
-		if (peer.target && range !== undefined && /^(?:file|link):/.test(range)) {
-			throw new Error(`Package ${stringify(peer.from)} declares peer ${stringify(peer.key)} as ${stringify(range)}, which consumers cannot resolve. Use a workspace: specifier or a version range.`);
+		if (peer.target && range !== undefined) {
+			if (typeof range !== 'string') {
+				// Preserve the packed-manifest validation error type.
+				// eslint-disable-next-line unicorn/prefer-type-error
+				throw new Error(`Package ${stringify(peer.from)} has invalid packed peer ${stringify(peer.key)}: ${stringify(range)}.`);
+			}
+			if (/^(?:file|link):/.test(range)) {
+				throw new Error(`Package ${stringify(peer.from)} declares peer ${stringify(peer.key)} as ${stringify(range)}, which consumers cannot resolve. Use a workspace: specifier or a version range.`);
+			}
 		}
 	}
+	// Validate peer types first so the workspace check can safely call startsWith.
 	validatePackedWorkspaceDependencies(packageName, rewritten);
 };
 

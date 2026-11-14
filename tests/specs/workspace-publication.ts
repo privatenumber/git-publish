@@ -1114,11 +1114,42 @@ exec "${npmPath}" "$@"
 		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${target}`);
 	});
 
-	for (const scenario of ['unchanged range', 'unchanged workspace:^', 'unchanged workspace:~', 'renamed package', 'added local dependency']) {
-		test(`rejects packed manifest invariant: ${scenario}`, async () => {
+	for (const scenario of [
+		{
+			name: 'unchanged range',
+			dependency: '^1.0.0',
+			expected: '^1.0.0',
+			coreHook: true,
+		},
+		{
+			name: 'unchanged workspace:^',
+			dependency: 'workspace:^',
+			expected: 'workspace:^',
+			coreHook: true,
+		},
+		{
+			name: 'unchanged workspace:~',
+			dependency: 'workspace:~',
+			expected: 'workspace:~',
+			coreHook: true,
+		},
+		{
+			name: 'renamed package',
+			appHook: 'p.name = "renamed"',
+			expected: 'renamed',
+			coreHook: false,
+		},
+		{
+			name: 'added local dependency',
+			appHook: 'p.dependencies = { core: "file:../core" }',
+			expected: 'file:../core',
+			coreHook: false,
+		},
+	]) {
+		test(`rejects packed manifest invariant: ${scenario.name}`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
-			const dependencies = scenario === 'unchanged range' ? { core: '^1.0.0' } : (scenario.startsWith('unchanged workspace:') ? { core: scenario.slice('unchanged '.length) } : undefined);
-			const appHook = scenario === 'renamed package' ? 'p.name = "renamed"' : 'p.dependencies = { core: "file:../core" }';
+			const dependencies = scenario.dependency ? { core: scenario.dependency } : undefined;
+			const appHook = scenario.appHook ?? 'p.dependencies = { core: "file:../core" }';
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
 					private: true,
@@ -1129,13 +1160,13 @@ exec "${npmPath}" "$@"
 					name: 'app',
 					version: '1.0.0',
 					dependencies,
-					...(['renamed package', 'added local dependency'].includes(scenario) ? { scripts: { prepack: 'node hook.cjs' } } : {}),
+					...(scenario.appHook ? { scripts: { prepack: 'node hook.cjs' } } : {}),
 				}),
 				'packages/app/hook.cjs': `const fs = require('fs'); const p = require('./package.json'); ${appHook}; fs.writeFileSync('package.json', JSON.stringify(p));`,
 				'packages/core/package.json': JSON.stringify({
 					name: 'core',
 					version: '1.0.0',
-					...(scenario.startsWith('unchanged ') ? { scripts: { prepack: 'node hook.cjs' } } : {}),
+					...(scenario.coreHook ? { scripts: { prepack: 'node hook.cjs' } } : {}),
 				}),
 				'packages/core/hook.cjs': 'const fs = require("fs"); const p = require("./package.json"); p.version = "2.0.0"; fs.writeFileSync("package.json", JSON.stringify(p));',
 			}, ['--initial-branch=invariant']);
@@ -1146,15 +1177,9 @@ exec "${npmPath}" "$@"
 			onTestFail(() => console.log(result.output));
 			expect('exitCode' in result).toBe(true);
 			expect(result.output).toContain('app');
-			const expected = {
-				'unchanged range': '^1.0.0',
-				'unchanged workspace:^': 'workspace:^',
-				'unchanged workspace:~': 'workspace:~',
-				'renamed package': 'renamed',
-				'added local dependency': 'file:../core',
-			}[scenario]!;
+			const { expected } = scenario;
 			expect(result.output).toContain(expected);
-			if (scenario.startsWith('unchanged ')) {
+			if (scenario.coreHook) {
 				expect(result.output).toContain(`dependency "core" requires "${expected}", but its packed version is "2.0.0"`);
 			}
 			expect(await remote.git('for-each-ref')).toBe('');

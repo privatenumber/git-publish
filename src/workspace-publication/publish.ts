@@ -58,6 +58,7 @@ export const publishWorkspaceClosure = async ({
 		const existingBranches = await loadPublishBranches(repository, branches, fresh, signal);
 		const preparations = new Map<string, PackagePreparation>();
 		const targetsByName = new Map(plan.nodes.map(node => [node.key, node.package]));
+		const versionlessFallback = packageManager === 'yarn' ? '0.0.0' : undefined;
 		const processPackage = async (index: number, {
 			streamPreview,
 			setStatus,
@@ -94,11 +95,12 @@ export const publishWorkspaceClosure = async ({
 					sourceVersion?: string; }>();
 				for (const edge of node.dependencies) {
 					const dependency = preparations.get(edge.target)!;
+					const target = targetsByName.get(edge.target)!;
 					dependencyPublications.set(edge.target, dependency.publication);
 					targets.set(edge.target, {
-						dir: targetsByName.get(edge.target)!.dir,
-						version: dependency.version ?? (packageManager === 'yarn' ? '0.0.0' : undefined),
-						sourceVersion: targetsByName.get(edge.target)!.packageJson.version ?? (packageManager === 'yarn' ? '0.0.0' : undefined),
+						dir: target.dir,
+						version: dependency.version ?? versionlessFallback,
+						sourceVersion: target.packageJson.version ?? versionlessFallback,
 					});
 				}
 				const preparation = await preparePackagePublication({
