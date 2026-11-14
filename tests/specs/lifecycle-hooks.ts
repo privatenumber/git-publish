@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { spawn as spawnChild } from 'node:child_process';
 import { once } from 'node:events';
+import net from 'node:net';
 import spawn from 'nano-spawn';
 import {
 	describe, test, expect, onFinish, onTestFail,
@@ -19,7 +20,7 @@ describe('Lifecycle hooks', async () => {
 		const reason = new Error('interrupted');
 		const subprocess = spawnAbortable(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
 			signal: controller.signal,
-		});
+		}, { processGroup: true });
 		controller.abort(reason);
 		const child = await subprocess.nodeChildProcess;
 		expect(await subprocess.catch(error => error)).toBe(reason);
@@ -137,6 +138,65 @@ describe('Lifecycle hooks', async () => {
 			}
 		});
 	}
+	test('kills an active pack group on a second signal', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using temporary = await createFixture();
+		await using marker = await createFixture();
+		const server = net.createServer();
+		server.listen(0, '127.0.0.1');
+		await once(server, 'listening');
+		const address = server.address();
+		if (!address || typeof address === 'string') { throw new Error('Missing server address'); }
+		const connected = once(server, 'connection', { signal: AbortSignal.timeout(30_000) });
+		const npmResult = await spawn('which', ['npm']);
+		const npmPath = npmResult.stdout.trim();
+		await fs.writeFile(marker.getPath('npm'), `#!${process.execPath}\nconst fs = require('node:fs'); const { spawn } = require('node:child_process'); process.on('SIGTERM', () => {}); fs.writeFileSync(${JSON.stringify(marker.getPath('group'))}, String(process.pid)); spawn(${JSON.stringify(npmPath)}, process.argv.slice(2), { stdio: 'inherit' }); setInterval(() => {}, 1000);`);
+		await fs.chmod(marker.getPath('npm'), 0o755);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				scripts: { prepack: `"${process.execPath}" hook.cjs` },
+			}),
+			'hook.cjs': `const net = require('node:net'); const socket = net.connect(${address.port}, '127.0.0.1', () => socket.write('ready')); process.on('SIGTERM', () => socket.write('term'));`,
+		}, ['--initial-branch=signal-twice']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const child = spawnChild(process.execPath, [path.resolve('dist/index.js')], {
+			cwd: fixture.path,
+			env: {
+				...process.env,
+				PATH: `${marker.path}${path.delimiter}${process.env.PATH}`,
+				TMPDIR: temporary.path,
+			},
+			stdio: 'ignore',
+		});
+		const exited = once(child, 'exit');
+		let socket: net.Socket | undefined;
+		try {
+			[socket] = await connected as [net.Socket];
+			await once(socket, 'data', { signal: AbortSignal.timeout(30_000) });
+			const received = once(socket, 'data', { signal: AbortSignal.timeout(30_000) });
+			const closed = once(socket, 'close', { signal: AbortSignal.timeout(30_000) });
+			child.kill('SIGTERM');
+			const [message] = await received;
+			expect(String(message)).toBe('term');
+			expect(child.exitCode).toBe(null);
+			child.kill('SIGTERM');
+			const [code] = await exited;
+			expect(code).toBe(143);
+			await closed;
+		} finally {
+			if (await marker.exists('group')) {
+				try { process.kill(-Number(await marker.readFile('group', 'utf8')), 'SIGKILL'); } catch { /* Already exited. */ }
+			}
+			child.kill('SIGKILL');
+			socket?.destroy();
+			server.close();
+			await exited;
+		}
+	});
 
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());

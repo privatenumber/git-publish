@@ -73,7 +73,7 @@ On the develop implementation, the tests "publishes packed files excluded by glo
 
 ## Known limitations
 
-On POSIX, interruption sends SIGTERM to the subprocess's process group and waits for the direct subprocess to exit. Descendants that create another process group or session, or ignore SIGTERM, can survive. On Windows, only the direct child is signalled.
+On POSIX, interruption sends SIGTERM to the package manager's pack process group and waits for the direct process to exit. A second signal sends SIGKILL to the active pack group before exiting. Descendants that create another process group or session, or ignore SIGTERM, can survive. Git commands retain their controlling terminal for credential prompts and receive signals directly, so their filters or helpers can outlive an interruption. On Windows, only the direct child is signalled.
 
 The earlier direct-child-only decision was reversed after testing on Debian 12 with Node 26.13.0. npm ran a prepack hook through a separate `/bin/sh -c` process; after git-publish exited, the hook was orphaned with PPID 1 and state `Sl` in three of three runs.
 

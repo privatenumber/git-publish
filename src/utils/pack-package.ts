@@ -211,7 +211,7 @@ export const packPackage = async (
 	};
 	const packArgs = await getPackArguments(packageManager, packDestinationDirectory, packOptions);
 	signal.throwIfAborted();
-	await spawnAbortable(packageManager, packArgs, packOptions);
+	await spawnAbortable(packageManager, packArgs, packOptions, { processGroup: true });
 
 	// Find the generated tarball (package managers create it with their own naming)
 	const files = await fs.readdir(packDestinationDirectory);

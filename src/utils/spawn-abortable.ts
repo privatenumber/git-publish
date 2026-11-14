@@ -1,9 +1,14 @@
 import spawn, { type Options } from 'nano-spawn';
 
-export const spawnAbortable = (file: string, args: string[], options: Options) => {
+export const spawnAbortable = (
+	file: string,
+	args: string[],
+	options: Options,
+	{ processGroup = false }: { processGroup?: boolean } = {},
+) => {
 	options.signal?.throwIfAborted();
-	const posix = process.platform !== 'win32';
-	const subprocess = spawn(file, args, posix
+	const group = processGroup && process.platform !== 'win32';
+	const subprocess = spawn(file, args, group
 		? {
 			...options,
 			signal: undefined,
@@ -12,13 +17,21 @@ export const spawnAbortable = (file: string, args: string[], options: Options) =
 		: options);
 	const result = (async () => {
 		let onAbort: (() => void) | undefined;
+		let onExit: (() => void) | undefined;
 		try {
-			if (!posix || !options.signal) {
+			if (!group) {
 				return await subprocess;
 			}
 			const { signal } = options;
 			const aborted = (async () => {
 				const child = await subprocess.nodeChildProcess;
+				onExit = () => {
+					try { process.kill(-child.pid!, 'SIGKILL'); } catch (error) {
+						if ((error as NodeJS.ErrnoException).code !== 'ESRCH') { throw error; }
+					}
+				};
+				process.on('exit', onExit);
+				if (!signal) { return await subprocess; }
 				return new Promise<never>((_resolve, reject) => {
 					onAbort = () => {
 						try {
@@ -52,6 +65,7 @@ export const spawnAbortable = (file: string, args: string[], options: Options) =
 			throw error;
 		} finally {
 			if (onAbort) { options.signal?.removeEventListener('abort', onAbort); }
+			if (onExit) { process.removeListener('exit', onExit); }
 		}
 	})();
 	return Object.assign(result, { nodeChildProcess: subprocess.nodeChildProcess });
