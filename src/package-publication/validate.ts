@@ -1,5 +1,6 @@
 import path from 'node:path';
 import semver from 'semver';
+import npa from 'npm-package-arg';
 import type { PackageJson } from '@npmcli/package-json';
 import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
 import { parseWorkspaceSpecification, type WorkspacePeer } from '../workspace-publication/graph.ts';
@@ -14,6 +15,7 @@ export type PackedManifestValidationContext = {
 	targets: ReadonlyMap<string, {
 		dir: string;
 		version?: string;
+		sourceVersion?: string;
 	}>;
 };
 
@@ -65,7 +67,7 @@ export const validatePackedManifest = (
 		const target = context.targets.get(edge.target);
 		const workspace = parseWorkspaceSpecification(packed);
 		const range = workspace && workspace.kind !== 'path'
-			? (['*', '^', '~'].includes(workspace.range) ? '*' : workspace.range)
+			? (['^', '~'].includes(workspace.range) ? `${workspace.range}${target?.sourceVersion ?? '*'}` : workspace.range)
 			: packed;
 		let valid = packed === source && (!semver.validRange(range)
 			|| Boolean(target?.version && satisfiesPackedPeer(range, edge.target, target.version)));
@@ -90,12 +92,29 @@ export const validatePackedManifest = (
 				continue;
 			}
 			const workspace = parseWorkspaceSpecification(value);
-			if (/^(?:file|link):/.test(value) || workspace?.kind === 'path'
-				|| (value.startsWith('workspace:') && (path.isAbsolute(value.slice(10)) || path.win32.isAbsolute(value.slice(10))))) {
-				const { localPath, resolved } = resolvePath(value);
+			let resolved: string | undefined;
+			if (workspace?.kind === 'path' || (value.startsWith('workspace:') && path.isAbsolute(value.slice(10)))) {
+				resolved = resolvePath(value).resolved;
+			} else {
+				const separator = value.indexOf('::');
+				const locator = separator === -1 ? undefined : new URLSearchParams(value.slice(separator + 2)).get('locator');
+				const match = locator && /^.+@workspace:(.+)$/.exec(locator);
+				const specifier = match ? value.slice(0, separator) : value;
+				// npm-package-arg rejects pnpm's link: protocol, which also names a local directory
+				const npmSpecifier = specifier.startsWith('link:') ? `file:${specifier.slice('link:'.length)}` : specifier;
+				const base = match ? path.resolve(context.root, match[1]!) : context.from;
+				try {
+					const result = npa.resolve(key, npmSpecifier, base);
+					if (result.type === 'directory' || result.type === 'file') {
+						resolved = result.fetchSpec ?? undefined;
+					}
+				} catch {
+					// Unsupported specifications are outside this validation's scope.
+				}
+			}
+			if (resolved) {
 				const relative = path.relative(context.from, resolved);
-				if (path.isAbsolute(localPath) || path.win32.isAbsolute(localPath)
-					|| relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+				if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
 					throw new Error(`Package ${stringify(packageName)} has ${field} ${stringify(key)}: ${stringify(value)}, a local path outside the package that consumers can't install.`);
 				}
 			}

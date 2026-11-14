@@ -21,14 +21,14 @@ describe('Package publication', () => {
 			targets: new Map(),
 		};
 		for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
-			for (const value of ['file:../core', 'link:../core', 'workspace:../core', 'file:/repo/packages/app/core', 'file:../thing::local', 'file:../core::locator=app%40workspace%3Apackages%2Fapp']) {
+			for (const value of ['../core', '/tmp/core', 'file:~/core', 'file:../core', 'link:../core', 'workspace:../core', 'file:../thing::local', 'file:../core::locator=app%40workspace%3Apackages%2Fapp']) {
 				expect(() => validatePackedManifest('app', {
 					name: 'app',
 					[field]: { core: value },
 				}, [], [], context))
 					.toThrow(`Package "app" has ${field} "core": ${JSON.stringify(value)}, a local path outside the package that consumers can't install.`);
 			}
-			for (const value of ['file:./core', 'link:./core', 'file:./thing::local', 'file:./core::locator=app%40workspace%3Apackages%2Fapp']) {
+			for (const value of ['file:/./core', 'file:./vendor/x', 'file:./core', 'link:./vendor/x', 'file:./thing::local', 'file:./core::locator=app%40workspace%3Apackages%2Fapp']) {
 				validatePackedManifest('app', {
 					name: 'app',
 					[field]: { core: value },

@@ -1114,10 +1114,10 @@ exec "${npmPath}" "$@"
 		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${target}`);
 	});
 
-	for (const scenario of ['unchanged range', 'renamed package', 'added local dependency']) {
+	for (const scenario of ['unchanged range', 'unchanged workspace:^', 'unchanged workspace:~', 'renamed package', 'added local dependency']) {
 		test(`rejects packed manifest invariant: ${scenario}`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
-			const dependencies = scenario === 'unchanged range' ? { core: '^1.0.0' } : undefined;
+			const dependencies = scenario === 'unchanged range' ? { core: '^1.0.0' } : (scenario.startsWith('unchanged workspace:') ? { core: scenario.slice('unchanged '.length) } : undefined);
 			const appHook = scenario === 'renamed package' ? 'p.name = "renamed"' : 'p.dependencies = { core: "file:../core" }';
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
@@ -1135,7 +1135,7 @@ exec "${npmPath}" "$@"
 				'packages/core/package.json': JSON.stringify({
 					name: 'core',
 					version: '1.0.0',
-					...(scenario === 'unchanged range' ? { scripts: { prepack: 'node hook.cjs' } } : {}),
+					...(scenario.startsWith('unchanged ') ? { scripts: { prepack: 'node hook.cjs' } } : {}),
 				}),
 				'packages/core/hook.cjs': 'const fs = require("fs"); const p = require("./package.json"); p.version = "2.0.0"; fs.writeFileSync("package.json", JSON.stringify(p));',
 			}, ['--initial-branch=invariant']);
@@ -1148,12 +1148,14 @@ exec "${npmPath}" "$@"
 			expect(result.output).toContain('app');
 			const expected = {
 				'unchanged range': '^1.0.0',
+				'unchanged workspace:^': 'workspace:^',
+				'unchanged workspace:~': 'workspace:~',
 				'renamed package': 'renamed',
 				'added local dependency': 'file:../core',
 			}[scenario]!;
 			expect(result.output).toContain(expected);
-			if (scenario === 'unchanged range') {
-				expect(result.output).toContain('dependency "core" requires "^1.0.0", but its packed version is "2.0.0"');
+			if (scenario.startsWith('unchanged ')) {
+				expect(result.output).toContain(`dependency "core" requires "${expected}", but its packed version is "2.0.0"`);
 			}
 			expect(await remote.git('for-each-ref')).toBe('');
 		});
@@ -1234,7 +1236,7 @@ exec '${npmPath}' "$@"
 		expect(manifest.optionalDependencies.core).toBe(`git+file://${remote.path}#${commit}`);
 	});
 
-	test('does not validate peers of packages removed from the effective plan', async () => {
+	test('does not validate peer ranges of packages removed from the effective plan', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
