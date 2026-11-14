@@ -57,10 +57,7 @@ export const publishWorkspaceClosure = async ({
 		}));
 		const existingBranches = await loadPublishBranches(repository, branches, fresh, signal);
 		const preparations = new Map<string, PackagePreparation>();
-		const targets = new Map(plan.nodes.map(node => [node.key, {
-			dir: node.package.dir,
-			version: node.package.packageJson.version,
-		}]));
+		const targetDirectories = new Map(plan.nodes.map(node => [node.key, node.package.dir]));
 		const processPackage = async (index: number, {
 			streamPreview,
 			setStatus,
@@ -92,8 +89,15 @@ export const publishWorkspaceClosure = async ({
 				);
 				setStatus('Preparing publication commit');
 				const dependencyPublications = new Map<string, PackagePublication>();
+				const targets = new Map<string, { dir: string;
+					version?: string; }>();
 				for (const edge of node.dependencies) {
-					dependencyPublications.set(edge.target, preparations.get(edge.target)!.publication);
+					const dependency = preparations.get(edge.target)!;
+					dependencyPublications.set(edge.target, dependency.publication);
+					targets.set(edge.target, {
+						dir: targetDirectories.get(edge.target)!,
+						version: dependency.version ?? (packageManager === 'yarn' ? '0.0.0' : undefined),
+					});
 				}
 				const preparation = await preparePackagePublication({
 					packageName: node.key,

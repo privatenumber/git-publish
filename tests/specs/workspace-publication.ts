@@ -1030,6 +1030,73 @@ exec "${npmPath}" "$@"
 		expect(await remote.git('branch', ['--list'])).toBe('');
 	});
 
+	test('rejects a dependency range incompatible with the packed target version before pushing', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({ private: true }),
+			'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: 'workspace:^' },
+			}),
+			'packages/core/package.json': JSON.stringify({
+				name: 'core',
+				version: '1.0.0',
+				scripts: { prepack: 'node hook.cjs' },
+			}),
+			'packages/core/hook.cjs': 'const fs = require("fs"); const p = require("./package.json"); p.version = "2.0.0"; fs.writeFileSync("package.json", JSON.stringify(p));',
+		}, ['--initial-branch=packed-version']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.getPath('packages/app'));
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain('changed during packing');
+		expect(result.output).toContain('^1.0.0');
+		expect(await remote.git('for-each-ref')).toBe('');
+	});
+
+	for (const reference of ['*', '^', '~']) {
+		test(`publishes a Yarn versionless workspace dependency with workspace:${reference}`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using commands = await createFixture({ yarn: `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n` });
+			await fs.chmod(commands.getPath('yarn'), 0o755);
+			const environment = {
+				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+				YARN_ENABLE_TELEMETRY: '0',
+			};
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'root',
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'yarn.lock': '',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					dependencies: { core: `workspace:${reference}` },
+				}),
+				'packages/core/package.json': JSON.stringify({ name: 'core' }),
+			}, ['--initial-branch=yarn-versionless']);
+			await spawn('yarn', ['install'], {
+				cwd: fixture.path,
+				env: environment,
+			});
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			const result = await gitPublish(fixture.getPath('packages/app'), [], environment);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			const commit = await remote.git('rev-parse', ['npm/yarn-versionless-core']);
+			const manifest = JSON.parse(await remote.git('show', ['npm/yarn-versionless-app:package.json']));
+			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+		});
+	}
+
 	for (const [description, entry] of [['workspace', 'workspace:*'], ['path', 'file:./packages/core']] as const) {
 		test(`publishes a Yarn catalog ${description} dependency`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
