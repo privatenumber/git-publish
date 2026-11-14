@@ -26,36 +26,44 @@ const getHeadRef = () => getStdout(spawn('git', ['symbolic-ref', '-q', 'HEAD']))
 	throw error;
 });
 
+const resolveCommit = (ref: string | undefined) => getStdout(spawn('git', ['rev-parse', '--verify', '--quiet', `${ref ?? 'HEAD'}^{commit}`])).catch((error: unknown) => {
+	if (error instanceof SubprocessError && error.exitCode === 1) {
+		return undefined;
+	}
+	throw error;
+});
+
+export type Source = {
+	ref: string | undefined;
+	commit: string;
+	shortCommit: string;
+	name: string;
+};
+
 export const getSourceCommit = async () => {
 	const ref = await getHeadRef();
 	// Resolving the captured ref keeps the branch name and commit aligned if HEAD switches.
-	const commit = await getStdout(spawn('git', ['rev-parse', '--verify', '--quiet', `${ref ?? 'HEAD'}^{commit}`])).catch((error: unknown) => {
-		if (error instanceof SubprocessError && error.exitCode === 1) {
-			throw new Error('HEAD does not point to a commit. Commit your changes before publishing.');
-		}
-		throw error;
-	});
+	const commit = await resolveCommit(ref);
+	if (commit === undefined) {
+		throw new Error('HEAD does not point to a commit. Commit your changes before publishing.');
+	}
 	return {
 		ref,
 		commit,
 	};
 };
 
-export const assertSourceUnchanged = async ({ ref, commit }: { ref: string | undefined;
-	commit: string; }) => {
+export const assertSourceUnchanged = async ({
+	ref, commit, shortCommit, name,
+}: Source) => {
 	const currentRef = await getHeadRef();
-	const currentCommit = await getStdout(spawn('git', ['rev-parse', '--verify', '--quiet', `${ref ?? 'HEAD'}^{commit}`])).catch((error: unknown) => {
-		if (error instanceof SubprocessError && error.exitCode === 1) { return undefined; }
-		throw error;
-	});
+	const currentCommit = await resolveCommit(ref);
 	if (currentRef !== ref || currentCommit !== commit || await gitStatusTracked()) {
-		const short = await getStdout(spawn('git', ['rev-parse', '--short', commit]));
-		const name = await getCurrentSourceName(ref, commit, short);
-		throw new Error(`The source checkout changed during publication. Keep ${name} at ${short} until git-publish finishes.`);
+		throw new Error(`The source checkout changed during publication. Keep ${name} at ${shortCommit} until git-publish finishes.`);
 	}
 };
 
-export const getCurrentSourceName = async (
+export const getSourceName = async (
 	ref: string | undefined,
 	sourceCommitId: string,
 	sourceCommit: string,

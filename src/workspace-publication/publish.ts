@@ -13,7 +13,7 @@ import { planPackagePublicationPush, pushPackagePublications } from '../package-
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { packPackage } from '../utils/pack-package.ts';
-import { assertSourceUnchanged } from '../utils/git.ts';
+import { assertSourceUnchanged, type Source } from '../utils/git.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 import { validatePeerRanges } from '../package-publication/validate.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
@@ -24,27 +24,21 @@ export const publishWorkspaceClosure = async ({
 	packageManager,
 	repositoryPath,
 	publishRemote,
-	sourceName,
-	sourceCommit,
-	sourceCommitId,
-	sourceRef,
+	source,
 	fresh,
 }: {
 	plan: WorkspacePublicationPlan;
 	packageManager: PackageManager;
 	repositoryPath: string;
 	publishRemote: PublishRemote;
-	sourceName: string;
-	sourceCommit: string;
-	sourceCommitId: string;
-	sourceRef: string | undefined;
+	source: Source;
 	fresh: boolean | undefined;
 }): Promise<{ plan: WorkspacePublicationPlan;
 	preparations: ReadonlyMap<string, PackagePreparation>; }> => {
 	const repository = await createPublishRepository({
 		sourceRepositoryPath: repositoryPath,
 		publishRemote,
-		sourceCommitId,
+		sourceCommitId: source.commit,
 	});
 	try {
 		const pushPlan = await planPackagePublicationPush(
@@ -73,13 +67,10 @@ export const publishWorkspaceClosure = async ({
 					cwd: repository.packWorktreePath,
 					env: repository.gitOptions.env,
 				};
-				await spawn('git', ['-c', 'core.hooksPath=/dev/null', 'reset', '--hard', sourceCommitId], packWorktreeOptions);
+				await spawn('git', ['-c', 'core.hooksPath=/dev/null', 'reset', '--hard', source.commit], packWorktreeOptions);
 				await spawn('git', ['-c', 'core.hooksPath=/dev/null', 'clean', '-fdx'], packWorktreeOptions);
 				setStatus('Packing package and running lifecycle scripts');
-				await assertSourceUnchanged({
-					ref: sourceRef,
-					commit: sourceCommitId,
-				});
+				await assertSourceUnchanged(source);
 				const tarball = await packPackage(
 					packageManager,
 					repository.packWorktreePath,
@@ -101,7 +92,7 @@ export const publishWorkspaceClosure = async ({
 					parent: existingBranches.has(node.branch) ? branches[index]!.localRef : undefined,
 					branch: node.branch,
 					fetchUrl: publishRemote.installUrl,
-					commitMessage: `Published ${plan.standalone ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(sourceName)}${sourceCommit ? ` (${sourceCommit})` : ''}`,
+					commitMessage: `Published ${plan.standalone ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(source.name)} (${source.shortCommit})`,
 					dependencyEdges: node.dependencies,
 					dependencyPublications,
 					peers: plan.peers.filter(peer => peer.from === node.key),

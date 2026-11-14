@@ -33,7 +33,7 @@ describe('Package contents', async () => {
 		expect(await remote.git('show', ['npm/snapshot:manager.txt'])).toMatch(/^pnpm\//);
 	});
 
-	for (const [description, manifest, extraFiles, file] of [
+	for (const [description, manifest, extraFiles, file, gitExclude] of [
 		['copies ignored mandatory main without files', { main: 'dist/index.js' }, { '.gitignore': 'dist/' }, 'dist/index.js'],
 		['copies case-insensitive files glob', { files: ['DIST/*.js'] }, {}, 'dist/index.js'],
 		['copies gitignored output with a root npmignore and no files', {}, {
@@ -57,7 +57,7 @@ describe('Package contents', async () => {
 			directories: { bin: 'bin' },
 		}, {}, 'bin/cli.js'],
 		['copies nested files matched by a directory glob', { files: ['src/*'] }, {}, 'src/sub/x.js'],
-		['copies files excluded by git info exclude', {}, {}, 'excluded.js'],
+		['copies files excluded by git info exclude', {}, {}, 'excluded.js', 'excluded.js\n'],
 		['prefers nested npmignore over gitignore', {}, {
 			'sub/.gitignore': 'index.js',
 			'sub/.npmignore': '',
@@ -76,8 +76,8 @@ describe('Package contents', async () => {
 			await fixture.git('add', ['.']);
 			await fixture.git('commit', ['-m', 'Initial commit']);
 			await fixture.git('remote', ['add', 'origin', remote.path]);
-			if (description === 'copies files excluded by git info exclude') {
-				await fs.writeFile(fixture.getPath('.git/info/exclude'), 'excluded.js\n');
+			if (gitExclude) {
+				await fs.writeFile(fixture.getPath('.git/info/exclude'), gitExclude);
 			}
 			await fs.mkdir(path.dirname(fixture.getPath(file)), { recursive: true });
 			await fixture.writeFile(file, 'untracked content');

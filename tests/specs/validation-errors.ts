@@ -7,29 +7,27 @@ import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Error cases', () => {
-	for (const dry of [false, true]) {
-		test(dry ? 'dry run does not run post-checkout' : 'post-checkout cannot bypass private check', async () => {
-			await using hooks = await createFixture();
-			await using remote = await createGitFixture(undefined, ['--bare']);
-			await using fixture = await createGitFixture({
-				'package.json': JSON.stringify({
-					name: 'app',
-					version: '1.0.0',
-					private: !dry,
-				}),
-			});
-			await fixture.git('add', ['.']);
-			await fixture.git('commit', ['-m', 'Initial']);
-			await fixture.git('remote', ['add', 'origin', remote.path]);
-			await hooks.writeFile('post-checkout', `#!/bin/sh\ntouch '${hooks.getPath('called')}'\nnode -e "const fs=require('fs');const p=require('./package.json');p.private=false;fs.writeFileSync('package.json',JSON.stringify(p))"\n`);
-			await fs.chmod(hooks.getPath('post-checkout'), 0o755);
-			await fixture.git('config', ['core.hooksPath', hooks.path]);
-			const result = await gitPublish(fixture.path, dry ? ['--dry'] : []);
-			expect('exitCode' in result).toBe(!dry);
-			expect(await hooks.exists('called')).toBe(false);
-			if (!dry) { expect(result.output).toMatch(/private/i); }
+	test('post-checkout cannot bypass private check', async () => {
+		await using hooks = await createFixture();
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				private: true,
+			}),
 		});
-	}
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		await hooks.writeFile('post-checkout', `#!/bin/sh\ntouch '${hooks.getPath('called')}'\nnode -e "const fs=require('fs');const p=require('./package.json');p.private=false;fs.writeFileSync('package.json',JSON.stringify(p))"\n`);
+		await fs.chmod(hooks.getPath('post-checkout'), 0o755);
+		await fixture.git('config', ['core.hooksPath', hooks.path]);
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result).toBe(true);
+		expect(await hooks.exists('called')).toBe(false);
+		expect(result.output).toMatch(/private/i);
+	});
 	test('explains that a repository with no commits must be committed before publishing', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
@@ -172,6 +170,7 @@ exit 1
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
 		const gitPath = await which('git');
+		// Intercept src/publish-repository/create.ts's worktree add call.
 		await using commands = await createFixture({
 			git: `#!/bin/sh
 if [ "$1" = -c ] && [ "$3" = worktree ] && [ "$4" = add ]; then
@@ -208,6 +207,26 @@ exec "${gitPath}" "$@"
 
 			await Promise.all(worktreePaths.map(worktree => git('worktree', ['remove', '--force', worktree])));
 		}
+	});
+
+	test('Does not create a workspace during dry runs', async () => {
+		await using remoteFixture = await createGitFixture(undefined, ['--bare']);
+		await using temporaryFixture = await createFixture();
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}, null, 2),
+		});
+		const { git } = fixture;
+		await git('add', ['package.json']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remoteFixture.path]);
+
+		const gitPublishProcess = await gitPublish(fixture.path, ['--dry'], { TMPDIR: temporaryFixture.path });
+		expect('exitCode' in gitPublishProcess).toBe(false);
+		expect(gitPublishProcess.stdout).not.toContain('→ Install command');
+		expect(await temporaryFixture.readdir('')).toStrictEqual([]);
 	});
 
 	test('Workspace dependencies', async () => {

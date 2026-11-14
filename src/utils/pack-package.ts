@@ -8,11 +8,11 @@ import mapWorkspaces from '@npmcli/map-workspaces';
 import type { PackageManager } from './detect-package-manager.ts';
 import { getStdout } from './get-stdout.ts';
 
-const isNotEnoent = (error: unknown): boolean => !(
+const hasErrorCode = (error: unknown, ...codes: string[]): boolean => (
 	typeof error === 'object'
 	&& error !== null
 	&& 'code' in error
-	&& error.code === 'ENOENT'
+	&& codes.includes(String(error.code))
 );
 
 const getPackArguments = async (
@@ -48,8 +48,7 @@ const listCandidates = async (cwd: string) => {
 			pkg: content,
 		})
 		: undefined;
-	// npm-packlist reads the path, normalized package, project-root flag, dependency edges,
-	// and workspace map from Arborist. Bundled dependencies are excluded from this stub.
+	// This stub supplies the Arborist node fields npm-packlist reads.
 	return packlist({
 		path: cwd,
 		package: content,
@@ -68,18 +67,16 @@ const copyContained = async (
 	const isSafeDirectory = async (directory: string): Promise<boolean> => {
 		const cached = checkedDirectories.get(directory);
 		if (cached !== undefined) { return cached; }
-		if (directory !== packWorktreePackageRoot && !await isSafeDirectory(path.dirname(directory))) {
-			checkedDirectories.set(directory, false);
-			return false;
-		}
 		let safe = false;
-		try {
-			const stat = await fs.lstat(directory);
-			safe = stat.isDirectory();
-		} catch (error: unknown) {
-			if (isNotEnoent(error)) { throw error; }
-			await fs.mkdir(directory);
-			safe = true;
+		if (directory === packWorktreePackageRoot || await isSafeDirectory(path.dirname(directory))) {
+			try {
+				const stat = await fs.lstat(directory);
+				safe = stat.isDirectory();
+			} catch (error: unknown) {
+				if (!hasErrorCode(error, 'ENOENT')) { throw error; }
+				await fs.mkdir(directory);
+				safe = true;
+			}
 		}
 		checkedDirectories.set(directory, safe);
 		return safe;
@@ -94,7 +91,7 @@ const copyContained = async (
 			await fs.copyFile(source, destinationPath, constants.COPYFILE_EXCL);
 			await fs.chmod(destinationPath, stat.mode);
 		} catch (error: unknown) {
-			if (!(error instanceof Error && 'code' in error && ['EEXIST', 'EISDIR', 'ENOTDIR'].includes(String(error.code)))) { throw error; }
+			if (!hasErrorCode(error, 'EEXIST', 'EISDIR', 'ENOTDIR')) { throw error; }
 		}
 	}
 };
@@ -131,13 +128,13 @@ export const packPackage = async (
 			);
 		} catch (error: unknown) {
 			// If node_modules doesn't exist, ignore (pack will likely fail later)
-			if (isNotEnoent(error)) {
+			if (!hasErrorCode(error, 'ENOENT')) {
 				throw error;
 			}
 		}
 
 		// Package node_modules (if exists)
-		const packageNodeModulesTarget = path.join(packWorktreePath, gitSubdirectory, 'node_modules');
+		const packageNodeModulesTarget = path.join(packWorktreePackageRoot, 'node_modules');
 		await fs.rm(packageNodeModulesTarget, {
 			recursive: true,
 			force: true,
@@ -149,13 +146,13 @@ export const packPackage = async (
 				'dir',
 			);
 		} catch (error: unknown) {
-			if (isNotEnoent(error)) {
+			if (!hasErrorCode(error, 'ENOENT')) {
 				throw error;
 			}
 		}
 	} else {
 		// Regular package node_modules
-		const nodeModulesTarget = path.join(packWorktreePath, 'node_modules');
+		const nodeModulesTarget = path.join(packWorktreePackageRoot, 'node_modules');
 		await fs.rm(nodeModulesTarget, {
 			recursive: true,
 			force: true,
@@ -167,16 +164,12 @@ export const packPackage = async (
 				'dir',
 			);
 		} catch (error: unknown) {
-			if (isNotEnoent(error)) {
+			if (!hasErrorCode(error, 'ENOENT')) {
 				throw error;
 			}
 		}
 	}
 
-	// Run pack from the appropriate directory in pack worktree
-	const packCwd = gitSubdirectory
-		? path.join(packWorktreePath, gitSubdirectory)
-		: packWorktreePath;
 	const binaryPaths = new Set([
 		path.join(cwd, 'node_modules', '.bin'),
 		path.join(gitRootPath, 'node_modules', '.bin'),
@@ -184,7 +177,7 @@ export const packPackage = async (
 	]);
 
 	const packOptions = {
-		cwd: packCwd,
+		cwd: packWorktreePackageRoot,
 		env: {
 			PATH: [...binaryPaths].filter(pathEntry => pathEntry !== undefined).join(path.delimiter),
 		},
