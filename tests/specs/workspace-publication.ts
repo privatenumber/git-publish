@@ -1300,7 +1300,7 @@ exec '${npmPath}' "$@"
 	test('allows a Yarn registry alias to an incompatible workspace name', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using commands = await createFixture();
-		const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
+		const environment = await createYarnEnvironment(commands);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'root',
