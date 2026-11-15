@@ -20,7 +20,9 @@ Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts
 
 ## Decision: require one push URL for every publication
 
-**Maintainer-approved 2026-11-15.** Reject a configured remote with multiple push URLs before packing, including multiple `url` values when no `pushurl` is set. The error identifies the remote without printing destination URLs and suggests separate remotes or `--remote <url>`. A single explicit URL is already supported by the CLI.
+**Maintainer-approved 2026-11-15.** Reject a configured remote with multiple push URLs before packing, including multiple `url` values when no `pushurl` is set. The error never prints destination URLs. It names the remote only when the name matches `[\w.-]+`, and otherwise says "Selected remote", because a remote name could contain credentials. It suggests separate remotes or `--remote <url>`. A single explicit URL is already supported by the CLI.
+
+**Known limitation:** the check counts configured `url` and `pushurl` entries, not the push URLs Git resolves. It rejects two rare configurations that resolve to one destination: an empty `pushurl` entry followed by a real one, and several `url` entries that `pushInsteadOf` rewrites to one push URL. Multi-package publications already counted entries this way before this decision. Revisit if a user reports either case.
 
 This is a breaking change: multiple push URLs worked in released versions, including v2.5.0 ([#63](https://github.com/privatenumber/git-publish/pull/63)). Standalone and single-package workspace publications no longer mirror to multiple destinations in one invocation, and the partial-outcome report for a failed mirror push is removed. Separate invocations can target each destination, but do not guarantee identical publication commits or atomicity across destinations. Multi-package workspace publications already rejected multiple destinations.
 
