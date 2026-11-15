@@ -42,7 +42,7 @@ export const createPublishRepository = async ({
 		cwd: publishRepositoryPath,
 		env: gitEnvironment,
 	};
-	const pushRemoteName = 'publish-0';
+	const pushRemoteName = 'publish';
 	let packWorktreeCreated = false;
 
 	let disposal: Promise<void> | undefined;

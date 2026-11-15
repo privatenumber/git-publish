@@ -226,11 +226,24 @@ describe('Remote transport', async () => {
 			const result = await gitPublish(fixture.path);
 			expect(('exitCode' in result) && result.exitCode).toBe(1);
 			expect(result.output).toContain('Remote "origin" has 2 push URLs. Use one remote per destination or --remote <url>.');
+			expect(result.output).not.toContain(first.path);
+			expect(result.output).not.toContain(second.path);
 			expect(await marker.exists('packed')).toBe(false);
 			expect(await first.git('for-each-ref')).toBe('');
 			expect(await second.git('for-each-ref')).toBe('');
 		});
 	}
+
+	test('does not expose URL-shaped configured remote names or destination credentials', async () => {
+		await using fixture = await createGitFixture();
+		const name = 'https://user:secret@example.test/repo';
+		await fixture.git('config', ['--add', `remote.${name}.url`, 'https://user:other-secret@example.test/a']);
+		await fixture.git('config', ['--add', `remote.${name}.url`, 'https://example.test/b']);
+		const result = getPublishRemote(fixture.path, name, false);
+		await expect(result).rejects.toThrow('Selected remote has 2 push URLs.');
+		await expect(result).rejects.not.toThrow('secret');
+		await expect(result).rejects.not.toThrow('example.test');
+	});
 
 	test('loads standalone history from the push destination', async () => {
 		await using upstream = await createGitFixture(undefined, ['--bare']);

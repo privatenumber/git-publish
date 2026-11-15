@@ -41,7 +41,8 @@ export const getPublishRemote = async (
 		})
 		: [fetchUrl];
 	if (rawPushUrls.length !== 1) {
-		throw new Error(`Remote ${JSON.stringify(remote)} has ${rawPushUrls.length} push URLs. Use one remote per destination or --remote <url>.`);
+		const label = /^[\w.-]+$/.test(remote) ? `Remote ${JSON.stringify(remote)}` : 'Selected remote';
+		throw new Error(`${label} has ${rawPushUrls.length} push URLs. Use one remote per destination or --remote <url>.`);
 	}
 	const pushUrl = rawPushUrls[0]!;
 	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')

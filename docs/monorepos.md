@@ -34,7 +34,12 @@ Publication fails before pushing if:
 - a packed dependency or peer still uses `workspace:`,
 - or a lifecycle hook changed or added an internal dependency during packing. Hooks may remove internal dependencies.
 
-A multi-package publication requires one push URL, because Git cannot atomically push one set of branches to several destinations. A single package can be pushed to several destinations in turn.
+Every publication requires exactly one push URL. To publish to multiple destinations, use a separate remote per destination or pass `--remote <url>`, and run `git-publish` once per destination. Separate runs are not atomic across destinations and may produce different publication commits.
+
+```sh
+git-publish --remote origin
+git-publish --remote mirror
+```
 
 ## Installing
 
