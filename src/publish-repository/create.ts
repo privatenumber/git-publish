@@ -12,7 +12,7 @@ export type PublishRepository = {
 	packWorktreePath: string;
 	packTemporaryDirectory: string;
 	gitOptions: SpawnOptions;
-	pushRemoteNames: string[];
+	pushRemoteName: string;
 	fetchRemoteName: string;
 	dispose(): Promise<void>;
 };
@@ -42,7 +42,7 @@ export const createPublishRepository = async ({
 		cwd: publishRepositoryPath,
 		env: gitEnvironment,
 	};
-	const pushRemoteNames = publishRemote.pushUrls.map((_, index) => `publish-${index}`);
+	const pushRemoteName = 'publish-0';
 	let packWorktreeCreated = false;
 
 	let disposal: Promise<void> | undefined;
@@ -74,18 +74,16 @@ export const createPublishRepository = async ({
 			...gitOptions,
 			signal,
 		});
-		for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
-			await spawnAbortable('git', ['remote', 'add', pushRemoteNames[index], pushUrl], {
-				...gitOptions,
-				signal,
-			});
-		}
+		await spawnAbortable('git', ['remote', 'add', pushRemoteName, publishRemote.pushUrl], {
+			...gitOptions,
+			signal,
+		});
 		await materializePublishGitConfig({
 			sourceRepositoryOptions,
 			destinationRepositoryPath: publishRepositoryPath,
 			remote: publishRemote,
 			fetchRemoteName,
-			pushRemoteNames,
+			pushRemoteName,
 			systemConfigPath: gitEnvironment.GIT_CONFIG_SYSTEM,
 			globalConfigPath: gitEnvironment.GIT_CONFIG_GLOBAL,
 		});
@@ -93,7 +91,7 @@ export const createPublishRepository = async ({
 			gitOptions,
 			publishRemote,
 			fetchRemoteName,
-			pushRemoteNames,
+			pushRemoteName,
 		});
 		await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], {
 			...gitOptions,
@@ -114,7 +112,7 @@ export const createPublishRepository = async ({
 		packWorktreePath,
 		packTemporaryDirectory,
 		gitOptions,
-		pushRemoteNames,
+		pushRemoteName,
 		fetchRemoteName,
 		dispose,
 	};

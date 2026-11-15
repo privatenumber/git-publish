@@ -81,7 +81,6 @@ describe('Remote transport', async () => {
 	for (const [label, pushUrls] of [
 		['hosted scp query', ['git@github.com:fork/r.git?token=secret']],
 		['hosted helper', ['github.com::user:secret@host/repo.git']],
-		['second push query', ['https://github.com/a/r.git', 'git@github.com:fork/r.git?token=secret']],
 	] as const) {
 		test(`rejects ${label} before destination selection`, async () => {
 			await using fixture = await createGitFixture();
@@ -154,55 +153,45 @@ describe('Remote transport', async () => {
 		expect(result.stdout).toContain('push rejected by test hook');
 	});
 	test('selects install and history URLs by destination identity', () => {
-		expect(getPublicationUrls('https://alice@host/repo.git', ['https://bob@host/repo.git'], '/repo').historyUrl)
+		expect(getPublicationUrls('https://alice@host/repo.git', 'https://bob@host/repo.git', '/repo').historyUrl)
 			.toBe('https://alice@host/repo.git');
-		expect(getPublicationUrls('git@host:repo.git', ['ssh://git@host/~/repo'], '/repo').historyUrl)
+		expect(getPublicationUrls('git@host:repo.git', 'ssh://git@host/~/repo', '/repo').historyUrl)
 			.toBe('git@host:repo.git');
-		expect(getPublicationUrls('git@host:repo.git', ['git@host:/repo.git'], '/repo').historyUrl)
+		expect(getPublicationUrls('git@host:repo.git', 'git@host:/repo.git', '/repo').historyUrl)
 			.toBe('git@host:/repo.git');
-		expect(getPublicationUrls('a@host:repo.git', ['b@host:repo.git'], '/repo').historyUrl)
+		expect(getPublicationUrls('a@host:repo.git', 'b@host:repo.git', '/repo').historyUrl)
 			.toBe('b@host:repo.git');
-		expect(getPublicationUrls('https://GitHub.com/owner/repo.git', ['git@github.com:owner/repo'], '/repo'))
+		expect(getPublicationUrls('https://GitHub.com/owner/repo.git', 'git@github.com:owner/repo', '/repo'))
 			.toStrictEqual({
 				installUrl: 'https://GitHub.com/owner/repo.git',
 				historyUrl: 'https://GitHub.com/owner/repo.git',
 			});
-		expect(getPublicationUrls('https://github.com/upstream/r.git', ['git@github.com:me/r.git'], '/repo'))
+		expect(getPublicationUrls('https://github.com/upstream/r.git', 'git@github.com:me/r.git', '/repo'))
 			.toStrictEqual({
 				installUrl: 'https://github.com/me/r.git',
 				historyUrl: 'git@github.com:me/r.git',
 			});
-		expect(getPublicationUrls('git@github.com:upstream/r.git', ['https://github.com/me/r'], '/repo'))
+		expect(getPublicationUrls('git@github.com:upstream/r.git', 'https://github.com/me/r', '/repo'))
 			.toStrictEqual({
 				installUrl: 'git@github.com:me/r.git',
 				historyUrl: 'https://github.com/me/r',
 			});
 		for (const host of ['gitlab.com', 'bitbucket.org']) {
-			expect(getPublicationUrls(`ssh://git@${host}/upstream/r.git`, [`https://${host}/me/r.git`], '/repo'))
+			expect(getPublicationUrls(`ssh://git@${host}/upstream/r.git`, `https://${host}/me/r.git`, '/repo'))
 				.toStrictEqual({
 					installUrl: `ssh://git@${host}/me/r.git`,
 					historyUrl: `https://${host}/me/r.git`,
 				});
 		}
-		expect(getPublicationUrls('ssh://git@example.test/a.git', ['ssh://git@example.test/b.git'], '/repo'))
+		expect(getPublicationUrls('ssh://git@example.test/a.git', 'ssh://git@example.test/b.git', '/repo'))
 			.toStrictEqual({
 				installUrl: 'ssh://git@example.test/b.git',
 				historyUrl: 'ssh://git@example.test/b.git',
 			});
-		expect(getPublicationUrls('./remote', ['/repo/remote'], '/repo'))
+		expect(getPublicationUrls('./remote', '/repo/remote', '/repo'))
 			.toStrictEqual({
 				installUrl: './remote',
 				historyUrl: './remote',
-			});
-		expect(getPublicationUrls('https://github.com/a/r', ['a', 'b'], '/repo'))
-			.toStrictEqual({
-				installUrl: 'a',
-				historyUrl: 'a',
-			});
-		expect(getPublicationUrls('https://github.com/a/r', ['a', 'git@github.com:a/r.git'], '/repo'))
-			.toStrictEqual({
-				installUrl: 'https://github.com/a/r',
-				historyUrl: 'https://github.com/a/r',
 			});
 	});
 
@@ -215,14 +204,33 @@ describe('Remote transport', async () => {
 		expect(remote.historyUrl).toBe('https://example.test/fork/repo.git');
 	});
 
-	test('uses the first fetch URL and all configured URLs for pushes', async () => {
-		await using fixture = await createGitFixture();
-		await fixture.git('remote', ['add', 'origin', 'https://example.test/a.git']);
-		await fixture.git('config', ['--add', 'remote.origin.url', 'https://example.test/b.git']);
-		const remote = await getPublishRemote(fixture.path, 'origin', true);
-		expect(remote.historyUrl).toBe('https://example.test/a.git');
-		expect(remote.pushUrls).toStrictEqual(['https://example.test/a.git', 'https://example.test/b.git']);
-	});
+	for (const key of ['url', 'pushurl']) {
+		test(`rejects multiple ${key} destinations before packing`, async () => {
+			await using first = await createGitFixture(undefined, ['--bare']);
+			await using second = await createGitFixture(undefined, ['--bare']);
+			await using marker = await createFixture();
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					scripts: { prepack: `node -e "require('node:fs').writeFileSync('${marker.getPath('packed')}', '')"` },
+				}),
+			});
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'initial']);
+			await fixture.git('remote', ['add', 'origin', first.path]);
+			if (key === 'pushurl') {
+				await fixture.git('config', ['--add', 'remote.origin.pushurl', first.path]);
+			}
+			await fixture.git('config', ['--add', `remote.origin.${key}`, second.path]);
+			const result = await gitPublish(fixture.path);
+			expect(('exitCode' in result) && result.exitCode).toBe(1);
+			expect(result.output).toContain('Remote "origin" has 2 push URLs. Use one remote per destination or --remote <url>.');
+			expect(await marker.exists('packed')).toBe(false);
+			expect(await first.git('for-each-ref')).toBe('');
+			expect(await second.git('for-each-ref')).toBe('');
+		});
+	}
 
 	test('loads standalone history from the push destination', async () => {
 		await using upstream = await createGitFixture(undefined, ['--bare']);

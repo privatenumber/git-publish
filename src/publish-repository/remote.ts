@@ -5,7 +5,7 @@ import { isLocalGitUrl, toPackageManagerGitUrl } from '../utils/git-url.ts';
 import { getPublicationUrls } from './destination.ts';
 
 export type PublishRemote = {
-	pushUrls: string[];
+	pushUrl: string;
 	installUrl: string;
 	historyUrl: string;
 	configuredName?: string;
@@ -40,16 +40,19 @@ export const getPublishRemote = async (
 			return [expandedPush.stdout === expandedFetch.stdout ? fetchUrl : expandedPush.stdout];
 		})
 		: [fetchUrl];
+	if (rawPushUrls.length !== 1) {
+		throw new Error(`Remote ${JSON.stringify(remote)} has ${rawPushUrls.length} push URLs. Use one remote per destination or --remote <url>.`);
+	}
+	const pushUrl = rawPushUrls[0]!;
 	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')
 		? path.resolve(repositoryPath, url)
 		: url);
-	for (const url of [fetchUrl, ...rawPushUrls]) {
+	for (const url of [fetchUrl, pushUrl]) {
 		toPackageManagerGitUrl(url, configuredName);
 	}
-	const publicationUrls = getPublicationUrls(fetchUrl, rawPushUrls, repositoryPath);
-	const pushUrls = rawPushUrls.map(normalizeLocal);
+	const publicationUrls = getPublicationUrls(fetchUrl, pushUrl, repositoryPath);
 	return {
-		pushUrls,
+		pushUrl: normalizeLocal(pushUrl),
 		installUrl: normalizeLocal(publicationUrls.installUrl),
 		historyUrl: normalizeLocal(publicationUrls.historyUrl),
 		configuredName,
@@ -64,23 +67,19 @@ export const configurePublishTransport = async ({
 	gitOptions,
 	publishRemote,
 	fetchRemoteName,
-	pushRemoteNames,
+	pushRemoteName,
 }: {
 	gitOptions: SpawnOptions;
 	publishRemote: PublishRemote;
 	fetchRemoteName: string;
-	pushRemoteNames: string[];
+	pushRemoteName: string;
 }) => {
 	if (isLocalGitUrl(publishRemote.historyUrl)) {
 		const uploadPack = await getStdout(spawn('git', ['config', '--get', `remote.${fetchRemoteName}.uploadpack`], gitOptions)).catch(() => 'git-upload-pack');
 		await spawn('git', ['config', `remote.${fetchRemoteName}.uploadpack`, getGitServerCommand(publishRemote.historyUrl, uploadPack)], gitOptions);
 	}
-	for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
-		if (!isLocalGitUrl(pushUrl)) {
-			continue;
-		}
-
-		const receivePack = await getStdout(spawn('git', ['config', '--get', `remote.${pushRemoteNames[index]}.receivepack`], gitOptions)).catch(() => 'git-receive-pack');
-		await spawn('git', ['config', `remote.${pushRemoteNames[index]}.receivepack`, getGitServerCommand(pushUrl, receivePack)], gitOptions);
+	if (isLocalGitUrl(publishRemote.pushUrl)) {
+		const receivePack = await getStdout(spawn('git', ['config', '--get', `remote.${pushRemoteName}.receivepack`], gitOptions)).catch(() => 'git-receive-pack');
+		await spawn('git', ['config', `remote.${pushRemoteName}.receivepack`, getGitServerCommand(publishRemote.pushUrl, receivePack)], gitOptions);
 	}
 };

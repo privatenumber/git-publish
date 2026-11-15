@@ -19,6 +19,14 @@ Remote URLs are read as configured (`git config --get-all remote.<name>.url`, `r
 
 Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts) ("selects install and history URLs by destination identity", "prints the fork with the fetch transport for a hosted triangular remote", "uses the first fetch URL and all configured URLs for pushes"), [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts) ("publishes and reloads a workspace closure from the push destination").
 
+## Proposal: require one push URL for every publication
+
+This is a spike, not the current behavior decision. Reject a configured remote with multiple push URLs before packing, including multiple `url` values when no `pushurl` is set. The error names the remote and suggests separate remotes or `--remote <url>`. A single explicit URL is already supported by the CLI.
+
+The trade-off is that standalone and single-package workspace publications would no longer mirror to multiple destinations in one invocation. They would also lose the partial-outcome report for a failed mirror push. Separate invocations can target each destination, but do not guarantee identical publication commits or atomicity across destinations. Multi-package workspace publications already reject multiple destinations.
+
+The spike removes the destination loop, per-destination outcomes, and multi-destination install URL selection. The push strategy still distinguishes normal pushes, standalone force pushes, and workspace force-with-lease pushes. This is easier to follow because remote resolution establishes one destination for the rest of the publication. Against the starting tree, the spike changes `src/` by 30 additions and 80 deletions, and `tests/` by 43 additions and 73 deletions (`git diff --numstat -- src tests`).
+
 ## Credentials
 
 Install specifiers omit passwords and keep usernames only for SSH. URL and SCP-like remotes with a query or fragment are rejected before packing, including file URLs. Local filesystem paths can contain `?` and `#`; these characters are encoded in the install URL. Errors identify a configured remote by name and never print a rejected URL. Displayed URLs with userinfo, queries, or fragments are redacted, except for strict SSH URLs with a bare username. Helper commands and SCP queries or fragments are also redacted. Tests: [`tests/specs/error.ts`](../../tests/specs/error.ts), [`tests/specs/github-remotes.ts`](../../tests/specs/github-remotes.ts), and [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts).

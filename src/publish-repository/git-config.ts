@@ -68,7 +68,7 @@ export const materializePublishGitConfig = async ({
 	destinationRepositoryPath,
 	remote,
 	fetchRemoteName,
-	pushRemoteNames,
+	pushRemoteName,
 	systemConfigPath,
 	globalConfigPath,
 }: {
@@ -76,7 +76,7 @@ export const materializePublishGitConfig = async ({
 	destinationRepositoryPath: string;
 	remote: PublishRemote;
 	fetchRemoteName: string;
-	pushRemoteNames: string[];
+	pushRemoteName: string;
 	systemConfigPath: string;
 	globalConfigPath: string;
 }) => {
@@ -94,7 +94,7 @@ export const materializePublishGitConfig = async ({
 	if (failedWrite) {
 		throw failedWrite.reason;
 	}
-	const remoteNames = [fetchRemoteName, ...pushRemoteNames];
+	const remoteNames = [fetchRemoteName, pushRemoteName];
 	const configPath = await getStdout(spawn('git', ['rev-parse', '--git-path', 'config'], { cwd: destinationRepositoryPath }));
 	await fs.appendFile(path.resolve(destinationRepositoryPath, configPath), [
 		...publishConfig.filter(({ scope }) => scope === 'local' || scope === 'worktree'),

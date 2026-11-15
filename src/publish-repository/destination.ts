@@ -1,20 +1,6 @@
 import { hostedGitHosts, parseRepository } from '../utils/git-url.ts';
 
-export const getPublicationUrls = (fetchUrl: string, pushUrls: string[], directory: string) => {
-	if (pushUrls.length !== 1) {
-		const fetchIdentity = parseRepository(fetchUrl, directory).identity;
-		const matchesFetch = pushUrls.some(url => (
-			parseRepository(url, directory).identity === fetchIdentity
-		));
-		const selected = matchesFetch
-			? fetchUrl
-			: pushUrls[0] ?? fetchUrl;
-		return {
-			installUrl: selected,
-			historyUrl: selected,
-		};
-	}
-	const pushUrl = pushUrls[0]!;
+export const getPublicationUrls = (fetchUrl: string, pushUrl: string, directory: string) => {
 	const fetch = parseRepository(fetchUrl, directory);
 	const push = parseRepository(pushUrl, directory);
 	if (fetch.identity === push.identity) {

@@ -2153,41 +2153,6 @@ exec '${npmPath}' "$@"
 		expect(gitPublishProcess.stdout).toContain('Pushing 1 package');
 	});
 
-	test('pushes a single workspace package to multiple destinations', async () => {
-		await using first = await createGitFixture(undefined, ['--bare']);
-		await using second = await createGitFixture(undefined, ['--bare']);
-		await using fixture = await createChainWorkspace('mirror', first.path);
-		await fixture.git('config', ['--add', 'remote.origin.pushurl', first.path]);
-		await fixture.git('config', ['--add', 'remote.origin.pushurl', second.path]);
-		const result = await gitPublish(fixture.getPath('packages/core'));
-		expect('exitCode' in result).toBe(false);
-		const commit = await first.git('rev-parse', ['npm/mirror-@test/core']);
-		expect(await second.git('rev-parse', ['npm/mirror-@test/core'])).toBe(commit);
-	});
-
-	test('reports partial publication to multiple destinations', async () => {
-		await using first = await createGitFixture(undefined, ['--bare']);
-		await using second = await createGitFixture(undefined, ['--bare']);
-		await using third = await createGitFixture(undefined, ['--bare']);
-		const hook = path.join(second.path, 'hooks/pre-receive');
-		await fs.writeFile(hook, '#!/bin/sh\necho rejected-by-test >&2\nexit 1\n');
-		await fs.chmod(hook, 0o755);
-		await using fixture = await createChainWorkspace('partial-mirror', first.path);
-		for (const destination of [first.path, second.path, third.path]) {
-			await fixture.git('config', ['--add', 'remote.origin.pushurl', destination]);
-		}
-		const result = await gitPublish(fixture.getPath('packages/core'));
-		onTestFail(() => console.log(result.output));
-		expect(('exitCode' in result) && result.exitCode).toBe(1);
-		expect(result.output).toContain(`${first.path}: succeeded`);
-		expect(result.output).toContain(`${second.path}: failed; remote outcome unknown`);
-		expect(result.output).toContain(`${third.path}: not attempted`);
-		expect(result.output).toContain('rejected-by-test');
-		expect(await first.git('rev-parse', ['npm/partial-mirror-@test/core'])).toMatch(/^[0-9a-f]{40}$/);
-		expect(await second.git('for-each-ref')).toBe('');
-		expect(await third.git('for-each-ref')).toBe('');
-	});
-
 	test('publishes a single workspace package without atomic push support', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await remote.git('config', ['receive.advertiseAtomic', 'false']);
@@ -2555,10 +2520,11 @@ exec "${npmPath}" "$@"
 		await git('config', ['--add', 'remote.origin.pushurl', firstPushFixture.path]);
 		await git('config', ['--add', 'remote.origin.pushurl', secondPushFixture.path]);
 
-		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'));
-
-		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-		expect(gitPublishProcess.stderr).toContain('requires exactly one push URL');
+		for (const name of ['adapter', 'core']) {
+			const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages', name));
+			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
+			expect(gitPublishProcess.stderr).toContain('Remote "origin" has 2 push URLs');
+		}
 		expect(await firstRemoteGit('for-each-ref')).toBe('');
 		expect(await secondRemoteGit('for-each-ref')).toBe('');
 	});
