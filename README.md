@@ -11,6 +11,8 @@ Publish your npm package to a Git branch, then install it anywhere with one comm
 
 ## Quick start
 
+Publishing supports npm, pnpm, Bun, and Yarn 2 or later. Yarn 4 or later is recommended.
+
 In your package's repository:
 
 ```sh

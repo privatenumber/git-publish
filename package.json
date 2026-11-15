@@ -72,7 +72,6 @@
 		"terminal-link": "^5.0.0",
 		"typescript": "^6.0.3",
 		"which": "^7.0.0",
-		"yarn-berry": "npm:@yarnpkg/cli-dist@4.18.1",
-		"yarn-classic": "npm:yarn@1.22.22"
+		"yarn-berry": "npm:@yarnpkg/cli-dist@4.18.1"
 	}
 }

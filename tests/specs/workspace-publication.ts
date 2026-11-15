@@ -1063,7 +1063,7 @@ exec "${npmPath}" "$@"
 		test(`publishes a Yarn versionless workspace dependency with workspace:${reference}`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
 			await using commands = await createFixture();
-			const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
+			const environment = await createYarnEnvironment(commands);
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
 					name: 'root',
@@ -1098,7 +1098,7 @@ exec "${npmPath}" "$@"
 		test(`publishes a Yarn catalog ${description} dependency`, async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
 			await using commands = await createFixture();
-			const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
+			const environment = await createYarnEnvironment(commands);
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
 					name: 'root',
@@ -1140,7 +1140,7 @@ exec "${npmPath}" "$@"
 	test('uses Yarn catalog configuration from each package directory', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using commands = await createFixture();
-		const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
+		const environment = await createYarnEnvironment(commands);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'root',
@@ -1178,7 +1178,7 @@ exec "${npmPath}" "$@"
 	test('distinguishes Yarn unnamed and named default catalogs', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using commands = await createFixture();
-		const environment = await createYarnEnvironment(commands, 'node_modules/yarn-berry/bin/yarn.js');
+		const environment = await createYarnEnvironment(commands);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'root',
@@ -1698,9 +1698,9 @@ exec "${npmPath}" "$@"
 			await fixture.git('commit', ['-m', 'Select package manager']);
 			await using commands = await createFixture({
 				[manager]: `#!/bin/sh
-if [ "$1" = --version ]; then echo 1.22.22; exit 0; fi
+if [ "$1" = --version ]; then echo 4.18.1; exit 0; fi
 if [ "$1" = pm ]; then exec '${npmPath}' pack --pack-destination "$4"; fi
-if [ "$1" = pack ] && [ "$2" = --filename ]; then exec '${npmPath}' pack --pack-destination "$(dirname "$3")"; fi
+if [ "$1" = pack ] && [ "$2" = --out ]; then exec '${npmPath}' pack --pack-destination "$(dirname "$3")"; fi
 exec '${npmPath}' "$@"
 `,
 			});

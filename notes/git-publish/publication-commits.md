@@ -14,7 +14,7 @@ The isolated repository is a [non-bare clone without checkout](../../src/publish
 
 ## Source snapshot
 
-**Decision.** git-publish packs one source commit, captured once at startup, plus untracked files from npm's working-directory file list. It requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`, matching npm-packlist. Decided 2026-11-14 with npm 12.2.2 (npm-packlist 11.3.0), pnpm 12.18.0, Yarn 4.18.1 and 1.22.22, Bun 1.4.4, and Git 2.54.0.
+**Decision.** git-publish packs one source commit, captured once at startup, plus untracked files from npm's working-directory file list. It requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`, matching npm-packlist. Decided 2026-11-14 with npm 12.2.2 (npm-packlist 11.3.0), pnpm 12.18.0, Yarn 4.18.1, Bun 1.4.4, and Git 2.54.0. Yarn 1.22.22 was also tested historically, but is no longer supported for publishing.
 
 ### Captured commit
 
@@ -51,7 +51,7 @@ This is the same walk npm pack performs, so its cost matches npm's own file list
 - **Plan from the captured checkout:** ignored configuration such as `.npmrc` and lockfiles is missing.
 - **Tolerate mid-run source changes:** review rounds found divergences involving symlink aliases, Unicode normalization, and missing manifests.
 - **Skip the copy when `prepack` exists:** `"prepack": "clean-pkg-json"` does not build, so that package would publish without `dist`.
-- **Ask the package manager for its file list:** `yarn pack --dry-run` (Yarn 4) runs `prepack` even with `YARN_ENABLE_SCRIPTS=0`, Yarn 1 has no dry run, and `pnpm pack --dry-run` runs scripts unless given `--ignore-scripts`.
+- **Ask the package manager for its file list:** `yarn pack --dry-run` (Yarn 4) runs `prepack` even with `YARN_ENABLE_SCRIPTS=0`, and `pnpm pack --dry-run` runs scripts unless given `--ignore-scripts`.
 - **Copy every untracked file:** local repositories hold up to 20 GB of untracked files; the root listing alone takes 1 s in rolldown. A spike for [#107](https://github.com/privatenumber/git-publish/issues/107) (`git ls-files --others --directory`, expanding directory entries) matched npm-packlist's published file lists for npm, pnpm, Yarn 4, and Bun across five fixtures, but publication with 20,000 small ignored files plus one 200 MiB ignored file took a median of 8.1 s against 1.2 s (`COPYFILE_FICLONE` did not help). Removing npm-packlist alone would not lower the Node floor: `@npmcli/package-json` declares the same range (only its types would remain in use), and the bundled `cleye` beta declares `>=22.22.2`.
 - **Git ignore rules and pathspecs (option D):** parent `.gitignore` and `.git/info/exclude` apply when npm would ignore neither; npm chooses `.npmignore` or `.gitignore` per directory; Git's case folding is ASCII-only. Three review rounds found new mismatches.
 - **fast-glob over the live directory, filtered by `git ls-tree`:** path strings disagreed for `./dist`, a symlink alias wrote through to a captured file, files committed after the capture were copied, submodule files looked untracked, and `src/*` was not recursive.
@@ -81,7 +81,7 @@ A consumer with a custom symmetric clean/smudge filter for a path in the packed 
 
 LFS-tracked files are published as regular Git blobs, so hosting limits apply; for example, [GitHub rejects files larger than 100 MiB](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github). Publishing LFS pointers instead would require applying clean filters again, which would change the packed bytes.
 
-Yarn 1 can pack a symlinked `package.json`, and git-publish rejects it with an error. Supporting it requires reading the link target's bytes, which may appear later in the tarball, so it would need a second pass; revisit if users report this case.
+git-publish rejects a packed `package.json` that is a symlink. Supporting it requires reading the link target's bytes, which may appear later in the tarball, so it would need a second pass; revisit if users report this case with a supported package manager.
 
 ## Alternatives
 
