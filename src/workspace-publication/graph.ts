@@ -46,7 +46,9 @@ type WorkspaceReference =
 		path: string;
 	};
 
-const parseWorkspaceSpecification = (specification: string): WorkspaceReference | undefined => {
+export const parseWorkspaceSpecification = (
+	specification: string,
+): WorkspaceReference | undefined => {
 	if (!specification.startsWith('workspace:')) {
 		return undefined;
 	}

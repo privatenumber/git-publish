@@ -10,10 +10,53 @@ import { importTarball } from '../../src/package-publication/import-tarball.ts';
 import {
 	preparePackagePublication, toInstallSpecifier,
 } from '../../src/package-publication/prepare.ts';
-import { validatePackedWorkspaceDependencies } from '../../src/package-publication/validate.ts';
+import { validatePackedManifest, validatePackedWorkspaceDependencies } from '../../src/package-publication/validate.ts';
 import { createGitFixture } from '../utils/create-git.ts';
 
 describe('Package publication', () => {
+	test('validates unplanned local paths against the package boundary', () => {
+		const context = {
+			from: '/repo/packages/app',
+			root: '/repo',
+			targets: new Map(),
+			packageManager: 'npm' as const,
+		};
+		for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+			for (const value of ['../core', '/tmp/core', '~/core', 'file:~/core', 'file:/./core', 'file:../core', 'link:../core', 'portal:../core', 'workspace:../core', 'file:../thing::local', String.raw`file:C:\core`, 'file:./vendor/../../core']) {
+				expect(() => validatePackedManifest('app', {
+					name: 'app',
+					[field]: { core: value },
+				}, [], [], context))
+					.toThrow(`Package "app" has ${field} "core": ${JSON.stringify(value)}, a local path that consumers installing from Git can't resolve. Use a path inside the package, such as file:./vendor/core.`);
+			}
+			for (const value of ['file:./vendor/x', 'file:vendor/x', 'file:./core', 'link:./vendor/x', 'file:./thing::local', 'file:./vendor::locator=x%40workspace%3A..', '~1.2.3', '^1.0.0', 'latest']) {
+				validatePackedManifest('app', {
+					name: 'app',
+					[field]: { core: value },
+				}, [], [], context);
+			}
+			validatePackedManifest('app', {
+				name: 'app',
+				[field]: { core: 'file:./core::locator=app%40workspace%3Apackages%2Fapp' },
+			}, [], [], {
+				...context,
+				packageManager: 'yarn',
+			});
+			expect(() => validatePackedManifest('app', {
+				name: 'app',
+				[field]: { core: 'file:./core::locator=app%40workspace%3Apackages%2Fother' },
+			}, [], [], {
+				...context,
+				packageManager: 'yarn',
+			}))
+				.toThrow('a local path that consumers installing from Git can\'t resolve');
+		}
+		validatePackedManifest('app', {
+			name: 'app',
+			dependencies: { core: 'file:../core' },
+			optionalDependencies: { core: '^1.0.0' },
+		}, [], [], context);
+	});
 	test('rejects case-colliding packed symlinks', async () => {
 		await using fixture = await createFixture();
 		await using repository = await createGitFixture();
@@ -449,6 +492,7 @@ describe('Package publication', () => {
 			validationContext: {
 				from: packageFixture.getPath('package'),
 				root: packageFixture.path,
+				packageManager: 'npm',
 				targets: new Map([
 					['@test/core', {
 						dir: packageFixture.getPath('core'),
