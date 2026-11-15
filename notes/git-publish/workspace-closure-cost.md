@@ -25,16 +25,16 @@ The spike was never committed and no longer exists, so only the before counts ca
 | **`src/` total** | **3,452** | **2,872** |
 | **`tests/` total** | **7,719** | **7,307** |
 
-The source reduction is 580 lines (17%) and the test reduction 412 lines. The spike was incomplete: `pnpm build` and `pnpm type-check` passed, but a test run against an earlier build reported 98 failures. Many asserted removed closure behavior; others covered behavior that would stay and needed adapted fixtures. Finishing it would change the counts.
+The source reduction is 580 lines (17%) and the test reduction 412 lines. The spike was incomplete: `pnpm build` and `pnpm type-check` passed, but a test run against an earlier build reported 98 failures. Many tested removed closure behavior; the rest needed adapted fixtures, so finishing the spike would change the counts.
 
 - **Runtime dependencies:** all nine in `package.json` were still imported in the spike, so none could be removed.
-- **Detection stays:** refusing internal dependencies still needs workspace discovery and package-manager-aware detection of plain ranges (pnpm `link-workspace-packages`, Yarn transparent workspaces), `file:` and `link:` paths, `workspace:` aliases, catalogs, and peer ranges. That detection is where [#106](https://github.com/privatenumber/git-publish/issues/106) and [#110](https://github.com/privatenumber/git-publish/issues/110) come from, so removing closures would not fix them.
+- **Detection stays:** refusing internal dependencies still needs workspace discovery and every package-manager-aware rule in [Workspace dependency resolution](./workspace-dependency-resolution.md#which-entries-are-internal): plain ranges, `file:` and `link:` paths, `workspace:` aliases, catalogs, and peers. That detection is where [#106](https://github.com/privatenumber/git-publish/issues/106) and [#110](https://github.com/privatenumber/git-publish/issues/110) come from, so removing closures would not fix them.
 
 ## What users would lose
 
 - Selecting several packages, and publishing all public members from the workspace root ([Selecting packages](../../docs/monorepos.md#selecting-packages)).
 - Publishing a package that depends on other workspace packages, with commit-pinned runtime and peer closures ([What gets published](../../docs/monorepos.md#what-gets-published)).
-- Commit-pinned install sets ([Installing](../../docs/monorepos.md#installing)). Plain versions are not a fallback: they don't identify the published commit. In a consumer, they usually resolve from the registry. In the experiment, pnpm, Yarn, and Bun failed with a registry 404 for an unpublished package, and for a published package they can install a build other than the published commit ([monorepo install sets](./monorepo-install-sets.md#why-the-set-is-installed-at-the-root)).
+- Commit-pinned install sets ([Installing](../../docs/monorepos.md#installing)). Plain versions are not a fallback: they don't identify the published commit and usually resolve from the registry. In the experiment, pnpm, Yarn, and Bun failed with a registry 404 for an unpublished package; for a published package they can install a different build ([monorepo install sets](./monorepo-install-sets.md#why-the-set-is-installed-at-the-root)).
 
 ## Revisit when
 
