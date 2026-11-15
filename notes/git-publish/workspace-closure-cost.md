@@ -4,7 +4,7 @@
 
 ## What closure publication is
 
-When a selected workspace package depends on other workspace packages, git-publish publishes the closure of internal dependencies it recognizes: each package on its own branch, internal runtime dependencies rewritten to commit-pinned Git URLs (peer ranges are kept), all branches in one atomic push, and an install set for each selected package ([monorepo install sets](./monorepo-install-sets.md)). Recognition has known gaps, such as `npm:` aliases to workspace packages under Yarn and Bun ([#110](https://github.com/privatenumber/git-publish/issues/110)). The spike asked how much code remains if git-publish publishes exactly one package per run and refuses packages with internal runtime dependencies or internal peers.
+When a selected workspace package depends on other workspace packages, git-publish publishes the closure of internal dependencies it recognizes in the packed manifests (a pack hook can remove one): each package on its own branch, internal runtime dependencies rewritten to commit-pinned Git URLs (peer ranges are kept), all branches in one atomic push, and an install set for each selected package ([monorepo install sets](./monorepo-install-sets.md)). Recognition has known gaps, such as `npm:` aliases to workspace packages under Yarn and Bun ([#110](https://github.com/privatenumber/git-publish/issues/110)). The spike asked how much code remains if git-publish publishes exactly one package per run and refuses packages with internal runtime dependencies or internal peers.
 
 ## Method
 
@@ -34,7 +34,7 @@ The source reduction is 580 lines (17%) and the test reduction 412 lines. The sp
 
 - Selecting several packages, and publishing all public members from the workspace root ([Selecting packages](../../docs/monorepos.md#selecting-packages)).
 - Publishing a package that depends on other workspace packages, with commit-pinned runtime and peer closures ([What gets published](../../docs/monorepos.md#what-gets-published)).
-- Commit-pinned install sets ([Installing](../../docs/monorepos.md#installing)). Plain versions are not a fallback: they resolve from the registry, not the workspace commit. In the experiment, pnpm, Yarn, and Bun failed with a registry 404 for an unpublished package, and for a published package they can install a build other than the published commit ([monorepo install sets](./monorepo-install-sets.md#why-the-set-is-installed-at-the-root)).
+- Commit-pinned install sets ([Installing](../../docs/monorepos.md#installing)). Plain versions are not a fallback: they don't identify the published commit. In a consumer, they usually resolve from the registry. In the experiment, pnpm, Yarn, and Bun failed with a registry 404 for an unpublished package, and for a published package they can install a build other than the published commit ([monorepo install sets](./monorepo-install-sets.md#why-the-set-is-installed-at-the-root)).
 
 ## Revisit when
 
