@@ -22,7 +22,15 @@ Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts
 
 ## Never push to the source repository
 
-An empty `--remote` is rejected before inspecting the repository or packing. Immediately before pushing, git-publish asks Git for the isolated clone's effective push destination, after rewrites. It refuses a local path or file URL that resolves to the source worktree or its Git directory, including via symlinks. The error does not print the destination URL. See the [remote transport tests](../../tests/specs/remote-transport.ts).
+An empty `--remote` is rejected before inspecting the repository or packing. Immediately before pushing, git-publish asks Git for the isolated clone's effective push destination, after rewrites. For local paths and file URLs, it follows [Git's repository lookup order](https://github.com/git/git/blob/v2.54.0/setup.c#L1757-L1817), including the `.git` suffix fallback, and refuses a destination with the same common Git directory as the source. This covers symlinks and linked worktrees. The error does not print the destination URL. Network transports (`git://`, SSH, HTTP and HTTPS) that serve the source repository are not detected. See the [remote transport tests](../../tests/specs/remote-transport.ts).
+
+The isolated push can differ from `git push` in the source repository in these rewrite setups:
+
+- A relative `insteadOf` replacement such as `../mirror.git` resolves against the isolated clone, not the source worktree.
+- With chained `pushInsteadOf` rules `A → B` and `B → C`, Git pushes to `B` from the source, but git-publish pushes to `C` because the clone rewrites `B` again.
+- A relative explicit `pushurl` such as `../mirror.git` is made absolute before rewriting, so an `insteadOf` rule that matches the relative value no longer matches.
+
+The guard still blocks these rewrites if the final destination is a local path or file URL into the source repository.
 
 ## Decision: require one push URL for every publication
 
@@ -30,17 +38,17 @@ An empty `--remote` is rejected before inspecting the repository or packing. Imm
 
 **Known limitation:** the check counts configured `url` and `pushurl` entries after resets, not the push URLs Git resolves. It rejects the rare case where several `url` entries are reduced to one push URL by `pushInsteadOf`. Before this decision, multi-package publications counted raw entries without applying resets. Revisit if a user reports this case.
 
-This changes behavior that was never documented as a feature. Through [v2.4.3](https://github.com/privatenumber/git-publish/blob/v2.4.3/src/index.ts#L255-L270), git-publish ran `git push <remote>` from a worktree, and Git itself pushed to every push URL. v2.5.0 moved pushing to an isolated clone; [#63 kept the behavior](https://github.com/privatenumber/git-publish/pull/63) by pushing to each URL in turn. Standalone and single-package workspace publications no longer mirror to multiple destinations in one invocation, and the partial-outcome report for a failed mirror push is removed. Separate invocations can target each destination, but do not guarantee identical publication commits or atomicity across destinations. Multi-package workspace publications already rejected multiple destinations.
+Multiple push URLs were never documented in a release. [`docs/monorepos.md`](https://github.com/privatenumber/git-publish/blob/5a0d0e7/docs/monorepos.md#L35), added in [#85](https://github.com/privatenumber/git-publish/pull/85) on unreleased `develop`, said a single package could push to several destinations. Through [v2.4.3](https://github.com/privatenumber/git-publish/blob/v2.4.3/src/index.ts#L255-L270), git-publish ran `git push <remote>` from a worktree, and Git itself pushed to every push URL. v2.5.0 moved pushing to an isolated clone; [#63 kept the behavior](https://github.com/privatenumber/git-publish/pull/63) by pushing to each URL in turn. Standalone and single-package workspace publications no longer mirror to multiple destinations in one invocation, and the partial-outcome report for a failed mirror push is removed. Separate invocations can target each destination, but do not guarantee identical publication commits or atomicity across destinations. Multi-package workspace publications already rejected multiple destinations.
 
 The push strategy still distinguishes normal pushes, standalone force pushes, and workspace force-with-lease pushes. Remote resolution establishes one destination for the rest of the publication.
 
 ## Credentials
 
-Install specifiers omit passwords and keep usernames only for SSH. The display redactor hides userinfo, queries, and fragments in scheme URLs, except that an SSH URL with only a bare username can be displayed unchanged. It also redacts helper commands and SCP-like queries or fragments when a username is present.
+Install specifiers omit passwords and keep usernames only for SSH. The display redactor hides userinfo, queries, and fragments in scheme URLs, except that an SSH URL with only a bare username can be displayed unchanged. It also redacts helper commands in displayed URLs when the helper syntax starts the text or follows whitespace, and redacts queries or fragments in SCP-like URLs with a username at the same boundaries.
 
-Validation rejects scheme URLs (including file URLs) and SCP-like URLs with a query or fragment before packing or dry-run output. The validation error does not print the rejected URL. Local filesystem paths can contain `?` and `#`; these characters are encoded in the install URL.
+Validation rejects scheme URLs (including file URLs) and SCP-like URLs with a query or fragment before packing or dry-run output. Local filesystem paths can contain `?` and `#`; these characters are encoded in the install URL.
 
-An unsupported-transport error quotes a configured remote's name without filtering it, so a secret in the name itself can appear in the error (for example, a name like `ext::token=example`). By contrast, the multiple-URL error names the remote only if its name matches `[\w.-]+`; otherwise it says "Selected remote". Tests: [`tests/specs/error.ts`](../../tests/specs/error.ts), [`tests/specs/github-remotes.ts`](../../tests/specs/github-remotes.ts), and [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts).
+Validation errors do not print rejected URLs as destination values. An unsupported-transport error does quote a configured remote's name without filtering it, even if the name equals the rejected URL. A helper-shaped name such as `ext::token=example` is printed unchanged because the opening quote prevents the helper redactor from matching. By contrast, the multiple-URL error names the remote only if its name matches `[\w.-]+`; otherwise it says "Selected remote". Tests: [`tests/specs/error.ts`](../../tests/specs/error.ts), [`tests/specs/github-remotes.ts`](../../tests/specs/github-remotes.ts), and [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts).
 
 Git can introduce credentials through its own configuration, such as an `insteadOf` rewrite to an `ext::` helper. git-publish does not sanitize arbitrary Git trace output, including output enabled by `GIT_TRACE`.
 

@@ -84,6 +84,51 @@ describe('Remote transport', async () => {
 		}
 	});
 
+	test('refuses to push from a linked worktree to the same repository', async () => {
+		await using source = await createGitFixture({
+			'package.json': '{"name":"app","version":"1.0.0"}',
+		});
+		await using checkouts = await createFixture();
+		await source.git('add', ['.']);
+		await source.git('commit', ['-m', 'initial']);
+		const linked = checkouts.getPath('linked');
+		const sibling = checkouts.getPath('sibling');
+		await source.git('worktree', ['add', '-b', 'linked', linked]);
+		await source.git('worktree', ['add', '-b', 'sibling', sibling]);
+		await source.git('branch', ['published']);
+		const references = await source.git('for-each-ref');
+		const linkedGitDirectory = await createGit(linked)('rev-parse', ['--absolute-git-dir']);
+		for (const destination of [source.path, sibling, linkedGitDirectory]) {
+			const result = await gitPublish(linked, ['--fresh', '--remote', destination, '--branch', 'published']);
+			expect(('exitCode' in result) && result.exitCode).toBe(1);
+			expect(result.output).toContain('Refusing to push to the source repository.');
+			expect(await source.git('for-each-ref')).toBe(references);
+		}
+	});
+
+	test('checks the repository Git opens via the .git suffix fallback', async () => {
+		await using fixture = await createFixture({
+			'source.git/package.json': '{"name":"app","version":"1.0.0"}',
+			destination: {},
+			'destination.git': {},
+		});
+		const source = createGit(fixture.getPath('source.git'));
+		const destination = createGit(fixture.getPath('destination.git'));
+		await source.init();
+		await destination.init(['--bare']);
+		await source('add', ['.']);
+		await source('commit', ['-m', 'initial']);
+		await source('branch', ['published']);
+		const references = await source('for-each-ref');
+		const result = await gitPublish(fixture.getPath('source.git'), ['--fresh', '--branch', 'published', '--remote', fixture.getPath('source')]);
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.output).toContain('Refusing to push to the source repository.');
+		expect(await source('for-each-ref')).toBe(references);
+		const separate = await gitPublish(fixture.getPath('source.git'), ['--fresh', '--branch', 'published', '--remote', fixture.getPath('destination')]);
+		expect('exitCode' in separate).toBe(false);
+		expect(await destination('rev-parse', ['published'])).toMatch(/^[0-9a-f]{40}$/);
+	});
+
 	test('rejects a whitespace-containing remote before dry-run output', async () => {
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({

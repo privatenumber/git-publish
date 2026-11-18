@@ -3,7 +3,6 @@ import path from 'node:path';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import type { PublishRepository } from '../publish-repository/create.ts';
 import { getStdout } from '../utils/get-stdout.ts';
-import { parseGitUrl } from '../utils/git-url.ts';
 import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
 import type { PackagePublication } from './prepare.ts';
 
@@ -46,6 +45,49 @@ export const readPackagePublicationPushTips = async (
 	signal: AbortSignal,
 ): Promise<ReadonlyMap<string, string>> => (mode === 'lease' ? readRemoteTips(repository, branches, signal) : new Map());
 
+// Resolve .. after symlinks, as Git does, rather than collapsing it with path.resolve.
+const absolutePath = (directory: string, value: string) => (path.isAbsolute(value)
+	? value
+	: `${directory}${path.sep}${value}`);
+
+const getCommonGitDirectory = async (
+	cwd: string,
+	signal: AbortSignal,
+	explicitGitDirectory = false,
+) => {
+	const { stdout } = await spawnAbortable('git', [
+		...(explicitGitDirectory ? ['--git-dir=.'] : []), 'rev-parse', '--git-common-dir',
+	], {
+		cwd,
+		signal,
+	});
+	return fs.realpath(absolutePath(cwd, stdout));
+};
+
+const findDestinationGitDirectory = async (destinationPath: string, signal: AbortSignal) => {
+	// Git's enter_repo strips trailing slashes and checks these suffixes in order.
+	const base = destinationPath.replace(/(?<=.)\/+$/, '');
+	for (const suffix of ['/.git', '', '.git/.git', '.git']) {
+		const candidate = base + suffix;
+		const status = await fs.stat(candidate).catch((error: NodeJS.ErrnoException) => {
+			if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') {
+				throw error;
+			}
+		});
+		if (!status?.isDirectory() && !status?.isFile()) {
+			continue;
+		}
+		const { stdout } = await spawnAbortable('git', ['rev-parse', '--resolve-git-dir', candidate], { signal }).catch(() => {
+			signal.throwIfAborted();
+			return { stdout: '' };
+		});
+		// Git stops at a regular file even if it is not a valid gitfile.
+		if (stdout || status.isFile()) {
+			return stdout || undefined;
+		}
+	}
+};
+
 const assertPushDoesNotTargetSource = async (
 	repository: PublishRepository,
 	signal: AbortSignal,
@@ -55,42 +97,51 @@ const assertPushDoesNotTargetSource = async (
 		signal.throwIfAborted();
 		throw new Error('Could not verify the Git push destination.');
 	};
-	const { stdout: url } = await spawnAbortable('git', ['remote', 'get-url', '--push', '--all', '--', pushRemoteName], {
+	const { stdout: url } = await spawnAbortable('git', ['remote', 'get-url', '--push', '--', pushRemoteName], {
 		...gitOptions,
 		signal,
 	}).catch(cannotVerify);
-	// A publication must have one destination; Git prints one URL per line.
-	if (!url || url.includes('\n')) {
-		throw new Error('Could not verify a single Git push destination.');
-	}
-	const { kind } = parseGitUrl(url);
-	if (kind !== 'local' && kind !== 'file') {
+	const colon = url.indexOf(':');
+	const slash = url.indexOf('/');
+	const fileUrl = url.startsWith('file://');
+	if (!fileUrl && colon !== -1 && (slash === -1 || colon < slash) && !(process.platform === 'win32' && /^[a-z]:/i.test(url))) {
 		return;
 	}
 	let destinationPath = url;
-	if (kind === 'file') {
+	if (fileUrl) {
 		// Git and WHATWG file URLs differ on authorities and escapes. Use Git's path.
 		const { stdout } = await spawnAbortable('git', ['fetch-pack', '--diag-url', url], {
 			...gitOptions,
 			signal,
 		}).catch(cannotVerify);
+		const diagnostic = stdout.slice(`Diag: url=${url}\n`.length);
+		if (!diagnostic.startsWith('Diag: protocol=file\n')) {
+			return;
+		}
 		const prefix = '\nDiag: path=';
-		const start = stdout.indexOf(prefix);
+		const start = diagnostic.indexOf(prefix);
 		if (start === -1) {
 			cannotVerify();
 		}
-		destinationPath = stdout.slice(start + prefix.length);
+		destinationPath = diagnostic.slice(start + prefix.length);
 	}
-	const { stdout: gitDirectory } = await spawnAbortable('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-		cwd: sourceRepositoryPath,
-		signal,
-	}).catch(cannotVerify);
-	const [destination, source, sourceGit] = await Promise.all([
-		fs.realpath(path.isAbsolute(destinationPath) ? destinationPath : `${gitOptions.cwd}${path.sep}${destinationPath}`),
-		fs.realpath(sourceRepositoryPath),
-		fs.realpath(gitDirectory),
+	if (destinationPath.startsWith('~')) {
+		// Receive-pack expands ~ using the same path interpolation as Git config.
+		const { stdout } = await spawnAbortable('git', ['config', '--file', '/dev/null', '--path', '--default', destinationPath, '--get', 'git-publish.path'], { signal }).catch(cannotVerify);
+		destinationPath = stdout;
+	}
+	const cwd = String(gitOptions.cwd);
+	const gitDirectory = await findDestinationGitDirectory(
+		absolutePath(cwd, destinationPath), signal,
+	).catch(cannotVerify);
+	if (!gitDirectory) {
+		return;
+	}
+	const [destination, source] = await Promise.all([
+		fs.realpath(gitDirectory).then(directory => getCommonGitDirectory(directory, signal, true)),
+		getCommonGitDirectory(sourceRepositoryPath, signal),
 	]).catch(cannotVerify);
-	if (destination === source || destination === sourceGit) {
+	if (destination === source) {
 		throw new Error('Refusing to push to the source repository.');
 	}
 };
