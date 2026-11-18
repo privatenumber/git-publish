@@ -6,7 +6,7 @@ export const createYarnEnvironment = async (
 	commands: Awaited<ReturnType<typeof createFixture>>,
 	{ isolatedCache = false }: { isolatedCache?: boolean } = {},
 ) => {
-	await commands.writeFile('yarn', `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/yarn-berry/bin/yarn.js')}" "$@"\n`);
+	await commands.writeFile('yarn', `#!/bin/sh\nexec "${process.execPath}" "${path.resolve('node_modules/@yarnpkg/cli-dist/bin/yarn.js')}" "$@"\n`);
 	await fs.chmod(commands.getPath('yarn'), 0o755);
 	return {
 		PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
