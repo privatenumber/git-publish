@@ -1,7 +1,5 @@
-import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import type { PublishRepository } from '../publish-repository/create.ts';
 import { getStdout } from '../utils/get-stdout.ts';
@@ -105,16 +103,10 @@ const assertPushDoesNotTargetSource = async (
 		signal.throwIfAborted();
 		throw new Error('Could not verify the Git push destination.');
 	};
-	// Keep a trailing CR in the URL; nano-spawn would strip it with Git's newline.
-	const { stdout: output } = await promisify(execFile)('git', ['remote', 'get-url', '--push', '--', pushRemoteName], {
-		cwd: gitOptions.cwd,
-		env: {
-			...process.env,
-			...gitOptions.env,
-		},
+	const { stdout: url } = await spawnAbortable('git', ['remote', 'get-url', '--push', '--', pushRemoteName], {
+		...gitOptions,
 		signal,
 	}).catch(cannotVerify);
-	const url = output.slice(0, -1);
 	const fileUrl = url.startsWith('file://');
 	// Skip non-file schemes using Git's is_url grammar, not any occurrence of ://.
 	if (!fileUrl && /^[a-z\d][a-z\d+.-]*:\/\//i.test(url)) {
@@ -133,6 +125,9 @@ const assertPushDoesNotTargetSource = async (
 	}
 	const filePath = /^Diag: protocol=file\nDiag: hostandport=[^\r\n]*\nDiag: path=([^\r\n]+)$/.exec(diagnostic);
 	let destinationPath = filePath?.[1] ?? cannotVerify();
+	if (process.platform === 'win32' && fileUrl && /^\/[a-z]:/i.test(destinationPath)) {
+		destinationPath = destinationPath.slice(1);
+	}
 	if (destinationPath.startsWith('~')) {
 		// Receive-pack expands ~ using the same path interpolation as Git config.
 		const { stdout } = await spawnAbortable('git', ['config', '--file', '/dev/null', '--path', '--default', destinationPath, '--get', 'git-publish.path'], { signal }).catch(cannotVerify);

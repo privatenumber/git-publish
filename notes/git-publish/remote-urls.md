@@ -24,13 +24,14 @@ Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts
 
 An empty `--remote` is rejected before inspecting the repository or packing. Immediately before pushing, git-publish asks Git for the isolated clone's effective push destination, after rewrites. For local paths and file URLs, it follows [Git's repository lookup order](https://github.com/git/git/blob/v2.54.0/setup.c#L1757-L1817), including the `.git` suffix fallback, and refuses a destination with the same common Git directory as the source. This covers symlinks and linked worktrees. The error does not print the destination URL. Network transports (`git://`, SSH, HTTP and HTTPS) that serve the source repository are not detected. See the [remote transport tests](../../tests/specs/remote-transport.ts).
 
-The isolated push can differ from `git push` in the source repository in these rewrite setups:
+The isolated push can differ from `git push` in the source repository in these configurations:
 
 - A relative `insteadOf` replacement such as `../mirror.git` resolves against the isolated clone, not the source worktree.
 - With chained `pushInsteadOf` rules `A → B` and `B → C`, Git pushes to `B` from the source, but git-publish pushes to `C` because the clone rewrites `B` again.
 - A relative explicit `pushurl` such as `../mirror.git` is made absolute before rewriting, so an `insteadOf` rule that matches the relative value no longer matches.
+- A local path such as `~/mirror.git` in a remote's `url` or explicit `pushurl` resolves against the source repository instead of the home directory.
 
-The guard still checks the final destination. It checks the destination configured when git-publish pushes; it does not constrain lifecycle scripts, which can run Git themselves. Local destinations containing CR or LF are refused, including percent-encoded CR or LF in file URLs.
+The guard checks the final destination to catch local misconfiguration, not deliberately crafted destinations. It does not cover paths containing control characters or non-UTF-8 bytes, or destinations that change between the check and the push. It checks the destination configured when git-publish pushes; it does not constrain lifecycle scripts, which can run Git themselves. A visible CR or LF in a local destination is reported as unverifiable, including percent-encoded CR or LF in file URLs.
 
 ## Decision: require one push URL for every publication
 
