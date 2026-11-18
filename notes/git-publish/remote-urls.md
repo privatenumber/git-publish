@@ -24,7 +24,7 @@ Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts
 
 An empty `--remote` is rejected before inspecting the repository or packing. Immediately before pushing, git-publish asks Git for the isolated clone's effective push destination, after rewrites. For local paths and file URLs, it follows [Git's repository lookup order](https://github.com/git/git/blob/v2.54.0/setup.c#L1757-L1817), including the `.git` suffix fallback, and refuses a destination with the same common Git directory as the source. This covers symlinks and linked worktrees. The error does not print the destination URL. Network transports (`git://`, SSH, HTTP and HTTPS) that serve the source repository are not detected. See the [remote transport tests](../../tests/specs/remote-transport.ts).
 
-Before adding its internal `publish` remote, git-publish refuses any `remote.publish.*` setting visible in the isolated clone.
+The internal push remote gets a random name each run, so inherited settings for named remotes do not target it.
 
 The isolated push can differ from `git push` in the source repository in these configurations:
 

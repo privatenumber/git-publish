@@ -32,14 +32,12 @@ describe('Remote transport', async () => {
 		}
 	});
 
-	test('rejects inherited configuration for the internal push remote before packing', async () => {
+	test('publishes to the selected remote despite inherited configuration for a remote named publish', async () => {
 		await using destination = await createGitFixture(undefined, ['--bare']);
-		await using marker = await createFixture();
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'app',
 				version: '1.0.0',
-				scripts: { prepack: `node -e "require('node:fs').writeFileSync('${marker.getPath('packed')}', '')"` },
 			}),
 		});
 		await fixture.git('add', ['.']);
@@ -52,10 +50,9 @@ describe('Remote transport', async () => {
 			GIT_CONFIG_KEY_0: 'remote.publish.url',
 			GIT_CONFIG_VALUE_0: fixture.path,
 		});
-		expect(('exitCode' in result) && result.exitCode).toBe(1);
-		expect(result.output).toContain('Inherited Git config conflicts with remote.publish.*. git-publish uses "publish" internally.');
-		expect(result.output).not.toContain(fixture.path);
-		expect(await marker.exists('packed')).toBe(false);
+		expect('exitCode' in result).toBe(false);
+		expect(await destination.git('rev-parse', ['refs/heads/published'])).toMatch(/^[0-9a-f]{40}$/);
+		expect(result.output).not.toMatch(/git-publish-[0-9a-f]{8}-[0-9a-f-]{27}/i);
 		expect(await fixture.git('for-each-ref')).toBe(sourceReferences);
 	});
 
