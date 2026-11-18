@@ -31,7 +31,8 @@ export const createPublishRepository = async ({
 	signal: AbortSignal;
 }): Promise<PublishRepository> => {
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
-	const fetchRemoteName = 'publish-source';
+	const remoteId = randomUUID();
+	const fetchRemoteName = `git-publish-source-${remoteId}`;
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');
 	const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
@@ -44,7 +45,7 @@ export const createPublishRepository = async ({
 		cwd: publishRepositoryPath,
 		env: gitEnvironment,
 	};
-	const pushRemoteName = `git-publish-${randomUUID()}`;
+	const pushRemoteName = `git-publish-${remoteId}`;
 	let packWorktreeCreated = false;
 
 	let disposal: Promise<void> | undefined;

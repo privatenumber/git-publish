@@ -32,7 +32,7 @@ describe('Remote transport', async () => {
 		}
 	});
 
-	test('publishes to the selected remote despite inherited configuration for a remote named publish', async () => {
+	test('publishes to the selected remote despite inherited settings for old internal remote names', async () => {
 		await using destination = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
@@ -45,14 +45,16 @@ describe('Remote transport', async () => {
 		await fixture.git('branch', ['published']);
 		await fixture.git('remote', ['add', 'origin', destination.path]);
 		const sourceReferences = await fixture.git('for-each-ref');
-		const result = await gitPublish(fixture.path, ['--fresh', '--branch', 'published'], {
-			GIT_CONFIG_COUNT: '1',
+		const result = await gitPublish(fixture.path, ['--branch', 'published'], {
+			GIT_CONFIG_COUNT: '2',
 			GIT_CONFIG_KEY_0: 'remote.publish.url',
 			GIT_CONFIG_VALUE_0: fixture.path,
+			GIT_CONFIG_KEY_1: 'remote.publish-source.url',
+			GIT_CONFIG_VALUE_1: fixture.path,
 		});
 		expect('exitCode' in result).toBe(false);
 		expect(await destination.git('rev-parse', ['refs/heads/published'])).toMatch(/^[0-9a-f]{40}$/);
-		expect(result.output).not.toMatch(/git-publish-[0-9a-f]{8}-[0-9a-f-]{27}/i);
+		expect(result.output).not.toMatch(/git-publish-(?:source-)?[0-9a-f]{8}-[0-9a-f-]{27}/i);
 		expect(await fixture.git('for-each-ref')).toBe(sourceReferences);
 	});
 
