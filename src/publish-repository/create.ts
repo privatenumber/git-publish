@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import spawn, { type Options as SpawnOptions } from 'nano-spawn';
+import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import { materializePublishGitConfig } from './git-config.ts';
 import {
@@ -75,6 +75,20 @@ export const createPublishRepository = async ({
 			...gitOptions,
 			signal,
 		});
+		const hasPushRemoteConfig = await spawnAbortable('git', [
+			'config', '--name-only', '--get-regexp', String.raw`^remote\.${pushRemoteName}\.`,
+		], {
+			...gitOptions,
+			signal,
+		}).then(() => true, (error: unknown) => {
+			if (error instanceof SubprocessError && error.exitCode === 1) {
+				return false;
+			}
+			throw error;
+		});
+		if (hasPushRemoteConfig) {
+			throw new Error(`Inherited Git config conflicts with remote.${pushRemoteName}.*. git-publish uses "${pushRemoteName}" internally.`);
+		}
 		await spawnAbortable('git', ['remote', 'add', pushRemoteName, publishRemote.pushUrl], {
 			...gitOptions,
 			signal,
