@@ -202,6 +202,63 @@ describe('Remote transport', async () => {
 		expect(remote.historyUrl).toBe('https://example.test/fork/repo.git');
 	});
 
+	test('publishes to an option-like configured remote name', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=source']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		await fixture.git('config', ['remote.-mirror.url', remote.path]);
+		const result = await gitPublish(fixture.path, ['--remote=-mirror']);
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('rev-parse', ['npm/source'])).toMatch(/^[0-9a-f]{40}$/);
+	});
+
+	for (const count of [1, 2]) {
+		test(`rejects a push-only remote with ${count} push URL${count === 1 ? '' : 's'} before packing`, async () => {
+			await using first = await createGitFixture(undefined, ['--bare']);
+			await using second = await createGitFixture(undefined, ['--bare']);
+			await using marker = await createFixture();
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					scripts: { prepack: `node -e "require('node:fs').writeFileSync('${marker.getPath('packed')}', '')"` },
+				}),
+			}, ['--initial-branch=source']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'initial']);
+			await fs.mkdir(fixture.getPath('pushonly'));
+			const local = createGit(fixture.getPath('pushonly'));
+			await local.init(['--bare']);
+			await fixture.git('config', ['--add', 'remote.pushonly.pushurl', first.path]);
+			if (count === 2) {
+				await fixture.git('config', ['--add', 'remote.pushonly.pushurl', second.path]);
+			}
+			const result = await gitPublish(fixture.path, ['--remote', 'pushonly']);
+			expect(('exitCode' in result) && result.exitCode).toBe(1);
+			expect(result.output).toContain('Remote "pushonly" has no fetch URL configured or remaining after an empty URL reset.');
+			expect(await marker.exists('packed')).toBe(false);
+			expect(await local('for-each-ref')).toBe('');
+			expect(await first.git('for-each-ref')).toBe('');
+			expect(await second.git('for-each-ref')).toBe('');
+		});
+	}
+
+	test('does not expose a URL-shaped push-only remote name', async () => {
+		await using fixture = await createGitFixture();
+		const name = 'https://user:secret@example.test/repo';
+		await fixture.git('config', [`remote.${name}.pushurl`, 'https://example.test/a']);
+		const result = getPublishRemote(fixture.path, name, false);
+		await expect(result).rejects.toThrow('Selected remote has no fetch URL configured or remaining after an empty URL reset.');
+		await expect(result).rejects.not.toThrow('secret');
+		await expect(result).rejects.not.toThrow('example.test');
+	});
+
 	for (const pushToSeparateRemote of [false, true]) {
 		test(`publishes after an empty pushurl ${pushToSeparateRemote ? 'followed by a destination' : 'falls back to url'}`, async () => {
 			await using fetchRemote = await createGitFixture(undefined, ['--bare']);
@@ -281,7 +338,7 @@ describe('Remote transport', async () => {
 		await fixture.git('remote', ['add', 'origin', 'https://example.test/a.git']);
 		await fixture.git('config', ['--add', 'remote.origin.url', '']);
 		await fixture.git('config', ['remote.origin.pushurl', 'https://example.test/b.git']);
-		await expect(getPublishRemote(fixture.path, 'origin', false)).rejects.toThrow('Selected remote has no fetch URL after an empty URL reset.');
+		await expect(getPublishRemote(fixture.path, 'origin', false)).rejects.toThrow('Remote "origin" has no fetch URL configured or remaining after an empty URL reset.');
 	});
 
 	for (const key of ['url', 'pushurl']) {
