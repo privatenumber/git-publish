@@ -370,7 +370,6 @@ describe('Publish history', async () => {
 	test('fetches one publish commit without changing source metadata', async () => {
 		const branchName = 'test-publish-fetch-metadata';
 		const destinationTag = `publish-history-tag-${branchName}`;
-		await using secondPushFixture = await createGitFixture(undefined, ['--bare']);
 		await using commandsFixture = await createFixture(async (fixture) => {
 			await fixture.writeFile('upload-pack', `#!/bin/sh
 	printf x >> '${fixture.getPath('upload-pack-called')}'
@@ -404,7 +403,6 @@ describe('Publish history', async () => {
 		await git('config', ['--file', remoteConfigPath, 'remote.origin.uploadpack', commandsFixture.getPath('upload-pack')]);
 		await git('config', ['--file', remoteConfigPath, 'remote.origin.receivepack', commandsFixture.getPath('receive-pack')]);
 		await git('config', ['--file', remoteConfigPath, '--add', 'remote.origin.pushurl', remoteFixture.path]);
-		await git('config', ['--file', remoteConfigPath, '--add', 'remote.origin.pushurl', secondPushFixture.path]);
 		await git('config', ['--file', globalConfigPath, `includeIf.gitdir:${fixture.path}/.git.path`, remoteConfigPath]);
 		await git('config', ['--file', globalConfigPath, '--add', 'http.extraHeader', 'X-Test: first']);
 		await git('config', ['--file', globalConfigPath, '--add', 'http.extraHeader', 'X-Test: second']);
@@ -415,7 +413,6 @@ describe('Publish history', async () => {
 
 		expect('exitCode' in await gitPublish(fixture.path, ['--fresh'], environment)).toBe(false);
 		expect(await commandsFixture.readFile('headers', 'utf8')).toBe('X-Test: first\0X-Test: second\0');
-		expect(await secondPushFixture.git('rev-parse', [`npm/${branchName}`])).toBeTruthy();
 		await remoteGit('tag', ['--no-sign', destinationTag, `refs/heads/npm/${branchName}`]);
 		await fixture.writeFile('index.js', 'export const version = 2;');
 		await git('add', ['index.js']);
@@ -434,8 +431,7 @@ describe('Publish history', async () => {
 		})).toBe(false);
 		expect(await fs.readFile(tracePath, 'utf8')).toContain('deepen 1');
 		expect(await commandsFixture.readFile('upload-pack-called', 'utf8')).toContain('x');
-		expect(await commandsFixture.readFile('receive-pack-called', 'utf8')).toBe('xxxx');
-		expect(await secondPushFixture.git('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+		expect(await commandsFixture.readFile('receive-pack-called', 'utf8')).toBe('xx');
 		const [nextReferences, nextTags, nextWorktrees, nextShallow] = await Promise.all([
 			git('for-each-ref'),
 			git('tag', ['--list']),

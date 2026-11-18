@@ -1,11 +1,11 @@
 import path from 'node:path';
-import spawn, { type Options as SpawnOptions } from 'nano-spawn';
+import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
 import { isLocalGitUrl, toPackageManagerGitUrl } from '../utils/git-url.ts';
 import { getPublicationUrls } from './destination.ts';
 
 export type PublishRemote = {
-	pushUrls: string[];
+	pushUrl: string;
 	installUrl: string;
 	historyUrl: string;
 	configuredName?: string;
@@ -17,39 +17,55 @@ export const getPublishRemote = async (
 	usesDefaultRemote: boolean,
 ): Promise<PublishRemote> => {
 	const options = { cwd: repositoryPath };
-	const getAll = (key: string) => spawn('git', ['config', '--null', '--get-all', key], options).then(({ stdout }) => stdout.split('\0').slice(0, -1));
-	let configuredName: string | undefined = remote;
-	const urls = await getAll(`remote.${remote}.url`).catch(() => {
-		configuredName = undefined;
-		if (usesDefaultRemote) {
-			throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
+	const label = /^[\w.-]+$/.test(remote) ? `Remote ${JSON.stringify(remote)}` : 'Selected remote';
+	const getAll = (key: string) => spawn('git', ['config', '--null', '--get-all', key], options).then(({ stdout }) => {
+		const values = stdout.split('\0').slice(0, -1);
+		return values.slice(values.lastIndexOf('') + 1);
+	}).catch((error: unknown) => {
+		if (error instanceof SubprocessError && error.exitCode === 1) {
+			return [];
 		}
-
-		return [remote];
+		throw new Error(`${label} has invalid Git remote configuration.`);
 	});
-	const fetchUrl = urls[0]!;
-	const rawPushUrls = configuredName
-		? await getAll(`remote.${remote}.pushurl`).catch(async () => {
-			if (urls.length > 1) {
-				return urls;
+	// Git rejects valueless keys, which git config --null cannot distinguish from empty values.
+	const expandedPush = await spawn('git', ['remote', 'get-url', '--push', '--all', '--', remote], options).then(({ stdout }) => stdout).catch((error: unknown) => {
+		if (error instanceof SubprocessError && error.exitCode === 2) {
+			if (usesDefaultRemote) {
+				throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
 			}
-			const [expandedFetch, expandedPush] = await Promise.all([
-				spawn('git', ['remote', 'get-url', remote], options),
-				spawn('git', ['remote', 'get-url', '--push', remote], options),
-			]);
-			return [expandedPush.stdout === expandedFetch.stdout ? fetchUrl : expandedPush.stdout];
-		})
-		: [fetchUrl];
+			return undefined;
+		}
+		throw new Error(`${label} has invalid Git remote configuration.`);
+	});
+	const configuredName = expandedPush === undefined ? undefined : remote;
+	const urls = configuredName === undefined ? [remote] : await getAll(`remote.${remote}.url`);
+	if (urls.length === 0) {
+		throw new Error(`${label} has no fetch URL configured or remaining after an empty URL reset.`);
+	}
+	const fetchUrl = urls[0]!;
+	const configuredPushUrls = configuredName === undefined
+		? []
+		: await getAll(`remote.${remote}.pushurl`);
+	let rawPushUrls = configuredPushUrls.length > 0 ? configuredPushUrls : urls;
+	if (expandedPush !== undefined && configuredPushUrls.length === 0 && urls.length === 1) {
+		const expandedFetch = await spawn('git', ['remote', 'get-url', '--', remote], options).then(({ stdout }) => stdout).catch(() => {
+			throw new Error(`${label} has invalid Git remote configuration.`);
+		});
+		rawPushUrls = [expandedPush === expandedFetch ? fetchUrl : expandedPush];
+	}
+	if (rawPushUrls.length !== 1) {
+		throw new Error(`${label} has ${rawPushUrls.length} push URLs. Use one remote per destination or --remote <url>.`);
+	}
+	const pushUrl = rawPushUrls[0]!;
 	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')
 		? path.resolve(repositoryPath, url)
 		: url);
-	for (const url of [fetchUrl, ...rawPushUrls]) {
+	for (const url of [fetchUrl, pushUrl]) {
 		toPackageManagerGitUrl(url, configuredName);
 	}
-	const publicationUrls = getPublicationUrls(fetchUrl, rawPushUrls, repositoryPath);
-	const pushUrls = rawPushUrls.map(normalizeLocal);
+	const publicationUrls = getPublicationUrls(fetchUrl, pushUrl, repositoryPath);
 	return {
-		pushUrls,
+		pushUrl: normalizeLocal(pushUrl),
 		installUrl: normalizeLocal(publicationUrls.installUrl),
 		historyUrl: normalizeLocal(publicationUrls.historyUrl),
 		configuredName,
@@ -64,23 +80,19 @@ export const configurePublishTransport = async ({
 	gitOptions,
 	publishRemote,
 	fetchRemoteName,
-	pushRemoteNames,
+	pushRemoteName,
 }: {
 	gitOptions: SpawnOptions;
 	publishRemote: PublishRemote;
 	fetchRemoteName: string;
-	pushRemoteNames: string[];
+	pushRemoteName: string;
 }) => {
 	if (isLocalGitUrl(publishRemote.historyUrl)) {
 		const uploadPack = await getStdout(spawn('git', ['config', '--get', `remote.${fetchRemoteName}.uploadpack`], gitOptions)).catch(() => 'git-upload-pack');
 		await spawn('git', ['config', `remote.${fetchRemoteName}.uploadpack`, getGitServerCommand(publishRemote.historyUrl, uploadPack)], gitOptions);
 	}
-	for (const [index, pushUrl] of publishRemote.pushUrls.entries()) {
-		if (!isLocalGitUrl(pushUrl)) {
-			continue;
-		}
-
-		const receivePack = await getStdout(spawn('git', ['config', '--get', `remote.${pushRemoteNames[index]}.receivepack`], gitOptions)).catch(() => 'git-receive-pack');
-		await spawn('git', ['config', `remote.${pushRemoteNames[index]}.receivepack`, getGitServerCommand(pushUrl, receivePack)], gitOptions);
+	if (isLocalGitUrl(publishRemote.pushUrl)) {
+		const receivePack = await getStdout(spawn('git', ['config', '--get', `remote.${pushRemoteName}.receivepack`], gitOptions)).catch(() => 'git-receive-pack');
+		await spawn('git', ['config', `remote.${pushRemoteName}.receivepack`, getGitServerCommand(publishRemote.pushUrl, receivePack)], gitOptions);
 	}
 };

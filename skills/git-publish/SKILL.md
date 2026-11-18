@@ -28,7 +28,7 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 - At the workspace root: publishes every non-private member when the root `package.json` is private or unnamed; a named public root publishes itself.
 - Select packages explicitly by name, path, or quoted glob: `npx git-publish @acme/core ./packages/adapter './packages/plugins/*'`. A package named `skills` must be selected by path, because `skills` is a subcommand.
 - Private workspace members are published without `--force`; `--force` is only for a private standalone package, or a publication that includes a private workspace root.
-- A multi-package publication needs exactly one push URL.
+- Every publication needs exactly one push URL. For multiple destinations, run once per destination with separate remotes or `--remote <url>`.
 
 ## Install a published package
 
@@ -56,7 +56,7 @@ For a private repository, the installing machine needs Git access to it (for Git
 | `Cannot publish packages with workspace dependencies` | A standalone package outside a workspace declares `workspace:` dependencies. Run from the workspace, or bundle them. |
 | `requires peer` or `in workspace range` | A packed peer range or explicit `workspace:` range does not match the target's version. Fix the range in the source manifest. |
 | `changed during packing` or `has unresolved` | A lifecycle hook rewrote an internal dependency, or the packed manifest still contains a `workspace:` value. Hooks may remove internal dependencies but not change or add them. |
-| `requires exactly one push URL` | Multi-package publications need one push destination. Use `--remote` with a single URL. |
+| `push URLs` | Every publication needs one push destination. Use separate remotes or `--remote <url>`, and run once per destination. |
 | `"files" lists paths that were not published` (warning) | The build did not run or the entry is wrong. Build before publishing or fix `files`. |
 
 ## Report problems

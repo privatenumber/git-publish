@@ -8,7 +8,7 @@ import { createPublishRepository } from '../publish-repository/create.ts';
 import { loadPublishBranches } from '../publish-repository/prepare-branch.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
 import { preparePackagePublication, type PackagePreparation, type PackagePublication } from '../package-publication/prepare.ts';
-import { readPackagePublicationPushTips, pushPackagePublications, type PackagePublicationPushStrategy } from '../package-publication/push.ts';
+import { readPackagePublicationPushTips, pushPackagePublications, type PackagePublicationPushMode } from '../package-publication/push.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { packPackage } from '../utils/pack-package.ts';
@@ -24,7 +24,7 @@ export const publishWorkspaceClosure = async ({
 	packageManager,
 	repositoryPath,
 	publishRemote,
-	pushStrategy,
+	pushMode,
 	source,
 	fresh,
 }: {
@@ -32,7 +32,7 @@ export const publishWorkspaceClosure = async ({
 	packageManager: PackageManager;
 	repositoryPath: string;
 	publishRemote: PublishRemote;
-	pushStrategy: PackagePublicationPushStrategy;
+	pushMode: PackagePublicationPushMode;
 	source: Source;
 	fresh: boolean | undefined;
 }, signal: AbortSignal): Promise<{ plan: WorkspacePublicationPlan;
@@ -47,7 +47,7 @@ export const publishWorkspaceClosure = async ({
 		signal.throwIfAborted();
 		const remoteTips = await readPackagePublicationPushTips(
 			repository,
-			pushStrategy,
+			pushMode,
 			plan.nodes.map(node => node.branch),
 			signal,
 		);
@@ -203,7 +203,7 @@ export const publishWorkspaceClosure = async ({
 					await pushPackagePublications({
 						repository,
 						publications: effective.nodes.map(node => preparations.get(node.key)!.publication),
-						strategy: pushStrategy,
+						mode: pushMode,
 						remoteTips,
 						signal,
 					});

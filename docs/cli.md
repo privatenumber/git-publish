@@ -21,7 +21,7 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 
 | Flag | Description |
 | --- | --- |
-| `-r, --remote <remote>` | Git remote name or URL to push to. Default: `origin` |
+| `-r, --remote <remote>` | Git remote name or URL to push to. Default: `origin`. See [`--remote`](#--remote) |
 | `-b, --branch <template>` | Branch name or template. See [Branches](#branches) |
 | `-d, --dry` | Simulate the run. Does not commit or push |
 | `-o, --fresh` | Publish a single-commit branch, replacing its history with a force-push. See [`--fresh`](#--fresh) |
@@ -29,6 +29,15 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 | `--json <path>` | Write publication details and install sets to a JSON file. See [JSON output](#json-output) |
 | `-h, --help` | Show help |
 | `--version` | Show the version |
+
+## `--remote`
+
+Every publication requires exactly one push URL. To publish to multiple destinations, use a separate remote per destination or pass `--remote <url>`, and run `git-publish` once per destination. Separate runs are not atomic across destinations and may produce different publication commits.
+
+```sh
+git-publish --remote origin
+git-publish --remote mirror
+```
 
 ## Branches
 
