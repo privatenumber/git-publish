@@ -9,6 +9,7 @@ import {
 } from './remote.ts';
 
 export type PublishRepository = {
+	sourceRepositoryPath: string;
 	packWorktreePath: string;
 	packTemporaryDirectory: string;
 	gitOptions: SpawnOptions;
@@ -78,6 +79,13 @@ export const createPublishRepository = async ({
 			...gitOptions,
 			signal,
 		});
+		if (publishRemote.hasExplicitPushUrl) {
+			// Git applies insteadOf, but not pushInsteadOf, to an explicit pushurl.
+			await spawnAbortable('git', ['remote', 'set-url', '--push', pushRemoteName, publishRemote.pushUrl], {
+				...gitOptions,
+				signal,
+			});
+		}
 		await materializePublishGitConfig({
 			sourceRepositoryOptions,
 			destinationRepositoryPath: publishRepositoryPath,
@@ -109,6 +117,7 @@ export const createPublishRepository = async ({
 	}
 
 	return {
+		sourceRepositoryPath,
 		packWorktreePath,
 		packTemporaryDirectory,
 		gitOptions,

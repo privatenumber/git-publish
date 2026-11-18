@@ -1,6 +1,9 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import type { PublishRepository } from '../publish-repository/create.ts';
 import { getStdout } from '../utils/get-stdout.ts';
+import { parseGitUrl } from '../utils/git-url.ts';
 import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
 import type { PackagePublication } from './prepare.ts';
 
@@ -43,6 +46,55 @@ export const readPackagePublicationPushTips = async (
 	signal: AbortSignal,
 ): Promise<ReadonlyMap<string, string>> => (mode === 'lease' ? readRemoteTips(repository, branches, signal) : new Map());
 
+const assertPushDoesNotTargetSource = async (
+	repository: PublishRepository,
+	signal: AbortSignal,
+) => {
+	const { gitOptions, pushRemoteName, sourceRepositoryPath } = repository;
+	const cannotVerify = () => {
+		signal.throwIfAborted();
+		throw new Error('Could not verify the Git push destination.');
+	};
+	const { stdout: url } = await spawnAbortable('git', ['remote', 'get-url', '--push', '--all', '--', pushRemoteName], {
+		...gitOptions,
+		signal,
+	}).catch(cannotVerify);
+	// A publication must have one destination; Git prints one URL per line.
+	if (!url || url.includes('\n')) {
+		throw new Error('Could not verify a single Git push destination.');
+	}
+	const { kind } = parseGitUrl(url);
+	if (kind !== 'local' && kind !== 'file') {
+		return;
+	}
+	let destinationPath = url;
+	if (kind === 'file') {
+		// Git and WHATWG file URLs differ on authorities and escapes. Use Git's path.
+		const { stdout } = await spawnAbortable('git', ['fetch-pack', '--diag-url', url], {
+			...gitOptions,
+			signal,
+		}).catch(cannotVerify);
+		const prefix = '\nDiag: path=';
+		const start = stdout.indexOf(prefix);
+		if (start === -1) {
+			cannotVerify();
+		}
+		destinationPath = stdout.slice(start + prefix.length);
+	}
+	const { stdout: gitDirectory } = await spawnAbortable('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+		cwd: sourceRepositoryPath,
+		signal,
+	}).catch(cannotVerify);
+	const [destination, source, sourceGit] = await Promise.all([
+		fs.realpath(path.isAbsolute(destinationPath) ? destinationPath : `${gitOptions.cwd}${path.sep}${destinationPath}`),
+		fs.realpath(sourceRepositoryPath),
+		fs.realpath(gitDirectory),
+	]).catch(cannotVerify);
+	if (destination === source || destination === sourceGit) {
+		throw new Error('Refusing to push to the source repository.');
+	}
+};
+
 export const pushPackagePublications = async ({
 	repository,
 	publications: input,
@@ -66,6 +118,7 @@ export const pushPackagePublications = async ({
 		}
 	}
 	args.push('--no-verify', repository.pushRemoteName, ...publications.map(publication => `${publication.commit}:refs/heads/${publication.branch}`));
+	await assertPushDoesNotTargetSource(repository, signal);
 	await spawnAbortable('git', args, {
 		...repository.gitOptions,
 		signal,

@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import {
 	describe, test, expect, onFinish,
 } from 'manten';
@@ -9,6 +10,80 @@ import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Remote transport', async () => {
+	test('rejects an empty --remote before packing', async () => {
+		await using marker = await createFixture();
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				scripts: { prepack: `node -e "require('node:fs').writeFileSync('${marker.getPath('packed')}', '')"` },
+			}),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		await fixture.git('branch', ['npm/safe']);
+		const sourceReferences = await fixture.git('for-each-ref');
+		for (const remoteArgument of ['--remote=', '--remote']) {
+			const result = await gitPublish(fixture.path, ['--fresh', '--branch', 'npm/safe', remoteArgument]);
+			expect(('exitCode' in result) && result.exitCode).toBe(1);
+			expect(result.output).toContain('--remote requires a remote name or Git URL.');
+			expect(await marker.exists('packed')).toBe(false);
+			expect(await fixture.git('for-each-ref')).toBe(sourceReferences);
+		}
+	});
+
+	test('ignores pushInsteadOf for an explicit pushurl', async () => {
+		await using fetchRemote = await createGitFixture(undefined, ['--bare']);
+		await using pushRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=source']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		await fixture.git('branch', ['npm/source']);
+		const sourceReferences = await fixture.git('for-each-ref');
+		await fixture.git('remote', ['add', 'origin', fetchRemote.path]);
+		await fixture.git('config', ['remote.origin.pushurl', pushRemote.path]);
+		await fixture.git('config', [`url.${fixture.path}.pushInsteadOf`, pushRemote.path]);
+		expect(await fixture.git('remote', ['get-url', '--push', 'origin'])).toBe(pushRemote.path);
+		const result = await gitPublish(fixture.path, ['--fresh']);
+		expect('exitCode' in result).toBe(false);
+		expect(await pushRemote.git('rev-parse', ['npm/source'])).toMatch(/^[0-9a-f]{40}$/);
+		expect(await fetchRemote.git('for-each-ref')).toBe('');
+		expect(await fixture.git('for-each-ref')).toBe(sourceReferences);
+	});
+
+	test('refuses an effective push destination in the source repository', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=source']);
+		await using aliases = await createFixture();
+		const gitDirectoryAlias = aliases.getPath('source git dir');
+		await fs.symlink(fixture.getPath('.git'), gitDirectoryAlias, 'junction');
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		await fixture.git('branch', ['npm/source']);
+		const sourceReferences = await fixture.git('for-each-ref');
+		const remoteUrl = 'https://example.test/source';
+		await fixture.git('remote', ['add', 'origin', remoteUrl]);
+		for (const destination of [fixture.path, pathToFileURL(gitDirectoryAlias).href]) {
+			await fixture.git('config', [`url.${destination}.insteadOf`, remoteUrl]);
+			const result = await gitPublish(fixture.path, ['--fresh']);
+			expect(('exitCode' in result) && result.exitCode).toBe(1);
+			expect(result.output).toContain('Refusing to push to the source repository.');
+			expect(result.output).not.toContain(destination);
+			expect(result.output).not.toContain(remoteUrl);
+			expect(await fixture.git('for-each-ref')).toBe(sourceReferences);
+			await fixture.git('config', ['--unset', `url.${destination}.insteadOf`]);
+		}
+	});
+
 	test('rejects a whitespace-containing remote before dry-run output', async () => {
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
