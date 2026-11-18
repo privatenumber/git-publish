@@ -30,7 +30,7 @@ The isolated push can differ from `git push` in the source repository in these r
 - With chained `pushInsteadOf` rules `A → B` and `B → C`, Git pushes to `B` from the source, but git-publish pushes to `C` because the clone rewrites `B` again.
 - A relative explicit `pushurl` such as `../mirror.git` is made absolute before rewriting, so an `insteadOf` rule that matches the relative value no longer matches.
 
-The guard still blocks these rewrites if the final destination is a local path or file URL into the source repository.
+The guard still checks the final destination. It checks the destination configured when git-publish pushes; it does not constrain lifecycle scripts, which can run Git themselves. Local destinations containing CR or LF are refused, including percent-encoded CR or LF in file URLs.
 
 ## Decision: require one push URL for every publication
 

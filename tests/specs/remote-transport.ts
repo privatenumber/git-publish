@@ -84,6 +84,24 @@ describe('Remote transport', async () => {
 		}
 	});
 
+	test('refuses a file push URL with an encoded newline in its authority', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': '{"name":"app","version":"1.0.0"}',
+		}, ['--initial-branch=source']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		await fixture.git('branch', ['npm/source']);
+		const references = await fixture.git('for-each-ref');
+		const remoteUrl = 'https://example.test/source';
+		await fixture.git('remote', ['add', 'origin', remoteUrl]);
+		const url = pathToFileURL(fixture.path).href.replace('file://', 'file://h%0ADiag%3A%20path%3Dmissing');
+		await fixture.git('config', [`url.${url}.insteadOf`, remoteUrl]);
+		const result = await gitPublish(fixture.path, ['--fresh']);
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.output).toContain('Could not verify the Git push destination.');
+		expect(await fixture.git('for-each-ref')).toBe(references);
+	});
+
 	test('refuses to push from a linked worktree to the same repository', async () => {
 		await using source = await createGitFixture({
 			'package.json': '{"name":"app","version":"1.0.0"}',
