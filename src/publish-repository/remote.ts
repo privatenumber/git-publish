@@ -30,6 +30,12 @@ export const getPublishRemote = async (
 
 		return [remote];
 	});
+	const label = /^[\w.-]+$/.test(remote) ? `Remote ${JSON.stringify(remote)}` : 'Selected remote';
+	const getRemoteUrl = (args: string[]) => spawn('git', ['remote', 'get-url', ...args, remote], options).then(({ stdout }) => stdout).catch(() => {
+		throw new Error(`${label} has invalid Git remote configuration.`);
+	});
+	// Git rejects valueless keys, which git config --null cannot distinguish from empty values.
+	const expandedPush = configuredName ? await getRemoteUrl(['--push']) : undefined;
 	if (urls.length === 0) {
 		throw new Error('Selected remote has no fetch URL after an empty URL reset.');
 	}
@@ -39,14 +45,10 @@ export const getPublishRemote = async (
 		: [];
 	let rawPushUrls = configuredPushUrls.length > 0 ? configuredPushUrls : urls;
 	if (configuredName && configuredPushUrls.length === 0 && urls.length === 1) {
-		const [expandedFetch, expandedPush] = await Promise.all([
-			spawn('git', ['remote', 'get-url', remote], options),
-			spawn('git', ['remote', 'get-url', '--push', remote], options),
-		]);
-		rawPushUrls = [expandedPush.stdout === expandedFetch.stdout ? fetchUrl : expandedPush.stdout];
+		const expandedFetch = await getRemoteUrl([]);
+		rawPushUrls = [expandedPush === expandedFetch ? fetchUrl : expandedPush!];
 	}
 	if (rawPushUrls.length !== 1) {
-		const label = /^[\w.-]+$/.test(remote) ? `Remote ${JSON.stringify(remote)}` : 'Selected remote';
 		throw new Error(`${label} has ${rawPushUrls.length} push URLs. Use one remote per destination or --remote <url>.`);
 	}
 	const pushUrl = rawPushUrls[0]!;

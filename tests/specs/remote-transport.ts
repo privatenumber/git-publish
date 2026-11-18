@@ -285,6 +285,41 @@ describe('Remote transport', async () => {
 	});
 
 	for (const key of ['url', 'pushurl']) {
+		test(`rejects a valueless ${key} before packing`, async () => {
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			await using marker = await createFixture();
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					scripts: { prepack: `node -e "require('node:fs').writeFileSync('${marker.getPath('packed')}', '')"` },
+				}),
+			});
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await fs.appendFile(fixture.getPath('.git/config'), `\n[remote "origin"]\n\t${key}\n\t${key} = ${remote.path}\n`);
+			const result = await gitPublish(fixture.path);
+			expect(('exitCode' in result) && result.exitCode).toBe(1);
+			expect(result.output).toContain('Remote "origin" has invalid Git remote configuration.');
+			expect(result.output).not.toContain(remote.path);
+			expect(await marker.exists('packed')).toBe(false);
+			expect(await remote.git('for-each-ref')).toBe('');
+		});
+	}
+
+	test('does not expose URL-shaped remote names when Git rejects their configuration', async () => {
+		await using fixture = await createGitFixture();
+		const name = 'https://user:secret@example.test/repo';
+		await fixture.git('config', [`remote.${name}.url`, 'https://example.test/a']);
+		await fs.appendFile(fixture.getPath('.git/config'), `\n[remote "${name}"]\n\tpushurl\n\tpushurl = https://example.test/b\n`);
+		const result = getPublishRemote(fixture.path, name, false);
+		await expect(result).rejects.toThrow('Selected remote has invalid Git remote configuration.');
+		await expect(result).rejects.not.toThrow('secret');
+		await expect(result).rejects.not.toThrow('example.test');
+	});
+
+	for (const key of ['url', 'pushurl']) {
 		test(`rejects multiple ${key} destinations before packing`, async () => {
 			await using first = await createGitFixture(undefined, ['--bare']);
 			await using second = await createGitFixture(undefined, ['--bare']);
