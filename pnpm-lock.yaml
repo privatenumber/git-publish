@@ -221,6 +221,9 @@ importers:
       '@types/which':
         specifier: ^3.0.4
         version: 3.0.4
+      '@yarnpkg/cli-dist':
+        specifier: 4.18.1
+        version: 4.18.1
       ansis:
         specifier: ^4.3.1
         version: 4.3.1
@@ -272,9 +275,6 @@ importers:
       which:
         specifier: ^7.0.0
         version: 7.0.0
-      yarn-berry:
-        specifier: npm:@yarnpkg/cli-dist@4.18.1
-        version: '@yarnpkg/cli-dist@4.18.1'
 
   tests/monorepo-fixture: {}
 
