@@ -56,7 +56,7 @@ For a private repository, the installing machine needs Git access to it (for Git
 | `Cannot publish packages with workspace dependencies` | A standalone package outside a workspace declares `workspace:` dependencies. Run from the workspace, or bundle them. |
 | `requires peer` or `in workspace range` | A packed peer range or explicit `workspace:` range does not match the target's version. Fix the range in the source manifest. |
 | `changed during packing` or `has unresolved` | A lifecycle hook rewrote an internal dependency, or the packed manifest still contains a `workspace:` value. Hooks may remove internal dependencies but not change or add them. |
-| `has 2 push URLs` | Every publication needs one push destination. Use separate remotes or `--remote <url>`, and run once per destination. |
+| `push URLs` | Every publication needs one push destination. Use separate remotes or `--remote <url>`, and run once per destination. |
 | `"files" lists paths that were not published` (warning) | The build did not run or the entry is wrong. Build before publishing or fix `files`. |
 
 ## Report problems

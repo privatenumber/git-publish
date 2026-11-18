@@ -12,7 +12,7 @@ A commit-pinned URL is only valid if it names a repository that contains the com
 
 Repository identity ignores the user in HTTP(S) and `git://` URLs, where the user only selects credentials, and on hosted providers. It keeps the user and the home-relative versus absolute path distinction for SSH and SCP URLs on other hosts (`git@server:repo.git` is relative to the SSH user's home; `git@server:/repo.git` is absolute).
 
-Remote URLs are read as configured (`git config --get-all remote.<name>.url`, `remote.<name>.pushurl`): the fetch URL is the first `url`, and without `pushurl` Git pushes to every `url`. Git applies `url.<base>.insteadOf` at transport time in the isolated clone.
+Remote URLs are read as configured (`git config --get-all remote.<name>.url`, `remote.<name>.pushurl`). An empty entry resets its list, so only entries after the last empty value are used. An empty push list falls back to the URL list; an empty URL list is rejected rather than treating the remote name as a URL. The fetch URL is the first remaining `url`. Without a push list, Git normally pushes to every remaining `url`, but `pushInsteadOf` can select a different push URL. Git applies `url.<base>.insteadOf` at transport time in the isolated clone.
 
 **Known limitation:** an `insteadOf` rule that rewrites an upstream URL to a different repository makes install URLs name the upstream. Transport-only rewrites (`https://github.com/` to `git@github.com:`) keep the same identity and work. Revisit if a user reports the repository-changing case.
 
@@ -22,7 +22,7 @@ Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts
 
 **Maintainer-approved 2026-11-15.** Reject a configured remote with multiple push URLs before packing, including multiple `url` values when no `pushurl` is set. The error never prints destination URLs. It names the remote only when the name matches `[\w.-]+`, and otherwise says "Selected remote", because a remote name could contain credentials. It suggests separate remotes or `--remote <url>`.
 
-**Known limitation:** the check counts configured `url` and `pushurl` entries, not the push URLs Git resolves. It rejects two rare configurations that resolve to one destination: an empty `pushurl` entry followed by a real one, and several `url` entries that `pushInsteadOf` rewrites to one push URL. Multi-package publications already counted entries this way before this decision. Revisit if a user reports either case.
+**Known limitation:** the check counts configured `url` and `pushurl` entries after resets, not the push URLs Git resolves. It rejects the rare case where several `url` entries are reduced to one push URL by `pushInsteadOf`. Multi-package publications already counted entries this way before this decision. Revisit if a user reports this case.
 
 This is a breaking change: multiple push URLs worked in released versions, including v2.5.0 ([#63](https://github.com/privatenumber/git-publish/pull/63)). Standalone and single-package workspace publications no longer mirror to multiple destinations in one invocation, and the partial-outcome report for a failed mirror push is removed. Separate invocations can target each destination, but do not guarantee identical publication commits or atomicity across destinations. Multi-package workspace publications already rejected multiple destinations.
 
@@ -30,7 +30,7 @@ The push strategy still distinguishes normal pushes, standalone force pushes, an
 
 ## Credentials
 
-Install specifiers omit passwords and keep usernames only for SSH. URL and SCP-like remotes with a query or fragment are rejected before packing, including file URLs. Local filesystem paths can contain `?` and `#`; these characters are encoded in the install URL. Errors identify a configured remote by name and never print a rejected URL. Displayed URLs with userinfo, queries, or fragments are redacted, except for strict SSH URLs with a bare username. Helper commands and SCP queries or fragments are also redacted. Tests: [`tests/specs/error.ts`](../../tests/specs/error.ts), [`tests/specs/github-remotes.ts`](../../tests/specs/github-remotes.ts), and [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts).
+Install specifiers omit passwords and keep usernames only for SSH. URL and SCP-like remotes with a query or fragment are rejected before packing, including file URLs. Local filesystem paths can contain `?` and `#`; these characters are encoded in the install URL. Unsupported-transport errors identify configured remotes by name, which can expose credentials if a name is URL-shaped. The multiple-URL error identifies the remote by name only when it matches `[\w.-]+`; otherwise it uses a generic label. Displayed URLs with userinfo, queries, or fragments are redacted, except for strict SSH URLs with a bare username. Helper commands and SCP queries or fragments are also redacted. Tests: [`tests/specs/error.ts`](../../tests/specs/error.ts), [`tests/specs/github-remotes.ts`](../../tests/specs/github-remotes.ts), and [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts).
 
 Git can introduce credentials through its own configuration, such as an `insteadOf` rewrite to an `ext::` helper. git-publish does not sanitize arbitrary Git trace output, including output enabled by `GIT_TRACE`.
 

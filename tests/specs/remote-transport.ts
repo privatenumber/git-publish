@@ -202,6 +202,88 @@ describe('Remote transport', async () => {
 		expect(remote.historyUrl).toBe('https://example.test/fork/repo.git');
 	});
 
+	for (const pushToSeparateRemote of [false, true]) {
+		test(`publishes after an empty pushurl ${pushToSeparateRemote ? 'followed by a destination' : 'falls back to url'}`, async () => {
+			await using fetchRemote = await createGitFixture(undefined, ['--bare']);
+			await using pushRemote = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=source']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'initial']);
+			await fixture.git('branch', ['npm/reset']);
+			const sourceBranch = await fixture.git('rev-parse', ['npm/reset']);
+			await fixture.git('remote', ['add', 'origin', fetchRemote.path]);
+			await fixture.git('config', ['--add', 'remote.origin.pushurl', '']);
+			if (pushToSeparateRemote) {
+				await fixture.git('config', ['--add', 'remote.origin.pushurl', pushRemote.path]);
+			}
+			const result = await gitPublish(fixture.path, ['--branch', 'npm/reset', '--fresh']);
+			expect('exitCode' in result).toBe(false);
+			expect(await fixture.git('rev-parse', ['npm/reset'])).toBe(sourceBranch);
+			const destination = pushToSeparateRemote ? pushRemote : fetchRemote;
+			expect(await destination.git('rev-parse', ['npm/reset'])).toMatch(/^[0-9a-f]{40}$/);
+			if (pushToSeparateRemote) {
+				expect(await fetchRemote.git('for-each-ref')).toBe('');
+			}
+		});
+	}
+
+	test('rejects multiple urls after an empty pushurl resets the push list', async () => {
+		await using first = await createGitFixture(undefined, ['--bare']);
+		await using second = await createGitFixture(undefined, ['--bare']);
+		await using marker = await createFixture();
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				scripts: { prepack: `node -e "require('node:fs').writeFileSync('${marker.getPath('packed')}', '')"` },
+			}),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		await fixture.git('remote', ['add', 'origin', first.path]);
+		await fixture.git('config', ['--add', 'remote.origin.url', second.path]);
+		await fixture.git('config', ['--add', 'remote.origin.pushurl', '']);
+		const result = await gitPublish(fixture.path);
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.output).toContain('Remote "origin" has 2 push URLs.');
+		expect(await marker.exists('packed')).toBe(false);
+		expect(await first.git('for-each-ref')).toBe('');
+		expect(await second.git('for-each-ref')).toBe('');
+	});
+
+	test('uses url entries after the last empty url', async () => {
+		await using fixture = await createGitFixture();
+		await fixture.git('remote', ['add', 'origin', 'https://example.test/a.git']);
+		await fixture.git('config', ['--add', 'remote.origin.url', '']);
+		await fixture.git('config', ['--add', 'remote.origin.url', 'https://example.test/b.git']);
+		const remote = await getPublishRemote(fixture.path, 'origin', true);
+		expect(remote.installUrl).toBe('https://example.test/b.git');
+		expect(remote.pushUrl).toBe('https://example.test/b.git');
+	});
+
+	test('falls back to url after a trailing empty pushurl resets earlier destinations', async () => {
+		await using fixture = await createGitFixture();
+		await fixture.git('remote', ['add', 'origin', 'https://example.test/a.git']);
+		for (const url of ['https://example.test/b.git', 'https://example.test/c.git', '']) {
+			await fixture.git('config', ['--add', 'remote.origin.pushurl', url]);
+		}
+		const remote = await getPublishRemote(fixture.path, 'origin', true);
+		expect(remote.pushUrl).toBe('https://example.test/a.git');
+	});
+
+	test('rejects a configured remote whose url list is reset to empty', async () => {
+		await using fixture = await createGitFixture();
+		await fixture.git('remote', ['add', 'origin', 'https://example.test/a.git']);
+		await fixture.git('config', ['--add', 'remote.origin.url', '']);
+		await fixture.git('config', ['remote.origin.pushurl', 'https://example.test/b.git']);
+		await expect(getPublishRemote(fixture.path, 'origin', false)).rejects.toThrow('Selected remote has no fetch URL after an empty URL reset.');
+	});
+
 	for (const key of ['url', 'pushurl']) {
 		test(`rejects multiple ${key} destinations before packing`, async () => {
 			await using first = await createGitFixture(undefined, ['--bare']);

@@ -17,7 +17,10 @@ export const getPublishRemote = async (
 	usesDefaultRemote: boolean,
 ): Promise<PublishRemote> => {
 	const options = { cwd: repositoryPath };
-	const getAll = (key: string) => spawn('git', ['config', '--null', '--get-all', key], options).then(({ stdout }) => stdout.split('\0').slice(0, -1));
+	const getAll = (key: string) => spawn('git', ['config', '--null', '--get-all', key], options).then(({ stdout }) => {
+		const values = stdout.split('\0').slice(0, -1);
+		return values.slice(values.lastIndexOf('') + 1);
+	});
 	let configuredName: string | undefined = remote;
 	const urls = await getAll(`remote.${remote}.url`).catch(() => {
 		configuredName = undefined;
@@ -27,19 +30,21 @@ export const getPublishRemote = async (
 
 		return [remote];
 	});
+	if (urls.length === 0) {
+		throw new Error('Selected remote has no fetch URL after an empty URL reset.');
+	}
 	const fetchUrl = urls[0]!;
-	const rawPushUrls = configuredName
-		? await getAll(`remote.${remote}.pushurl`).catch(async () => {
-			if (urls.length > 1) {
-				return urls;
-			}
-			const [expandedFetch, expandedPush] = await Promise.all([
-				spawn('git', ['remote', 'get-url', remote], options),
-				spawn('git', ['remote', 'get-url', '--push', remote], options),
-			]);
-			return [expandedPush.stdout === expandedFetch.stdout ? fetchUrl : expandedPush.stdout];
-		})
-		: [fetchUrl];
+	const configuredPushUrls = configuredName
+		? await getAll(`remote.${remote}.pushurl`).catch(() => [])
+		: [];
+	let rawPushUrls = configuredPushUrls.length > 0 ? configuredPushUrls : urls;
+	if (configuredName && configuredPushUrls.length === 0 && urls.length === 1) {
+		const [expandedFetch, expandedPush] = await Promise.all([
+			spawn('git', ['remote', 'get-url', remote], options),
+			spawn('git', ['remote', 'get-url', '--push', remote], options),
+		]);
+		rawPushUrls = [expandedPush.stdout === expandedFetch.stdout ? fetchUrl : expandedPush.stdout];
+	}
 	if (rawPushUrls.length !== 1) {
 		const label = /^[\w.-]+$/.test(remote) ? `Remote ${JSON.stringify(remote)}` : 'Selected remote';
 		throw new Error(`${label} has ${rawPushUrls.length} push URLs. Use one remote per destination or --remote <url>.`);
