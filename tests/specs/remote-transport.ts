@@ -78,16 +78,14 @@ describe('Remote transport', async () => {
 		expect(await destination.git('for-each-ref')).toBe('');
 	});
 
-	for (const [label, pushUrls] of [
-		['hosted scp query', ['git@github.com:fork/r.git?token=secret']],
-		['hosted helper', ['github.com::user:secret@host/repo.git']],
+	for (const [label, pushUrl] of [
+		['hosted scp query', 'git@github.com:fork/r.git?token=secret'],
+		['hosted helper', 'github.com::user:secret@host/repo.git'],
 	] as const) {
 		test(`rejects ${label} before destination selection`, async () => {
 			await using fixture = await createGitFixture();
 			await fixture.git('remote', ['add', 'origin', 'https://github.com/a/r.git']);
-			for (const pushUrl of pushUrls) {
-				await fixture.git('config', ['--add', 'remote.origin.pushurl', pushUrl]);
-			}
+			await fixture.git('config', ['remote.origin.pushurl', pushUrl]);
 			const result = getPublishRemote(fixture.path, 'origin', true);
 			await expect(result).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
 			await expect(result).rejects.not.toThrow('secret');

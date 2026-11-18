@@ -188,7 +188,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 	await assertSourceUnchanged(source);
 	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
 	const remoteUrl = publishRemote.installUrl;
-	const pushStrategy = planPackagePublicationPush(plan, fresh);
+	const pushMode = planPackagePublicationPush(plan, fresh);
 	if (dry && plan.kind === 'workspace') {
 		console.log(formatWorkspacePublicationPlan(plan, source.name));
 	}
@@ -219,7 +219,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 					packageManager,
 					repositoryPath: gitRootPath,
 					publishRemote,
-					pushStrategy,
+					pushMode,
 					source,
 					fresh,
 				}, signal);

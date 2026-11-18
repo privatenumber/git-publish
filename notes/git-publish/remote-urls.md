@@ -20,13 +20,13 @@ Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts
 
 ## Decision: require one push URL for every publication
 
-**Maintainer-approved 2026-11-15.** Reject a configured remote with multiple push URLs before packing, including multiple `url` values when no `pushurl` is set. The error never prints destination URLs. It names the remote only when the name matches `[\w.-]+`, and otherwise says "Selected remote", because a remote name could contain credentials. It suggests separate remotes or `--remote <url>`. A single explicit URL is already supported by the CLI.
+**Maintainer-approved 2026-11-15.** Reject a configured remote with multiple push URLs before packing, including multiple `url` values when no `pushurl` is set. The error never prints destination URLs. It names the remote only when the name matches `[\w.-]+`, and otherwise says "Selected remote", because a remote name could contain credentials. It suggests separate remotes or `--remote <url>`.
 
 **Known limitation:** the check counts configured `url` and `pushurl` entries, not the push URLs Git resolves. It rejects two rare configurations that resolve to one destination: an empty `pushurl` entry followed by a real one, and several `url` entries that `pushInsteadOf` rewrites to one push URL. Multi-package publications already counted entries this way before this decision. Revisit if a user reports either case.
 
 This is a breaking change: multiple push URLs worked in released versions, including v2.5.0 ([#63](https://github.com/privatenumber/git-publish/pull/63)). Standalone and single-package workspace publications no longer mirror to multiple destinations in one invocation, and the partial-outcome report for a failed mirror push is removed. Separate invocations can target each destination, but do not guarantee identical publication commits or atomicity across destinations. Multi-package workspace publications already rejected multiple destinations.
 
-The spike removes the destination loop, per-destination outcomes, and multi-destination install URL selection. The push strategy still distinguishes normal pushes, standalone force pushes, and workspace force-with-lease pushes. This is easier to follow because remote resolution establishes one destination for the rest of the publication. Against the starting tree, the spike changes `src/` by 30 additions and 80 deletions, and `tests/` by 43 additions and 73 deletions (`git diff --numstat -- src tests`).
+The push strategy still distinguishes normal pushes, standalone force pushes, and workspace force-with-lease pushes. Remote resolution establishes one destination for the rest of the publication.
 
 ## Credentials
 
@@ -38,7 +38,7 @@ Git can introduce credentials through its own configuration, such as an `instead
 
 Install URLs support HTTP, HTTPS, SSH, Git, and file transports. Other transports, including Git's `<transport>::<address>` helper syntax, are rejected before packing. SCP-like remotes and local paths are converted to SSH and file URLs respectively. On POSIX, single-letter `://` schemes are rejected and `x:repo.git` is SCP-like; on Windows, drive-letter paths stay local. [npm-package-arg 13.0.2](https://github.com/npm/npm-package-arg/blob/v13.0.2/lib/npa.js#L398-L426) also accepts rsync and FTP, but Git 2.54.0 (Apple Git-157) reports `fatal: git-over-rsync is no longer supported` for `git ls-remote rsync://example.test/repo.git`; FTP is deprecated and fetch-only. After rejecting multiple push URLs, the fetch URL and the single push URL are validated before destination selection, which can otherwise encode a query into a rewritten path or leave an unsafe push URL available to Git.
 
-The fetch URL and push URL must use a supported install transport. A separate remote does not make an unsupported helper transport usable. URL and SCP-like remotes containing whitespace, and SCP-like remotes with bracketed IPv6 hosts, are rejected. Local filesystem paths can contain whitespace.
+The fetch URL and push URL must use a supported install transport. URL and SCP-like remotes containing whitespace, and SCP-like remotes with bracketed IPv6 hosts, are rejected. Local filesystem paths can contain whitespace.
 
 ## npm ignores commit pins for non-hosted Git URLs
 

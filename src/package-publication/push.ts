@@ -4,22 +4,12 @@ import { getStdout } from '../utils/get-stdout.ts';
 import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
 import type { PackagePublication } from './prepare.ts';
 
-export type PackagePublicationPushStrategy = {
-	mode: 'normal' | 'force' | 'lease';
-};
+export type PackagePublicationPushMode = 'normal' | 'force' | 'lease';
 
 export const planPackagePublicationPush = (
 	plan: WorkspacePublicationPlan,
 	fresh: boolean | undefined,
-): PackagePublicationPushStrategy => {
-	let mode: PackagePublicationPushStrategy['mode'] = 'normal';
-	if (fresh) {
-		mode = plan.kind === 'standalone' ? 'force' : 'lease';
-	}
-	return {
-		mode,
-	};
-};
+): PackagePublicationPushMode => (fresh ? (plan.kind === 'standalone' ? 'force' : 'lease') : 'normal');
 
 const readRemoteTips = async (
 	repository: PublishRepository,
@@ -48,29 +38,29 @@ const readRemoteTips = async (
 
 export const readPackagePublicationPushTips = async (
 	repository: PublishRepository,
-	strategy: PackagePublicationPushStrategy,
+	mode: PackagePublicationPushMode,
 	branches: Iterable<string>,
 	signal: AbortSignal,
-): Promise<ReadonlyMap<string, string>> => (strategy.mode === 'lease' ? readRemoteTips(repository, branches, signal) : new Map());
+): Promise<ReadonlyMap<string, string>> => (mode === 'lease' ? readRemoteTips(repository, branches, signal) : new Map());
 
 export const pushPackagePublications = async ({
 	repository,
 	publications: input,
-	strategy,
+	mode,
 	remoteTips,
 	signal,
 }: {
 	repository: PublishRepository;
 	publications: Iterable<PackagePublication>;
-	strategy: PackagePublicationPushStrategy;
+	mode: PackagePublicationPushMode;
 	remoteTips: ReadonlyMap<string, string>;
 	signal: AbortSignal;
 }): Promise<void> => {
 	const publications = [...input];
 	const args = ['push', ...(publications.length > 1 ? ['--atomic'] : [])];
-	if (strategy.mode === 'force') {
+	if (mode === 'force') {
 		args.push('--force');
-	} else if (strategy.mode === 'lease') {
+	} else if (mode === 'lease') {
 		for (const publication of publications) {
 			args.push(`--force-with-lease=refs/heads/${publication.branch}:${remoteTips.get(publication.branch) ?? ''}`);
 		}

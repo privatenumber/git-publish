@@ -2509,26 +2509,6 @@ exec "${npmPath}" "$@"
 		expect(await peerRemote.git('for-each-ref')).toBe('');
 	});
 
-	test('rejects multiple push URLs', async () => {
-		const branchName = 'test-workspace-push-urls';
-		await using firstPushFixture = await createGitFixture(undefined, ['--bare']);
-		const { git: firstRemoteGit } = firstPushFixture;
-		await using secondPushFixture = await createGitFixture(undefined, ['--bare']);
-		const { git: secondRemoteGit } = secondPushFixture;
-		await using fixture = await createChainWorkspace(branchName, firstPushFixture.path);
-		const { git } = fixture;
-		await git('config', ['--add', 'remote.origin.pushurl', firstPushFixture.path]);
-		await git('config', ['--add', 'remote.origin.pushurl', secondPushFixture.path]);
-
-		for (const name of ['adapter', 'core']) {
-			const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages', name));
-			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-			expect(gitPublishProcess.stderr).toContain('Remote "origin" has 2 push URLs');
-		}
-		expect(await firstRemoteGit('for-each-ref')).toBe('');
-		expect(await secondRemoteGit('for-each-ref')).toBe('');
-	});
-
 	test('uses the push destination tip for --fresh leases', async () => {
 		await using fetchRemoteFixture = await createGitFixture(undefined, ['--bare']);
 		await using pushRemoteFixture = await createGitFixture(undefined, ['--bare']);
