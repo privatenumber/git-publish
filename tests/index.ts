@@ -1,6 +1,8 @@
 import { describe } from 'manten';
 
-describe('git-publish', () => {
+describe('git-publish', async () => {
+	// The lifecycle spec awaits its signal tests before the other specs start spawning Git and npm.
+	await import('./specs/lifecycle-hooks.ts');
 	import('./specs/skills.ts');
 	import('./specs/workspace-discovery.ts');
 	import('./specs/workspace-publication.ts');
@@ -16,5 +18,4 @@ describe('git-publish', () => {
 	import('./specs/publish-history.ts');
 	import('./specs/package-managers.ts');
 	import('./specs/package-contents.ts');
-	import('./specs/lifecycle-hooks.ts');
 });

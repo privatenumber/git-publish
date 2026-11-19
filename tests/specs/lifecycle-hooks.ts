@@ -1,6 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { spawn as spawnChild } from 'node:child_process';
+import { spawn as spawnChild, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import net from 'node:net';
 import spawn from 'nano-spawn';
@@ -14,7 +14,48 @@ import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
 
-describe('Lifecycle hooks', async () => {
+const monitorSignalChild = (child: ChildProcess) => {
+	const started = performance.now();
+	let output = '';
+	const capture = (chunk: string) => {
+		output += chunk;
+	};
+	for (const stream of [child.stdout, child.stderr]) {
+		stream?.setEncoding('utf8').on('data', capture);
+	}
+	onTestFail(() => console.log(output || '(no CLI output)'));
+
+	// Unlike events.once(), this also waits for the streams to close after a spawn error.
+	const { promise: closed, resolve } = Promise.withResolvers<number | null>();
+	child.once('close', resolve);
+	const exitedEarly = once(child, 'exit').then(([code, signal]) => {
+		throw new Error(`CLI exited early (code ${code}, signal ${signal})`);
+	});
+	const watchdog = AbortSignal.timeout(30_000);
+	const timedOut = once(watchdog, 'abort').then(() => {
+		throw new Error('CLI watchdog expired', { cause: watchdog.reason });
+	});
+	const waitFor = async <Value>(
+		step: string,
+		event: Promise<Value>,
+		{ allowExit = false } = {},
+	) => {
+		const waitingSince = performance.now();
+		try {
+			return await Promise.race(allowExit ? [event, timedOut] : [event, timedOut, exitedEarly]);
+		} catch (error) {
+			const now = performance.now();
+			throw new Error(`Waiting for ${step} failed after ${Math.round(now - waitingSince)}ms (${Math.round(now - started)}ms since CLI spawn; exit code: ${child.exitCode}, signal: ${child.signalCode})`, { cause: error });
+		}
+	};
+	return {
+		waitFor,
+		closed,
+		get output() { return output; },
+	};
+};
+
+await describe('Lifecycle hooks', () => {
 	test('stops a subprocess when aborted immediately after spawn', async () => {
 		const controller = new AbortController();
 		const reason = new Error('interrupted');
@@ -43,7 +84,8 @@ describe('Lifecycle hooks', async () => {
 		await fixture.git('commit', ['-m', 'Initial commit']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
 		await fixture.git('config', ['filter.block.smudge', `exec "${process.execPath}" "${marker.getPath('filter.cjs')}"`]);
-		const watcher = fs.watch(marker.path, { signal: AbortSignal.timeout(30_000) });
+		const watchController = new AbortController();
+		const watcher = fs.watch(marker.path, { signal: watchController.signal });
 		const ready = (async () => {
 			if (await marker.exists('ready')) { return; }
 			for await (const _event of watcher) {
@@ -60,25 +102,23 @@ describe('Lifecycle hooks', async () => {
 			stdio: ['ignore', 'pipe', 'pipe'],
 			detached: true,
 		});
-		let output = '';
-		child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString(); });
-		child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
-		const exited = once(child, 'close');
+		const cli = monitorSignalChild(child);
 		try {
-			await ready;
+			await cli.waitFor('worktree ready marker', ready);
 			child.kill('SIGTERM');
-			const [code] = await exited;
+			const code = await cli.waitFor('CLI close after SIGTERM', cli.closed, { allowExit: true });
 			expect(code).toBe(143);
-			expect(output.match(/Publication interrupted\./g)?.length).toBe(1);
-			expect(output).not.toContain('Command failed');
+			expect(cli.output.match(/Publication interrupted\./g)?.length).toBe(1);
+			expect(cli.output).not.toContain('Command failed');
 			expect(await temporary.readdir('')).toStrictEqual([]);
 			expect(await remote.git('for-each-ref')).toBe('');
 		} finally {
+			watchController.abort();
 			await watcher.return?.();
 			if (child.pid) {
 				try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Already exited. */ }
 			}
-			await exited;
+			await cli.closed;
 		}
 	});
 	for (const [signal, exitCode] of [['SIGTERM', 143], ['SIGINT', 130]] as const) {
@@ -142,12 +182,14 @@ describe('Lifecycle hooks', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using temporary = await createFixture();
 		await using marker = await createFixture();
-		const server = net.createServer();
+		let socket: net.Socket | undefined;
+		await using server = net.createServer((connection) => {
+			socket = connection;
+		});
 		server.listen(0, '127.0.0.1');
 		await once(server, 'listening');
 		const address = server.address();
 		if (!address || typeof address === 'string') { throw new Error('Missing server address'); }
-		const connected = once(server, 'connection', { signal: AbortSignal.timeout(30_000) });
 		const npmResult = await spawn('which', ['npm']);
 		const npmPath = npmResult.stdout.trim();
 		await fs.writeFile(marker.getPath('npm'), `#!${process.execPath}\nconst fs = require('node:fs'); const { spawn } = require('node:child_process'); process.on('SIGTERM', () => {}); fs.writeFileSync(${JSON.stringify(marker.getPath('group'))}, String(process.pid)); spawn(${JSON.stringify(npmPath)}, process.argv.slice(2), { stdio: 'inherit' }); setInterval(() => {}, 1000);`);
@@ -163,6 +205,7 @@ describe('Lifecycle hooks', async () => {
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial commit']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const connected = once(server, 'connection') as Promise<[net.Socket]>;
 		const child = spawnChild(process.execPath, [path.resolve('dist/index.js')], {
 			cwd: fixture.path,
 			env: {
@@ -170,35 +213,40 @@ describe('Lifecycle hooks', async () => {
 				PATH: `${marker.path}${path.delimiter}${process.env.PATH}`,
 				TMPDIR: temporary.path,
 			},
-			stdio: 'ignore',
+			stdio: ['ignore', 'pipe', 'pipe'],
 		});
-		const exited = once(child, 'exit');
-		let socket: net.Socket | undefined;
+		const cli = monitorSignalChild(child);
 		try {
-			[socket] = await connected as [net.Socket];
-			await once(socket, 'data', { signal: AbortSignal.timeout(30_000) });
-			const received = once(socket, 'data', { signal: AbortSignal.timeout(30_000) });
-			const closed = once(socket, 'close', { signal: AbortSignal.timeout(30_000) });
+			const [connection] = await cli.waitFor('prepack connection', connected);
+			await cli.waitFor('prepack ready data', once(connection, 'data'));
+			const received = once(connection, 'data');
 			child.kill('SIGTERM');
-			const [message] = await received;
+			const [message] = await cli.waitFor('prepack SIGTERM acknowledgment', received);
 			// The group SIGTERM and npm's forwarded SIGTERM can both arrive and coalesce into one chunk
 			expect(String(message)).toMatch(/^(?:term)+$/);
 			expect(child.exitCode).toBe(null);
-			child.kill('SIGTERM');
-			const [code] = await exited;
-			expect(code).toBe(143);
-			await closed;
+			expect(connection.destroyed).toBe(false);
+			const closed = once(connection, 'close');
+			expect(child.kill('SIGTERM')).toBe(true);
+			await Promise.all([
+				cli.waitFor('CLI exit after second SIGTERM', cli.closed, { allowExit: true }).then((code) => {
+					expect(code).toBe(143);
+				}),
+				cli.waitFor('prepack socket close', closed, { allowExit: true }),
+			]);
 		} finally {
+			server.close();
+			socket?.destroy();
 			if (await marker.exists('group')) {
 				try { process.kill(-Number(await marker.readFile('group', 'utf8')), 'SIGKILL'); } catch { /* Already exited. */ }
 			}
 			child.kill('SIGKILL');
-			socket?.destroy();
-			server.close();
-			await exited;
+			await cli.closed;
 		}
 	});
+});
 
+describe('Lifecycle hooks', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
