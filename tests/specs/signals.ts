@@ -38,7 +38,7 @@ const monitorSignalChild = (child: ChildProcess) => {
 		const stopListening = new AbortController();
 		const { signal } = stopListening;
 		const expired = async () => {
-			await setTimeout(deadline - performance.now(), undefined, {
+			await setTimeout(Math.max(0, deadline - performance.now()), undefined, {
 				signal,
 				ref: false,
 			});
