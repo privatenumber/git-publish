@@ -1,6 +1,6 @@
 # Signal tests
 
-Run the signal-handling tests before starting the concurrent publication tests. The [test entry point](../../tests/index.ts) awaits the lifecycle spec's import, and the [lifecycle spec](../../tests/specs/lifecycle-hooks.ts) awaits its signal group. In [manten 2.0.0](https://github.com/privatenumber/manten/blob/v2.0.0/README.md#L108-L151), awaiting a group waits for its children. The rest of the suite still runs concurrently.
+Run the signal-handling tests before starting the concurrent publication tests. The [test entry point](../../tests/index.ts) awaits the import of the [signal spec](../../tests/specs/signals.ts), and the signal spec awaits its `Signals` group. In [manten 2.0.0](https://github.com/privatenumber/manten/blob/v2.0.0/README.md#L108-L151), awaiting a group waits for its children. The rest of the suite still runs concurrently.
 
 The tests send signals only after the Git smudge filter or npm prepack hook announces readiness. A watchdog starts at CLI spawn, not during Git fixture setup. An exit before readiness fails with the wait name, elapsed time, exit status, and CLI output. A live CLI that never becomes ready or never finishes after a signal fails at the watchdog. Neither case needs a retry or a longer deadline.
 
@@ -16,6 +16,6 @@ Error: prepack connection failed after 7029ms (31992ms since test start; CLI exi
 
 All three runs timed out waiting for the prepack connection. The CLI had been running for 7.0, 19.7, and 14.7 seconds when the timer expired. It was alive and the test had not sent either signal. Changing production signal handling could not fix those timeouts.
 
-A follow-up trace kept the original concurrent scheduling and logged the old deadline without aborting the connection wait. It recorded Node startup and subprocess spawn/exit events with a `NODE_OPTIONS=--require` preload in the CLI and its descendants. The isolated test spent 128 ms between timer creation and CLI spawn, then 1,192 ms from spawn to connection. In the loaded run that crossed the deadline, fixture setup used 14,086 ms. After CLI spawn, Git setup and worktree preparation pushed the npm launch to 14,739 ms. The old deadline fired at 16,579 ms, after the npm CLI started but before it spawned the hook shell. The connection arrived at 20,405 ms, and both signals were handled. This isolates the delay to work before the hook handshake, not signal delivery.
+A follow-up trace with the original scheduling showed the same pattern: the old deadline fired after the npm CLI started but before it spawned the prepack hook. The connection arrived about 4 s later, and the CLI then handled both signals.
 
 The worktree test passed all three runs, so the cause of its [reported CI timeout](https://github.com/privatenumber/git-publish/issues/117) remains unknown. For a controlled early exit, temporarily omit the `origin` remote from that test's fixture and run `TESTONLY='cleans up after SIGTERM during worktree creation' pnpm test`. The diagnostic reported `Waiting for worktree ready marker failed after 369ms (370ms since CLI spawn; exit code: 1, signal: null)` and `Error: Git remote "origin" does not exist`.
