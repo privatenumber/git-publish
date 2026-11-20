@@ -54,8 +54,9 @@ const getStampOnlyChange = async (
 	gitOptions: SpawnOptions,
 ) => {
 	// Only the top-level package.json blob may change; an added file or a mode change shows here
-	const changed = await getStdout(spawnAbortable('git', ['diff-tree', '--raw', parentTree, newTree], gitOptions));
-	const entry = /^:(\d+) (\d+) \S+ \S+ M\tpackage\.json$/.exec(changed);
+	// -z keeps the path exact; trimming text output would match a file named "package.json "
+	const { stdout: changed } = await spawnAbortable('git', ['diff-tree', '--raw', '-z', parentTree, newTree], gitOptions);
+	const entry = /^:(\d+) (\d+) [\da-f]+ [\da-f]+ M\0package\.json\0$/.exec(changed);
 	if (!entry || entry[1] !== entry[2]) {
 		return undefined;
 	}
@@ -102,7 +103,7 @@ const canReuseParent = async (
 	if (!stampedCommit) {
 		return false;
 	}
-	const subject = await getStdout(spawnAbortable('git', ['log', '-1', '--format=%s', parentCommit], gitOptions));
+	const subject = await getStdout(spawnAbortable('git', ['log', '-1', '--no-show-signature', '--format=%s', parentCommit], gitOptions));
 	return namesSourceCommit(subject, stampedCommit);
 };
 

@@ -54,7 +54,7 @@ The message check matters because a stamp-shaped `version` doesn't prove that `-
 
 The comparison parses both `package.json` files and compares their `JSON.stringify` output, with the tip's `version` and `gitHead` put into the new manifest. So with `--stamp-commit`, a change that only reformats `package.json` also keeps the tip, while without the flag the byte difference creates a new commit. That is accepted, because consumers read the same JSON either way. A key-order change is not ignored, because `JSON.stringify` keeps insertion order, so it creates a new commit. A byte-exact comparison would need extra code to read the parent blob's exact bytes, because the repository's output helper trims command output.
 
-A package whose pack-time build embeds its version gets a new commit on every source commit, because its output really changes. Prebuilt files that are copied into the checkout are not rewritten, so they keep whatever version they were built with.
+A package whose pack-time build reads the stamped manifest and embeds the full version gets a new commit on every source commit, because its output really changes. A build that reads another manifest or embeds only the base version doesn't. Prebuilt files that are copied into the checkout are not rewritten, so they keep whatever version they were built with.
 
 **Cost.** The rejected directory lookup was measured too, so cost was not the reason to reject it. On Fri Nov 20 2026 (macOS, Git 2.54.0), a loop ran `git log -1 --format=%H HEAD -- <dir>` for each directory under `packages/` in local clones without a commit-graph:
 
@@ -63,11 +63,11 @@ A package whose pack-time build embeds its version gets a new commit on every so
 | [vercel/ai](https://github.com/vercel/ai) | 8,578 | 80 | 1,421 ms | 57 ms |
 | [anomalyco/opencode](https://github.com/anomalyco/opencode) | 22,597 | 33 | 885 ms | 118 ms |
 
-Packing one package takes seconds, so this would be small in comparison. The stamp-aware reuse check is cheaper. With a stamp and an existing tip, a changed tree costs one tree diff. Only when `package.json` is the only changed entry does git-publish also read one blob, and only before a reuse does it read the tip's commit message.
+Packing one package takes seconds, so this would be small in comparison. The stamp-aware reuse check is cheaper. With a stamp and an existing tip, a changed tree costs one tree diff. Only when `package.json` is the only changed entry does git-publish also read one blob. It reads the tip's commit subject only for a candidate that passed the tree checks, including an exact tree match.
 
 ## Rejected alternatives
 
-- **A prerelease version**, such as Changesets snapshots (`0.0.0-<tag>-<datetime>`), pkg.pr.new `--previewVersion` (`0.0.0-preview-<sha>`), or Lerna 10 canaries (`1.1.0-alpha.0.sha-<sha>`). These tools publish to registries, where a prerelease keeps a snapshot from matching normal ranges. For Git dependencies the commit pins the install, and a prerelease only breaks npm peer checks, as the experiment shows.
+- **A prerelease version**, such as Changesets snapshots (`0.0.0-<tag>-<datetime>`), pkg.pr.new `--previewVersion` (`0.0.0-preview-<sha>`), or Lerna 10 canaries (`1.1.0-alpha.0.sha-<sha>`). These are precedents for the version format only. For Git dependencies the commit pins the install, so a prerelease adds nothing, and it breaks range checks: npm's peer check, as the experiment shows, and git-publish's own dependency and peer validation ([validate.ts](../../src/package-publication/validate.ts)), which uses the same semver rule.
 - **A version template**, like Changesets' `snapshot.prereleaseTemplate`. One fixed format covers the need. Revisit if users need a different format.
 - **`_`-prefixed fields**, such as `_gitHead`. Arborist deletes keys starting with `_` from the manifest it loads ([normalize.js#L193-L201 at v8.0.1](https://github.com/npm/package-json/blob/v8.0.1/lib/normalize.js#L193-L201)).
 

@@ -82,15 +82,15 @@ By default, `git-publish` adds a commit to the existing branch. Lockfiles record
 
 - `version` gets `+sha-<short commit>` semver build metadata. The short commit is the one the publication commit message names. A package without a `version` gets `0.0.0+sha-<short commit>`.
 - `gitHead`, the field npm uses for the commit a package was built from, gets the full source commit ID.
-- The stamp, both `version` and `gitHead`, is written to `package.json` in the isolated checkout before packing. Lifecycle hooks and build scripts that run during packing see it, including as `npm_package_version`, so output they build contains the stamp. Prebuilt files are not rewritten.
+- The stamp, both `version` and `gitHead`, is written to `package.json` in the isolated checkout before packing. Lifecycle hooks and build scripts that run during packing can read it from `package.json` and `npm_package_version`. Files built before `git-publish` runs are not rewritten.
 - A hook must not change the version. With npm, Yarn, and Bun, `git-publish` rejects a packed version that differs from the stamp. pnpm drops build metadata when it packs, so with pnpm `git-publish` can't detect a script that removes the stamp.
 - Package managers ignore build metadata when they compare versions, so the stamped version satisfies every range that the source version satisfies. A prerelease such as `1.2.3-a1b2c3d` would not: npm rejects it against a `^1.2.0` peer range.
 - When only the stamp would change, `git-publish` reuses the existing publication commit, and its stamp keeps naming the source commit it was published from. Reuse requires that:
-  - Every other file is identical, and no file mode changes, including the mode of `package.json`.
+  - All other files are identical, and no file mode changes, including the mode of `package.json`.
   - `package.json` is identical when compared as parsed JSON with the stamp fields substituted. Formatting differences are ignored, but key order is not.
-  - The existing commit's message names the same source commit as its stamp.
+  - The existing commit's stamp and its message name the same source commit.
 
-  If the build output contains the version, every new source commit produces a new publication commit.
+  A new publication commit is created only when a packed file actually changes. A build that writes the stamp into a packed file changes that file on every source commit.
 - The source version must parse as semver. node-semver normalizes forms such as `v1.2.3` to `1.2.3`. A version that does not parse, such as `1.2`, or that already has build metadata, such as `1.2.3+build.1`, is an error. So is a stamped version longer than node-semver's 256-character limit. A dry run reports the same error.
 
 ## JSON output

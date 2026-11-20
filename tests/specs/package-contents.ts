@@ -5,6 +5,7 @@ import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
 import spawn from 'nano-spawn';
+import { createFixture } from 'fs-fixture';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
@@ -791,6 +792,86 @@ describe('Package contents', async () => {
 				expect(version).toBe(`1.0.0+sha-${shortCommit}`);
 			});
 		}
+
+		test('does not reuse an identical tree whose message names another commit', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+				}),
+			}, 'stamp-subject');
+			const { fixture, remote } = stamp;
+			expect('exitCode' in await gitPublish(fixture.path, ['--stamp-commit'])).toBe(false);
+
+			await using clone = await createGitFixture();
+			await clone.git('fetch', [remote.path, 'npm/stamp-subject']);
+			await clone.git('checkout', ['-B', 'forged', 'FETCH_HEAD']);
+			await clone.git('commit', ['--amend', '-m', 'Published from "stamp-subject" (0000000)']);
+			await clone.git('push', ['--force', remote.path, 'HEAD:npm/stamp-subject']);
+			const forged = await clone.git('rev-parse', ['HEAD']);
+
+			const republished = await gitPublish(fixture.path, ['--stamp-commit']);
+			onTestFail(() => console.log(republished.output));
+			expect('exitCode' in republished).toBe(false);
+			expect(await remote.git('rev-parse', ['npm/stamp-subject^'])).toBe(forged);
+			const replacement = await remote.git('rev-parse', ['npm/stamp-subject']);
+
+			const reused = await gitPublish(fixture.path, ['--stamp-commit']);
+			onTestFail(() => console.log(reused.output));
+			expect('exitCode' in reused).toBe(false);
+			expect(await remote.git('rev-parse', ['npm/stamp-subject'])).toBe(replacement);
+		});
+
+		test('does not mistake a file named "package.json " for package.json', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					scripts: { prepack: 'node hook.cjs' },
+				}),
+				// Each pack writes different content, so only this file changes between runs
+				'hook.cjs': 'require("fs").writeFileSync("package.json ", String(process.hrtime.bigint()));',
+			}, 'stamp-space');
+			const { fixture, remote } = stamp;
+			expect('exitCode' in await gitPublish(fixture.path, ['--stamp-commit'])).toBe(false);
+			const firstPublication = await remote.git('rev-parse', ['npm/stamp-space']);
+			const firstContent = await remote.git('show', ['npm/stamp-space:package.json ']);
+
+			const result = await gitPublish(fixture.path, ['--stamp-commit']);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(await remote.git('rev-parse', ['npm/stamp-space^'])).toBe(firstPublication);
+			expect(await remote.git('show', ['npm/stamp-space:package.json '])).not.toBe(firstContent);
+		});
+
+		test('reads the parent message without signature output', async () => {
+			await using key = await createFixture();
+			await spawn('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key.getPath('key')]);
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					files: ['index.js'],
+				}),
+				'index.js': '',
+			}, 'stamp-signed');
+			const { fixture, remote } = stamp;
+			await fixture.git('config', ['gpg.format', 'ssh']);
+			await fixture.git('config', ['user.signingkey', key.getPath('key.pub')]);
+			await fixture.git('config', ['commit.gpgSign', 'true']);
+			await fixture.git('config', ['log.showSignature', 'true']);
+			expect('exitCode' in await gitPublish(fixture.path, ['--stamp-commit'])).toBe(false);
+			const firstPublication = await remote.git('rev-parse', ['npm/stamp-signed']);
+
+			await fixture.writeFile('notes.txt', 'not packed');
+			await fixture.git('add', ['notes.txt']);
+			await fixture.git('commit', ['--no-gpg-sign', '-m', 'Unpacked change']);
+			const result = await gitPublish(fixture.path, ['--stamp-commit']);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(await remote.git('rev-parse', ['npm/stamp-signed'])).toBe(firstPublication);
+			expect(await remote.git('cat-file', ['-p', firstPublication])).toMatch(/^gpgsig /m);
+		});
 
 		test('publishes a version bump as a new commit', async () => {
 			await using stamp = await createStampFixture({

@@ -57,7 +57,8 @@ For a private repository, the installing machine needs Git access to it (for Git
 | `Cannot publish packages with workspace dependencies` | A standalone package outside a workspace declares `workspace:` dependencies. Run from the workspace, or bundle them. |
 | `requires peer` or `in workspace range` | A packed peer range or explicit `workspace:` range does not match the target's version. Fix the range in the source manifest. |
 | `changed during packing` or `has unresolved` | A lifecycle hook rewrote an internal dependency, or the packed manifest still contains a `workspace:` value. Hooks may remove internal dependencies but not change or add them. |
-| `not valid semver`, `already has build metadata`, or `changed the version` | With `--stamp-commit`, the source version is not valid semver or has `+...` build metadata, or a lifecycle script or pack configuration changed the stamped version. Fix the source `version` or stop the hook from changing it. |
+| `not valid semver` or `already has build metadata` | With `--stamp-commit`, the source version is not valid semver, already has `+...` build metadata, or would exceed node-semver's 256-character limit once stamped. Fix the source `version`. |
+| `changed the version` | With `--stamp-commit`, the packed version differs from the stamp. Either a lifecycle script rewrote `version`, or the package manager's pack configuration packs a different manifest, such as pnpm `publishConfig.directory`. Stop the script from changing `version`, or publish without `--stamp-commit`. |
 | `push URLs` | Every publication needs one push destination. Use separate remotes or `--remote <url>`, and run once per destination. |
 | `"files" lists paths that were not published` (warning) | The build did not run or the entry is wrong. Build before publishing or fix `files`. |
 
