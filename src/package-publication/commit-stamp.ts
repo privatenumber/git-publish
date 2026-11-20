@@ -52,9 +52,9 @@ export const isCommitStampOf = (
 	if (!parsed) {
 		return false;
 	}
-	const { build } = parsed;
-	return build.length === 1
-		&& build[0]!.startsWith('sha-')
-		&& gitHead.startsWith(build[0]!.slice(4))
+	const shortCommit = parsed.build.length === 1 && /^sha-([\da-f]{4,})$/.exec(parsed.build[0]!)?.[1];
+	return Boolean(shortCommit)
+		&& /^(?:[\da-f]{40}|[\da-f]{64})$/.test(gitHead)
+		&& gitHead.startsWith(shortCommit as string)
 		&& parsed.version === stamp.version.split('+')[0];
 };

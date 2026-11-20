@@ -1,6 +1,6 @@
 # Commit stamp
 
-`--stamp-commit` records the source commit in each published `package.json`. The version gets semver build metadata, `1.2.3+sha-<short>`, and `gitHead` gets the full source SHA. A package whose packed output didn't change keeps its previous publication commit and its previous stamp, so the stamp always names the source commit in that publication commit's message.
+`--stamp-commit` records the source commit in each published `package.json`. The version gets semver build metadata, `1.2.3+sha-<short>`, and `gitHead` gets the full source SHA. A package whose packed output didn't change keeps its previous publication commit and its previous stamp, so in publication commits that git-publish created, the stamp names the source commit in the commit message.
 
 ## Decision: build metadata, not a prerelease
 
@@ -36,9 +36,9 @@ A package can read its own version during the build, for example to bundle a CLI
 | Yarn 4.18.1 | `1.2.3+abc1234` | `1.2.3+abc1234` |
 | Bun 1.4.4 | `1.2.3+abc1234` | `1.2.3+abc1234` |
 
-The hook column shows both `npm_package_version` and `require('./package.json').version`, which agreed in every run. pnpm also names the tarball `p-1.2.3.tgz`, while npm and Bun name it `p-1.2.3+abc1234.tgz`. The pnpm source line that drops the build metadata was not located.
+The hook column shows both `npm_package_version` and `require('./package.json').version`, which agreed in every run. pnpm also names the tarball `p-1.2.3.tgz`, while npm and Bun name it `p-1.2.3+abc1234.tgz`. pnpm strips the metadata on purpose, "so the tarball name, the packed manifest and any registry metadata all agree on the version" ([source.rs#L105-L129 at v12.18.0](https://github.com/pnpm/pnpm/blob/v12.18.0/pnpm/crates/pack/src/source.rs#L105-L129), using `strip_build_metadata` in [output.rs#L196-L199](https://github.com/pnpm/pnpm/blob/v12.18.0/pnpm/crates/pack/src/output.rs#L196-L199)).
 
-After packing, git-publish accepts the stamp, or the stamp without its build metadata, as the packed version. Any other version means a pack hook changed it, and the publication fails.
+After packing, npm, Yarn, and Bun must produce exactly the stamp. For pnpm, git-publish also accepts the stamp without its build metadata. Any other packed version fails the publication. The pnpm exception has a limit: pnpm strips the metadata after it reads the manifest, so git-publish can't tell pnpm's stripping from a lifecycle script that removed the stamp. In both cases git-publish sets the stamp again, but a build output that embedded the unstamped version stays unstamped.
 
 ## Decision: the source commit, with stamp-insensitive reuse
 
@@ -46,15 +46,22 @@ The stamp names the commit that was checked out and packed (HEAD), not the last 
 
 - **A directory SHA claims more than it proves.** A package's output also depends on files outside its directory, such as the root lockfile, shared build configuration, and workspace dependencies. A change to those files would publish new content under an old SHA.
 - **A directory SHA is wrong in shallow clones.** CI checkouts often fetch one commit. `git log -1 -- <dir>` then returns the shallow boundary commit for every directory.
-- **No precedent.** Lerna, Changesets, pkg.pr.new, Angular, and React all stamp the built commit.
+- **The tools checked all stamp the built commit.** Lerna canaries ([make-canary-version.ts at v10.1.3](https://github.com/lerna/lerna/blob/v10.1.3/libs/commands/publish/src/lib/make-canary-version.ts)), Changesets snapshots ([assemble-release-plan at 9a035ec](https://github.com/changesets/changesets/blob/9a035ec36045aeb6141dd0bbac9ab9e3c69ac0bc/packages/assemble-release-plan/src/index.ts#L37-L106)), pkg.pr.new `--previewVersion` ([cli/index.ts at 907d6cf](https://github.com/stackblitz-labs/pkg.pr.new/blob/907d6cf9984ef144b89e96a1903496c337c0f26e/packages/cli/index.ts#L462-L466)), Angular snapshot builds, and React canaries ([build-all-release-channels.js at e04279e](https://github.com/facebook/react/blob/e04279e76e2703ceb0d99c3599f0b74f01770dd4/scripts/rollup/build-all-release-channels.js#L24-L47)) all use the current commit. A search of public code found no tool that stamps a directory's last change. That is a null result, not proof that none exists.
 
-A HEAD stamp alone would change every package's `package.json` on every source commit. git-publish reuses the branch tip when the packed tree is unchanged, so every unchanged package would then get a new commit and a new install specifier on every publish. To keep reuse, the comparison with the tip ignores the stamp: if the tip is stamped and the new tree differs only in `version` and `gitHead`, git-publish keeps the tip, including its old stamp. The tip's stamp and commit message both name the earlier source commit, and that commit produced the same output.
+A HEAD stamp alone would change every package's `package.json` on every source commit. git-publish reuses the branch tip when the packed tree is unchanged, so every unchanged package would then get a new commit and a new install specifier on every publish. To keep reuse, the comparison with the tip ignores the stamp: if the tip is stamped and the new tree differs only in `version` and `gitHead`, git-publish keeps the tip, including its old stamp. For a tip that git-publish created, the stamp and the commit message both name the earlier source commit, and that commit produced the same output. git-publish doesn't read the commit message. It only reuses a tip whose stamp is well formed: `sha-` and lowercase hex on the same base version, and a full-SHA `gitHead` that starts with that hex. The file mode of `package.json` must also be unchanged.
 
-The comparison parses both `package.json` files and compares them as JSON, with the tip's `version` and `gitHead` put into the new manifest. So with `--stamp-commit`, a change that only reformats `package.json` also keeps the tip, while without the flag the byte difference creates a new commit. That is accepted, because consumers read the same JSON either way. A byte-exact comparison would need extra code to get the parent blob's exact bytes, since nano-spawn strips a trailing newline from output.
+The comparison parses both `package.json` files and compares their `JSON.stringify` output, with the tip's `version` and `gitHead` put into the new manifest. So with `--stamp-commit`, a change that only reformats `package.json` also keeps the tip, while without the flag the byte difference creates a new commit. That is accepted, because consumers read the same JSON either way. A key-order change is not ignored, because `JSON.stringify` keeps insertion order, so it creates a new commit. A byte-exact comparison would need extra code to read the parent blob's exact bytes, because the repository's output helper trims command output.
 
 A package whose build output contains its version gets a new commit on every source commit, because its output really changes.
 
-**Cost.** The rejected directory lookup was measured too. `git log -1 --format=%H HEAD -- <dir>` took 17 to 118 ms per package on clones with 8.6k commits and 80 packages, and with 22.6k commits and 33 packages. That is small next to packing, so cost was not the reason to reject it. The reuse check that git-publish runs instead reads one blob and diffs one tree per package.
+**Cost.** The rejected directory lookup was measured too, so cost was not the reason to reject it. On Fri Nov 20 2026 (macOS, Git 2.54.0), a loop ran `git log -1 --format=%H HEAD -- <dir>` for each directory under `packages/` in local clones without a commit-graph:
+
+| Repository | Commits | Packages | All packages, sequential | Slowest package |
+| --- | --- | --- | --- | --- |
+| [vercel/ai](https://github.com/vercel/ai) | 8,578 | 80 | 1,421 ms | 57 ms |
+| [anomalyco/opencode](https://github.com/anomalyco/opencode) | 22,597 | 33 | 885 ms | 118 ms |
+
+Packing one package takes seconds, so this would be small in comparison. The reuse check that git-publish runs instead adds at most one tree diff and one blob read per package, and only when the stamp is the only possible difference.
 
 ## Rejected alternatives
 

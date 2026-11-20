@@ -135,11 +135,21 @@ export const packPackage = async (
 	await copyContained(cwd, packWorktreePackageRoot, candidates, signal);
 
 	// Write after copying, which supplies an untracked package.json, so pack hooks see the fields
-	if (manifestFields) {
-		const packageJson = await PackageJson.load(packWorktreePackageRoot);
-		packageJson.update(manifestFields);
-		// Replace the file so a tracked package.json symlink can't redirect the write
-		await fs.rm(path.join(packWorktreePackageRoot, 'package.json'));
+	signal.throwIfAborted();
+	const packageJson = manifestFields && await PackageJson.load(packWorktreePackageRoot);
+	// save() skips the write when nothing changed, which would leave a removed symlink missing
+	if (packageJson && Object.entries(manifestFields).some(
+		([key, value]) => packageJson.content[key] !== value,
+	)) {
+		const manifestPath = path.join(packWorktreePackageRoot, 'package.json');
+		// update() also normalizes dependency fields, so set the fields directly
+		Object.assign(packageJson.content, manifestFields);
+		// Replace a tracked symlink so the write can't leave the checkout.
+		// Writing a regular file in place keeps its mode.
+		const manifestStat = await fs.lstat(manifestPath);
+		if (manifestStat.isSymbolicLink()) {
+			await fs.rm(manifestPath);
+		}
 		await packageJson.save();
 	}
 

@@ -84,8 +84,8 @@ By default, `git-publish` adds a commit to the existing branch. Lockfiles record
 - `gitHead`, the field npm uses for the commit a package was built from, gets the full source commit ID.
 - The stamp, both `version` and `gitHead`, is written to `package.json` in the isolated checkout before packing, so lifecycle hooks and builds see it, including as `npm_package_version`. A hook must not change the version.
 - Package managers ignore build metadata when they compare versions, so the stamped version satisfies every range that the source version satisfies. A prerelease such as `1.2.3-a1b2c3d` would not: npm rejects it against a `^1.2.0` peer range.
-- When only the stamp would change, `git-publish` reuses the existing publication commit. Its stamp still names the source commit that the commit was published from. If the build output contains the version, every new source commit produces a new publication commit.
-- A source version that is not valid semver, or that already has build metadata such as `1.2.3+build.1`, is an error. A dry run reports the same error.
+- When only the stamp would change, `git-publish` reuses the existing publication commit. For a commit that `git-publish` created, its stamp still names the source commit that the commit was published from. The comparison ignores formatting-only differences in `package.json`, but not a change in key order. If the build output contains the version, every new source commit produces a new publication commit.
+- The source version must parse as semver. node-semver normalizes forms such as `v1.2.3` to `1.2.3`. A version that does not parse, such as `1.2`, or that already has build metadata, such as `1.2.3+build.1`, is an error. A dry run reports the same error.
 
 ## JSON output
 

@@ -44,32 +44,29 @@ const isStampOnlyChange = async (
 	stamp: CommitStamp,
 	gitOptions: SpawnOptions,
 ) => {
-	const changed = await getStdout(spawn('git', ['diff-tree', '--name-only', parentTree, newTree], gitOptions));
-	if (changed !== 'package.json') {
+	// Only the top-level package.json blob may change; an added file or a mode change shows here
+	const changed = await getStdout(spawnAbortable('git', ['diff-tree', '--raw', parentTree, newTree], gitOptions));
+	const entry = /^:(\d+) (\d+) \S+ \S+ M\tpackage\.json$/.exec(changed);
+	if (!entry || entry[1] !== entry[2]) {
 		return false;
 	}
-	const parentContent = await getStdout(spawn('git', ['cat-file', 'blob', `${parentTree}:package.json`], gitOptions)).catch((error: unknown) => {
-		// Git exits with 128 when the parent has no package.json
-		if (error instanceof SubprocessError && error.exitCode === 128) {
-			return undefined;
-		}
-		throw error;
-	});
-	if (parentContent === undefined) {
-		return false;
-	}
-	let parentManifest: PackageJson;
+	const parentContent = await getStdout(spawnAbortable('git', ['cat-file', 'blob', `${parentTree}:package.json`], gitOptions));
+	let parentManifest: unknown;
 	try {
-		parentManifest = JSON.parse(parentContent) as PackageJson;
+		parentManifest = JSON.parse(parentContent);
 	} catch {
 		// An unparseable parent manifest has no stamp to compare
 		return false;
 	}
-	return isCommitStampOf(stamp, parentManifest.version, parentManifest.gitHead)
+	if (typeof parentManifest !== 'object' || parentManifest === null || Array.isArray(parentManifest)) {
+		return false;
+	}
+	const { version, gitHead } = parentManifest as PackageJson;
+	return isCommitStampOf(stamp, version, gitHead)
 		&& stringify({
 			...manifest,
-			version: parentManifest.version,
-			gitHead: parentManifest.gitHead,
+			version,
+			gitHead,
 		}) === stringify(parentManifest);
 };
 
@@ -115,8 +112,8 @@ export const preparePackagePublication = async ({
 		if (commitStamp) {
 			// pnpm pack drops build metadata from the packed version
 			if (manifest.version !== commitStamp.version
-				&& manifest.version !== commitStamp.version.split('+')[0]) {
-				throw new Error(`Package ${stringify(packageName)} has packed version ${stringify(manifest.version)}, but --stamp-commit set ${stringify(commitStamp.version)}. A pack hook changed the version.`);
+				&& !(validationContext.packageManager === 'pnpm' && manifest.version === commitStamp.version.split('+')[0])) {
+				throw new Error(`Package ${stringify(packageName)} has packed version ${stringify(manifest.version)}, but --stamp-commit set ${stringify(commitStamp.version)}. A lifecycle script or the package manager's pack configuration changed the version.`);
 			}
 			manifest.version = commitStamp.version;
 			manifest.gitHead = commitStamp.gitHead;
@@ -197,7 +194,10 @@ export const preparePackagePublication = async ({
 			newTree,
 			packedManifest,
 			commitStamp,
-			gitOptions,
+			{
+				...gitOptions,
+				signal,
+			},
 		))
 	);
 	let commit: string;

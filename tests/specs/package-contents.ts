@@ -760,34 +760,60 @@ describe('Package contents', async () => {
 			expect(await stamp.readManifest('npm/stamp-workspace-app')).toStrictEqual(app);
 		});
 
-		test('rejects a source version that already has build metadata, including in a dry run', async () => {
-			await using stamp = await createStampFixture({
-				'package.json': JSON.stringify({
-					name: 'app',
-					version: '1.0.0+build.1',
-				}),
-			}, 'stamp-build');
-			for (const flags of [['--stamp-commit'], ['--dry', '--stamp-commit']]) {
-				const result = await gitPublish(stamp.fixture.path, flags);
-				expect('exitCode' in result).toBe(true);
-				expect(result.output).toContain('Package "app" has version "1.0.0+build.1", which already has build metadata.');
-			}
-			expect(await stamp.remote.git('for-each-ref')).toBe('');
-		});
+		for (const [version, error] of [
+			['1.0.0+build.1', 'Package "app" has version "1.0.0+build.1", which already has build metadata.'],
+			['1.2', 'Package "app" has version "1.2", which is not valid semver.'],
+		]) {
+			test(`rejects source version ${version}, including in a dry run`, async () => {
+				await using stamp = await createStampFixture({
+					'package.json': JSON.stringify({
+						name: 'app',
+						version,
+					}),
+				}, 'stamp-invalid');
+				for (const flags of [['--stamp-commit'], ['--dry', '--stamp-commit']]) {
+					const result = await gitPublish(stamp.fixture.path, flags);
+					expect('exitCode' in result).toBe(true);
+					expect(result.output).toContain(error);
+				}
+				expect(await stamp.remote.git('for-each-ref')).toBe('');
+			});
+		}
 
-		test('rejects a pack hook that changes the stamped version', async () => {
+		// npm keeps build metadata, so even the unstamped base version is a change
+		for (const packedVersion of ['1.0.1', '1.0.0']) {
+			test(`rejects an npm pack hook that sets the version to ${packedVersion}`, async () => {
+				await using stamp = await createStampFixture({
+					'package.json': JSON.stringify({
+						name: 'app',
+						version: '1.0.0',
+						scripts: { prepack: 'node hook.cjs' },
+					}),
+					'hook.cjs': `const fs = require("fs"); const p = require("./package.json"); p.version = "${packedVersion}"; fs.writeFileSync("package.json", JSON.stringify(p));`,
+				}, 'stamp-hook');
+				const result = await gitPublish(stamp.fixture.path, ['--stamp-commit']);
+				expect('exitCode' in result).toBe(true);
+				expect(result.output).toContain(`has packed version "${packedVersion}", but --stamp-commit set "1.0.0+sha-`);
+				expect(result.output).toContain('A lifecycle script or the package manager\'s pack configuration changed the version.');
+				expect(await stamp.remote.git('for-each-ref')).toBe('');
+			});
+		}
+
+		test('keeps dependency ranges that overlap peer ranges', async () => {
 			await using stamp = await createStampFixture({
 				'package.json': JSON.stringify({
 					name: 'app',
 					version: '1.0.0',
-					scripts: { prepack: 'node hook.cjs' },
+					dependencies: { b: '^2.0.0' },
+					peerDependencies: { b: '>=1.0.0' },
 				}),
-				'hook.cjs': 'const fs = require("fs"); const p = require("./package.json"); p.version = "1.0.1"; fs.writeFileSync("package.json", JSON.stringify(p));',
-			}, 'stamp-hook');
+			}, 'stamp-ranges');
 			const result = await gitPublish(stamp.fixture.path, ['--stamp-commit']);
-			expect('exitCode' in result).toBe(true);
-			expect(result.output).toMatch(/has packed version "1\.0\.1", but --stamp-commit set "1\.0\.0\+sha-\w+"\. A pack hook changed the version\./);
-			expect(await stamp.remote.git('for-each-ref')).toBe('');
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			const manifest = await stamp.readManifest('npm/stamp-ranges');
+			expect(manifest.dependencies).toStrictEqual({ b: '^2.0.0' });
+			expect(manifest.peerDependencies).toStrictEqual({ b: '>=1.0.0' });
 		});
 	});
 });
