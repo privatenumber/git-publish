@@ -112,7 +112,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 			dry: {
 				type: Boolean,
 				alias: 'd',
-				description: 'Dry run mode. Will not commit or push to the remote.',
+				description: 'Validate and print the publication plan without packing, committing, or pushing.',
 			},
 			force: {
 				type: Boolean,
