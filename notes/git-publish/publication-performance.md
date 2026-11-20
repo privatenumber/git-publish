@@ -20,7 +20,7 @@ republish: Publish every package again with no changes
     3.68s median (3.61s to 3.68s)  CLI CPU 0.79s  0.31s per package  dist/index.js
 ```
 
-The CLI process used under a quarter of the wall time as CPU. The rest was waiting, mostly for child processes.
+The CLI process used under a quarter of the wall time as CPU, so its own JavaScript was not the bottleneck. These numbers alone do not show where the rest of the time went.
 
 ### Private workspace with build hooks
 
@@ -39,7 +39,7 @@ node dist/index.js --remote file:///tmp/remote.git
 - Wrapper scripts named `git` and `pnpm`, placed first on `PATH`, logged each call's start and end time before running the real command. They recorded about 96 s in `pnpm pack` calls, 74 s of it in the build that the hooks ran, and about 10 s in the checkout's reset and clean calls. The wrappers add startup time to each call, so their totals exceed the unwrapped wall time.
 - The machine's load average was between 17 and 65 from other processes, and the same publication took 109 s in an earlier run. Treat the absolute numbers as approximate. The ratio between the two rows held in both pairs of runs.
 
-These private observations are an evidence gap for readers without access to the workspace. The generated workspace above is the reproducible evidence; it confirms the split between CLI CPU and waiting, but not the cost of build hooks.
+These private observations are an evidence gap for readers without access to the workspace. The generated workspace above is the reproducible evidence; it confirms that the CLI's own CPU time is small, but not how the rest divides between Git, the package manager, and build hooks.
 
 ## Republishing unchanged packages
 
@@ -47,5 +47,5 @@ A republish with no changes costs almost as much as a first publish. git-publish
 
 ## Consequences for workspaces
 
-- git-publish copies a package's untracked files, including existing build output, into the isolated checkout before `prepack` runs ([`pack-package.ts`](../../src/utils/pack-package.ts)). When a `prepack` hook rebuilds all of the output that the package publishes, a workspace build before publishing does the same work again. When a hook relies on output that the workspace build created, the workspace build is required.
+- Before `prepack` runs, git-publish copies the package's files that npm would pack, as listed by `npm-packlist`, from the source checkout into the isolated checkout ([`pack-package.ts`](../../src/utils/pack-package.ts)). This includes existing build output in the `files` list, but not untracked files outside it. When a `prepack` hook rebuilds all of the output that the package publishes, a workspace build before publishing does the same work again. When a hook relies on output that the workspace build created, the workspace build is required.
 - Packing in parallel is not implemented. It would need one isolated checkout for each concurrent package, and lifecycle hooks would run at the same time against the shared, symlinked `node_modules`. Commit preparation would still run in dependency order after packing. No measurement exists yet for this design.

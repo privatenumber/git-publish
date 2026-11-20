@@ -62,11 +62,15 @@ for (const cliPath of cliPaths) {
 }
 
 await using scratch = await createFixture({
-	// Isolates the fixture and the measured CLI from the user's Git configuration
-	gitconfig: '[user]\n\tname = bench\n\temail = bench@example.com\n[init]\n\tdefaultBranch = main\n',
+	'.gitconfig': '[user]\n\tname = bench\n\temail = bench@example.com\n[init]\n\tdefaultBranch = main\n',
 });
-const environment = {
-	GIT_CONFIG_GLOBAL: scratch.getPath('gitconfig'),
+// Isolates the fixture and the measured CLI from the user's Git configuration. HOME also
+// covers local push and fetch, which git-publish runs with GIT_CONFIG_GLOBAL unset.
+const environment: Record<string, string | undefined> = {
+	...Object.fromEntries(Object.keys(process.env).filter(key => key.startsWith('GIT_')).map(key => [key, undefined])),
+	HOME: scratch.path,
+	XDG_CONFIG_HOME: scratch.path,
+	GIT_CONFIG_GLOBAL: scratch.getPath('.gitconfig'),
 	GIT_CONFIG_NOSYSTEM: '1',
 };
 const cpuFile = scratch.getPath('cpu.txt');
@@ -95,6 +99,13 @@ const createPackageFiles = (name: string, dependencies: string[]): FileTree => {
 };
 
 const libraries = Array.from({ length: libraryCount }, (_, index) => `lib-${index}`);
+const apps = new Map(Array.from({ length: packageCount - libraryCount }, (_, index) => {
+	const dependencies = [libraries[index % libraryCount]!];
+	if (index % 2 === 1 && libraryCount > 1) {
+		dependencies.push(libraries[(index + 1) % libraryCount]!);
+	}
+	return [`app-${index}`, dependencies];
+}));
 const workspaceFiles: FileTree = {
 	'package.json': JSON.stringify({
 		name: 'bench-root',
@@ -104,14 +115,10 @@ const workspaceFiles: FileTree = {
 	// Untracked like real build output, so publication runs copy dist into the pack checkout
 	'.gitignore': 'node_modules\ndist\n',
 	libs: Object.fromEntries(libraries.map(name => [name, createPackageFiles(name, [])])),
-	apps: Object.fromEntries(Array.from({ length: packageCount - libraryCount }, (_, index) => {
-		const name = `app-${index}`;
-		const dependencies = [libraries[index % libraryCount]!];
-		if (index % 2 === 1 && libraryCount > 1) {
-			dependencies.push(libraries[(index + 1) % libraryCount]!);
-		}
-		return [name, createPackageFiles(name, dependencies)];
-	})),
+	apps: Object.fromEntries([...apps].map(([name, dependencies]) => [
+		name,
+		createPackageFiles(name, dependencies),
+	])),
 };
 // git-publish detects pnpm from this file before any other marker
 if (packageManager === 'pnpm') {
@@ -137,13 +144,30 @@ const createRemote = async () => {
 	return pathToFileURL(remotePath).href;
 };
 
-const runCli = async (cliPath: string, args: string[]) => {
+type Result = {
+	packages: {
+		name: string;
+		reused: boolean;
+	}[];
+};
+
+// Runs the CLI once and, for a publication, checks that it published exactly the expected packages
+const runCli = async (
+	cliPath: string,
+	args: string[],
+	expected?: {
+		names: string[];
+		reused: boolean;
+	},
+) => {
+	await fs.rm(resultFile, { force: true });
 	const start = performance.now();
 	await spawn(process.execPath, [
 		'--import',
 		path.join(import.meta.dirname, 'record-cpu.ts'),
 		cliPath,
 		...args,
+		...(expected ? ['--json', resultFile] : []),
 	], {
 		cwd: workspace.path,
 		env: {
@@ -153,6 +177,19 @@ const runCli = async (cliPath: string, args: string[]) => {
 	});
 	const wall = performance.now() - start;
 	const cpu = Number(await fs.readFile(cpuFile, 'utf8'));
+	if (expected) {
+		const result = JSON.parse(await fs.readFile(resultFile, 'utf8')) as Result;
+		const published = result.packages.map(item => item.name).sort().join(', ');
+		if (published !== expected.names.slice().sort().join(', ')) {
+			throw new Error(`${cliPath} published ${published}, expected ${expected.names.slice().sort().join(', ')}`);
+		}
+		const mismatched = result.packages
+			.filter(item => item.reused !== expected.reused)
+			.map(item => item.name);
+		if (mismatched.length > 0) {
+			throw new Error(`${cliPath} ${expected.reused ? 'created new commits for' : 'reused commits for'} ${mismatched.join(', ')}`);
+		}
+	}
 	return {
 		wall,
 		cpu,
@@ -164,51 +201,47 @@ type Cli = {
 	populatedRemote?: string;
 };
 
-type Scenario = {
+const allPackages = [...libraries, ...apps.keys()];
+const selectedPackages = ['app-1', ...apps.get('app-1')!];
+
+const scenarios: {
 	name: string;
 	description: string;
-	published: number;
 	run: (cli: Cli) => ReturnType<typeof runCli>;
-};
-
-const scenarios: Scenario[] = [
+	published: number;
+}[] = [
 	{
 		name: 'plan',
 		description: 'Discover the workspace and plan every package (--dry)',
-		published: 0,
 		run: async ({ cliPath }) => runCli(cliPath, ['--dry', '--remote', await createRemote()]),
+		published: 0,
 	},
 	{
 		name: 'publish',
 		description: 'First publish of every package to an empty remote',
-		published: packageCount,
-		run: async ({ cliPath }) => runCli(cliPath, ['--remote', await createRemote()]),
+		run: async ({ cliPath }) => runCli(cliPath, ['--remote', await createRemote()], {
+			names: allPackages,
+			reused: false,
+		}),
+		published: allPackages.length,
 	},
 	{
 		name: 'republish',
 		description: 'Publish every package again with no changes',
-		published: packageCount,
-		run: async ({ cliPath, populatedRemote }) => {
-			const sample = await runCli(cliPath, ['--remote', populatedRemote!, '--json', resultFile]);
-			type Result = {
-				packages: {
-					name: string;
-					reused: boolean;
-				}[];
-			};
-			const result = JSON.parse(await fs.readFile(resultFile, 'utf8')) as Result;
-			const changed = result.packages.filter(item => !item.reused).map(item => item.name);
-			if (changed.length > 0) {
-				throw new Error(`${cliPath} created new commits on an unchanged republish: ${changed.join(', ')}`);
-			}
-			return sample;
-		},
+		run: async ({ cliPath, populatedRemote }) => runCli(cliPath, ['--remote', populatedRemote!], {
+			names: allPackages,
+			reused: true,
+		}),
+		published: allPackages.length,
 	},
 	{
 		name: 'select',
 		description: 'Publish one app and its libraries to an empty remote',
-		published: libraryCount > 1 ? 3 : 2,
-		run: async ({ cliPath }) => runCli(cliPath, ['app-1', '--remote', await createRemote()]),
+		run: async ({ cliPath }) => runCli(cliPath, ['app-1', '--remote', await createRemote()], {
+			names: selectedPackages,
+			reused: false,
+		}),
+		published: selectedPackages.length,
 	},
 ];
 
@@ -226,7 +259,10 @@ for (const cliPath of cliPaths) {
 	// A remote per CLI keeps republish a no-change run even if builds pack differently
 	if (selectedNames.includes('republish')) {
 		cli.populatedRemote = await createRemote();
-		await runCli(cliPath, ['--remote', cli.populatedRemote]);
+		await runCli(cliPath, ['--remote', cli.populatedRemote], {
+			names: allPackages,
+			reused: false,
+		});
 	}
 	clis.push(cli);
 }
