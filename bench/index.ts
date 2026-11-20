@@ -179,23 +179,23 @@ const runCli = async (
 	});
 	const wall = performance.now() - start;
 	const cpu = Number(await fs.readFile(cpuFile, 'utf8'));
+	const result = expected.check === 'planned'
+		? undefined
+		: JSON.parse(await fs.readFile(resultFile, 'utf8')) as Result;
 	// A dry run prints one "- <name> → <branch>" line per planned package
-	const packages = expected.check === 'planned'
-		? [...stdout.matchAll(/^- (\S+) → /gm)].map(match => ({
-			name: match[1]!,
-			reused: false,
-		}))
-		: (JSON.parse(await fs.readFile(resultFile, 'utf8')) as Result).packages;
-	const actualNames = packages.map(item => item.name).sort().join(', ');
+	const names = result
+		? result.packages.map(item => item.name)
+		: [...stdout.matchAll(/^- (\S+) → /gm)].map(match => match[1]!);
+	const actualNames = names.sort().join(', ');
 	const expectedNames = expected.names.slice().sort().join(', ');
 	if (actualNames !== expectedNames) {
-		throw new Error(`${cliPath} ${expected.check} ${actualNames || 'nothing'}, expected ${expectedNames}`);
+		throw new Error(`${cliPath} ${expected.check} [${actualNames}], expected [${expectedNames}]`);
 	}
-	const mismatched = packages
+	const mismatched = result?.packages
 		.filter(item => item.reused !== (expected.check === 'reused'))
-		.map(item => item.name);
+		.map(item => item.name) ?? [];
 	if (mismatched.length > 0) {
-		throw new Error(`${cliPath} ${expected.check === 'reused' ? 'created new commits for' : 'reused commits for'} ${mismatched.join(', ')}`);
+		throw new Error(`${cliPath} has the wrong reused flag for ${mismatched.join(', ')}, expected ${expected.check}`);
 	}
 	return {
 		wall,
@@ -214,44 +214,37 @@ const selectedPackages = ['app-1', ...apps.get('app-1')!];
 const scenarios: {
 	name: string;
 	description: string;
-	run: (cli: Cli) => ReturnType<typeof runCli>;
-	published: number;
+	getArguments: (cli: Cli) => Promise<string[]>;
+	names: string[];
+	check: 'planned' | 'published' | 'reused';
 }[] = [
 	{
 		name: 'plan',
 		description: 'Discover the workspace and plan every package (--dry)',
-		run: async ({ cliPath }) => runCli(cliPath, ['--dry', '--remote', await createRemote()], {
-			names: allPackages,
-			check: 'planned',
-		}),
-		published: 0,
+		getArguments: async () => ['--dry', '--remote', await createRemote()],
+		names: allPackages,
+		check: 'planned',
 	},
 	{
 		name: 'publish',
 		description: 'First publish of every package to an empty remote',
-		run: async ({ cliPath }) => runCli(cliPath, ['--remote', await createRemote()], {
-			names: allPackages,
-			check: 'published',
-		}),
-		published: allPackages.length,
+		getArguments: async () => ['--remote', await createRemote()],
+		names: allPackages,
+		check: 'published',
 	},
 	{
 		name: 'republish',
 		description: 'Publish every package again with no changes',
-		run: async ({ cliPath, populatedRemote }) => runCli(cliPath, ['--remote', populatedRemote!], {
-			names: allPackages,
-			check: 'reused',
-		}),
-		published: allPackages.length,
+		getArguments: async ({ populatedRemote }) => ['--remote', populatedRemote!],
+		names: allPackages,
+		check: 'reused',
 	},
 	{
 		name: 'select',
 		description: 'Publish one app and its libraries to an empty remote',
-		run: async ({ cliPath }) => runCli(cliPath, ['app-1', '--remote', await createRemote()], {
-			names: selectedPackages,
-			check: 'published',
-		}),
-		published: selectedPackages.length,
+		getArguments: async () => ['app-1', '--remote', await createRemote()],
+		names: selectedPackages,
+		check: 'published',
 	},
 ];
 
@@ -289,7 +282,7 @@ for (const scenario of scenarios.filter(({ name }) => selectedNames.includes(nam
 		// Rotate the order every round so no build always runs first
 		for (let offset = 0; offset < clis.length; offset += 1) {
 			const cli = clis[(round + offset) % clis.length]!;
-			const sample = await scenario.run(cli);
+			const sample = await runCli(cli.cliPath, await scenario.getArguments(cli), scenario);
 			if (round > 0) {
 				samples.get(cli)!.push(sample);
 			}
@@ -301,7 +294,7 @@ for (const scenario of scenarios.filter(({ name }) => selectedNames.includes(nam
 		const result = {
 			scenario: scenario.name,
 			cli: cli.cliPath,
-			published: scenario.published,
+			published: scenario.check === 'planned' ? 0 : scenario.names.length,
 			wallMedian: median(wall),
 			wallMin: Math.min(...wall),
 			wallMax: Math.max(...wall),
