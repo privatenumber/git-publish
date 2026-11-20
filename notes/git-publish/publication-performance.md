@@ -10,14 +10,14 @@ Measure changes with [`bench/`](../../bench/README.md), which compares builds in
 
 ### Generated workspace
 
-The `bench/` script added with this note, with Node.js 26.13.0, pnpm 12.21.0, and Git 2.54.0 on a 12-CPU Mac, on Sat Nov 21 2026. The packages have no hooks. Command and output, at a load average of 8.4:
+The `bench/` script added with this note, with Node.js 26.13.0, pnpm 12.21.0, and Git 2.54.0 on a 12-CPU Mac, on Sat Nov 21 2026. The packages have no hooks. Command and output, at a load average of 12.5:
 
 ```text
 $ node bench/index.ts --packages 12 --runs 3 --scenario publish --scenario republish
 publish: First publish of every package to an empty remote
-    4.09s median (3.88s to 4.49s)  CLI CPU 0.92s  0.34s per package  dist/index.js
+    4.48s median (4.42s to 4.71s)  CLI CPU 0.96s  0.37s per package  dist/index.js
 republish: Publish every package again with no changes
-    3.68s median (3.61s to 3.68s)  CLI CPU 0.79s  0.31s per package  dist/index.js
+    3.97s median (3.58s to 4.12s)  CLI CPU 0.83s  0.33s per package  dist/index.js
 ```
 
 The CLI process used under a quarter of the wall time as CPU, so its own JavaScript was not the bottleneck. These numbers alone do not show where the rest of the time went.
