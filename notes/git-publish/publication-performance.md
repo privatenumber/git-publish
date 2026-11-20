@@ -10,7 +10,7 @@ Measure changes with [`bench/`](../../bench/README.md), which compares builds in
 
 ### Generated workspace
 
-`bench/` at commit `87466e8`, with Node.js 26.13.0, pnpm 12.21.0, and Git 2.54.0 on a 12-CPU Mac, on Sat Nov 21 2026. The packages have no hooks. Command and output, at a load average of 8.4:
+The `bench/` script added with this note, with Node.js 26.13.0, pnpm 12.21.0, and Git 2.54.0 on a 12-CPU Mac, on Sat Nov 21 2026. The packages have no hooks. Command and output, at a load average of 8.4:
 
 ```text
 $ node bench/index.ts --packages 12 --runs 3 --scenario publish --scenario republish
