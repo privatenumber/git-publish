@@ -25,6 +25,7 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 | `-b, --branch <template>` | Branch name or template. See [Branches](#branches) |
 | `-d, --dry` | Simulate the run. Does not commit or push |
 | `-o, --fresh` | Publish a single-commit branch, replacing its history with a force-push. See [`--fresh`](#--fresh) |
+| `--stamp-commit` | Record the source commit in each published `package.json`. See [`--stamp-commit`](#--stamp-commit) |
 | `-f, --force` | Allow publishing a private standalone package or a private workspace root |
 | `--json <path>` | Write publication details and install sets to a JSON file. See [JSON output](#json-output) |
 | `-h, --help` | Show help |
@@ -66,6 +67,25 @@ For one package, a literal branch stays exact: `git-publish --branch preview` pu
 ## `--fresh`
 
 By default, `git-publish` adds a commit to the existing branch. Lockfiles record the commit of a Git dependency, not the branch name, and a commit that becomes unreachable from the branch history may be garbage-collected, which breaks those installs. `--fresh` force-pushes a one-commit branch, so use it only when no one depends on the old commits.
+
+## `--stamp-commit`
+
+`--stamp-commit` records the source commit in each published `package.json`, so consumers can tell which source commit they installed:
+
+```json
+{
+    "name": "@acme/core",
+    "version": "1.2.3+sha-a1b2c3d",
+    "gitHead": "<full source commit>"
+}
+```
+
+- `version` gets `+sha-<short commit>` semver build metadata. The short commit is the one the publication commit message names. A package without a `version` gets `0.0.0+sha-<short commit>`.
+- `gitHead`, the field npm uses for the commit a package was built from, gets the full source commit ID.
+- The stamp is written to `package.json` in the isolated checkout before packing, so lifecycle hooks and builds see it, including as `npm_package_version`. A hook must not change the version.
+- Package managers ignore build metadata when they compare versions, so the stamped version satisfies every range that the source version satisfies. A prerelease such as `1.2.3-a1b2c3d` would not: npm rejects it against a `^1.2.0` peer range.
+- When only the stamp would change, `git-publish` reuses the existing publication commit. Its stamp still names the source commit that the commit was published from. If the build output contains the version, every new source commit produces a new publication commit.
+- A source version that already has build metadata, such as `1.2.3+build.1`, is an error.
 
 ## JSON output
 

@@ -103,6 +103,7 @@ export const packPackage = async (
 	cwd: string,
 	gitRootPath: string,
 	gitSubdirectory: string,
+	version: string | undefined,
 	signal: AbortSignal,
 ): Promise<string> => {
 	const isMonorepo = gitSubdirectory.length > 0;
@@ -132,6 +133,15 @@ export const packPackage = async (
 	const candidates = await listCandidates(cwd);
 	signal.throwIfAborted();
 	await copyContained(cwd, packWorktreePackageRoot, candidates, signal);
+
+	// Set the version after copying, which supplies an untracked package.json, so pack hooks see it
+	if (version !== undefined) {
+		const packageJson = await PackageJson.load(packWorktreePackageRoot);
+		packageJson.update({ version });
+		// Replace the file so a tracked package.json symlink can't redirect the write
+		await fs.rm(path.join(packWorktreePackageRoot, 'package.json'));
+		await packageJson.save();
+	}
 
 	// Symlink node_modules so hooks have access to dependencies
 	// Note: Remove any existing node_modules directory in worktree first

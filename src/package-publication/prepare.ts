@@ -8,6 +8,7 @@ import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/g
 import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { importTarball, type File } from './import-tarball.ts';
 import { validatePackedManifest, type PackedManifestValidationContext } from './validate.ts';
+import { isCommitStampOf, type CommitStamp } from './commit-stamp.ts';
 
 const { stringify } = JSON;
 
@@ -31,6 +32,49 @@ export type PackagePreparation = {
 
 export type PackagePublicationDependency = PublishGraphEdge;
 
+/**
+ * Whether the new tree equals the parent tree except for the parent's commit stamp.
+ * The parent's stamp names the source commit in the parent's own commit message,
+ * so reusing the parent keeps an unchanged package's install specifier.
+ */
+const isStampOnlyChange = async (
+	parentTree: string,
+	newTree: string,
+	manifest: PackageJson,
+	stamp: CommitStamp,
+	gitOptions: SpawnOptions,
+) => {
+	const changed = await getStdout(spawn('git', ['diff-tree', '--name-only', parentTree, newTree], gitOptions));
+	if (changed !== 'package.json') {
+		return false;
+	}
+	// nano-spawn strips a trailing newline, so a plain blob read could match a parent
+	// whose package.json ends with one. The size in the batch header keeps this byte-exact.
+	const { stdout } = await spawn('git', ['cat-file', '--batch'], {
+		...gitOptions,
+		stdin: { string: `${parentTree}:package.json\n` },
+	});
+	const headerEnd = stdout.indexOf('\n');
+	const [, type, size] = stdout.slice(0, headerEnd).split(' ');
+	const parentContent = stdout.slice(headerEnd + 1);
+	if (type !== 'blob' || Buffer.byteLength(parentContent) !== Number(size)) {
+		return false;
+	}
+	let parentManifest: PackageJson;
+	try {
+		parentManifest = JSON.parse(parentContent) as PackageJson;
+	} catch {
+		// An unparseable parent manifest has no stamp to compare
+		return false;
+	}
+	return isCommitStampOf(stamp, parentManifest.version, parentManifest.gitHead)
+		&& stringify({
+			...manifest,
+			version: parentManifest.version,
+			gitHead: parentManifest.gitHead,
+		}, null, 2) === parentContent;
+};
+
 export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPackageManagerGitUrl(fetchUrl)}#${commit}`;
 
 export const preparePackagePublication = async ({
@@ -46,6 +90,7 @@ export const preparePackagePublication = async ({
 	dependencyPublications,
 	validationContext,
 	peers = [],
+	commitStamp,
 	gitOptions,
 	signal,
 }: {
@@ -61,6 +106,7 @@ export const preparePackagePublication = async ({
 	dependencyPublications: ReadonlyMap<string, PackagePublication>;
 	validationContext: PackedManifestValidationContext;
 	peers?: WorkspacePeer[];
+	commitStamp?: CommitStamp;
 	gitOptions: SpawnOptions;
 	signal?: AbortSignal;
 }): Promise<PackagePreparation> => {
@@ -68,6 +114,15 @@ export const preparePackagePublication = async ({
 	const rewriteManifest = (content: Buffer) => {
 		manifest = JSON.parse(content.toString('utf8')) as PackageJson;
 		const original = stringify(manifest);
+		if (commitStamp) {
+			// pnpm pack drops build metadata from the packed version
+			if (manifest.version !== commitStamp.version
+				&& manifest.version !== commitStamp.version.slice(0, commitStamp.version.indexOf('+'))) {
+				throw new Error(`Package ${stringify(packageName)} has packed version ${stringify(manifest.version)}, but --stamp-commit set ${stringify(commitStamp.version)}. A pack hook changed the version.`);
+			}
+			manifest.version = commitStamp.version;
+			manifest.gitHead = commitStamp.gitHead;
+		}
 		for (const { key, field } of [
 			...dependencyEdges,
 			...peers.map(peer => ({
@@ -118,7 +173,11 @@ export const preparePackagePublication = async ({
 		}
 		delete manifest.workspaces;
 		delete manifest.devDependencies;
-		return stringify(manifest) === original ? content : Buffer.from(stringify(manifest, null, 2));
+		// Always reformat a stamped manifest so isStampOnlyChange can reproduce its bytes
+		if (stringify(manifest) === original && !commitStamp) {
+			return content;
+		}
+		return Buffer.from(stringify(manifest, null, 2));
 	};
 	const { files, tree: newTree } = await importTarball({
 		tarball: packedTarball,
@@ -137,7 +196,16 @@ export const preparePackagePublication = async ({
 		? await getStdout(spawn('git', ['rev-parse', parent, `${parent}^{tree}`], gitOptions))
 		: '';
 	const [parentCommit, parentTree] = parentRevisions ? parentRevisions.split('\n') : [];
-	const reusedExistingCommit = parentCommit !== undefined && newTree === parentTree;
+	const reusedExistingCommit = parentTree !== undefined && (
+		newTree === parentTree
+		|| (commitStamp !== undefined && await isStampOnlyChange(
+			parentTree,
+			newTree,
+			packedManifest,
+			commitStamp,
+			gitOptions,
+		))
+	);
 	let commit: string;
 	if (parentCommit && reusedExistingCommit) {
 		commit = parentCommit;

@@ -566,4 +566,190 @@ describe('Package contents', async () => {
 			'package.json',
 		]);
 	});
+
+	describe('Commit stamp', () => {
+		const createStampFixture = async (
+			files: Parameters<typeof createGitFixture>[0],
+			branch: string,
+		) => {
+			const remote = await createGitFixture(undefined, ['--bare']);
+			const fixture = await createGitFixture(files, [`--initial-branch=${branch}`]);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			return {
+				remote,
+				fixture,
+				readManifest: async (ref: string) => JSON.parse(await remote.git('show', [`${ref}:package.json`])),
+				[Symbol.asyncDispose]: async () => {
+					await fixture.rm();
+					await remote.rm();
+				},
+			};
+		};
+
+		test('stamps version and gitHead before pack hooks run', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					scripts: { prepack: 'node hook.cjs' },
+				}),
+				'hook.cjs': 'require("fs").writeFileSync("seen.txt", `${process.env.npm_package_version} ${require("./package.json").version}`);',
+			}, 'stamp');
+			const result = await gitPublish(stamp.fixture.path, ['--stamp-commit']);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			const commit = await stamp.fixture.git('rev-parse', ['HEAD']);
+			const shortCommit = await stamp.fixture.git('rev-parse', ['--short', 'HEAD']);
+			const manifest = await stamp.readManifest('npm/stamp');
+			expect(manifest.version).toBe(`1.0.0+sha-${shortCommit}`);
+			expect(manifest.gitHead).toBe(commit);
+			expect(await stamp.remote.git('show', ['npm/stamp:seen.txt'])).toBe(`1.0.0+sha-${shortCommit} 1.0.0+sha-${shortCommit}`);
+		});
+
+		test('leaves version and gitHead unchanged without --stamp-commit', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+				}),
+			}, 'unstamped');
+			const result = await gitPublish(stamp.fixture.path);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(await stamp.readManifest('npm/unstamped')).toStrictEqual({
+				name: 'app',
+				version: '1.0.0',
+			});
+		});
+
+		test('keeps the stamp when pnpm pack drops build metadata', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+				}),
+				'pnpm-lock.yaml': 'lockfileVersion: 9.0\n',
+			}, 'stamp-pnpm');
+			const result = await gitPublish(stamp.fixture.path, ['--stamp-commit']);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			const shortCommit = await stamp.fixture.git('rev-parse', ['--short', 'HEAD']);
+			const { version } = await stamp.readManifest('npm/stamp-pnpm');
+			expect(version).toBe(`1.0.0+sha-${shortCommit}`);
+		});
+
+		test('stamps a versionless package as 0.0.0', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({ name: 'app' }),
+			}, 'stamp-versionless');
+			const result = await gitPublish(stamp.fixture.path, ['--stamp-commit']);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			const shortCommit = await stamp.fixture.git('rev-parse', ['--short', 'HEAD']);
+			const { version } = await stamp.readManifest('npm/stamp-versionless');
+			expect(version).toBe(`0.0.0+sha-${shortCommit}`);
+		});
+
+		test('reuses an unchanged publication with the stamp of its own source commit', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					files: ['index.js'],
+				}),
+				'index.js': 'first',
+			}, 'stamp-reuse');
+			const { fixture, remote } = stamp;
+			const expectStampMatchesMessage = async () => {
+				const manifest = await stamp.readManifest('npm/stamp-reuse');
+				const message = await remote.git('log', ['-1', '--format=%s', 'npm/stamp-reuse']);
+				const shortCommit = /^Published from "stamp-reuse" \(([\da-f]+)\)$/.exec(message)![1]!;
+				expect(manifest.version).toBe(`1.0.0+sha-${shortCommit}`);
+				expect(manifest.gitHead.startsWith(shortCommit)).toBe(true);
+				return manifest;
+			};
+			expect('exitCode' in await gitPublish(fixture.path, ['--stamp-commit'])).toBe(false);
+			const firstCommit = await fixture.git('rev-parse', ['HEAD']);
+			const firstPublication = await remote.git('rev-parse', ['npm/stamp-reuse']);
+
+			await fixture.writeFile('notes.txt', 'not packed');
+			await fixture.git('add', ['notes.txt']);
+			await fixture.git('commit', ['-m', 'Unpacked change']);
+			const reused = await gitPublish(fixture.path, ['--stamp-commit']);
+			onTestFail(() => console.log(reused.output));
+			expect('exitCode' in reused).toBe(false);
+			expect(reused.output).toContain('Unchanged; reusing existing commit');
+			expect(await remote.git('rev-parse', ['npm/stamp-reuse'])).toBe(firstPublication);
+			const reusedManifest = await expectStampMatchesMessage();
+			expect(reusedManifest.gitHead).toBe(firstCommit);
+
+			await fixture.writeFile('index.js', 'second');
+			await fixture.git('add', ['index.js']);
+			await fixture.git('commit', ['-m', 'Packed change']);
+			const changed = await gitPublish(fixture.path, ['--stamp-commit']);
+			onTestFail(() => console.log(changed.output));
+			expect('exitCode' in changed).toBe(false);
+			expect(await remote.git('rev-parse', ['npm/stamp-reuse^'])).toBe(firstPublication);
+			const changedManifest = await expectStampMatchesMessage();
+			expect(changedManifest.gitHead).toBe(await fixture.git('rev-parse', ['HEAD']));
+		});
+
+		test('stamps a workspace dependency that a workspace:^ range still satisfies', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({ private: true }),
+				'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+				'packages/app/package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					dependencies: { core: 'workspace:^' },
+				}),
+				'packages/core/package.json': JSON.stringify({
+					name: 'core',
+					version: '2.0.0',
+				}),
+			}, 'stamp-workspace');
+			const result = await gitPublish(stamp.fixture.getPath('packages/app'), ['--stamp-commit']);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			const shortCommit = await stamp.fixture.git('rev-parse', ['--short', 'HEAD']);
+			const coreCommit = await stamp.remote.git('rev-parse', ['npm/stamp-workspace-core']);
+			const app = await stamp.readManifest('npm/stamp-workspace-app');
+			expect(app.version).toBe(`1.0.0+sha-${shortCommit}`);
+			expect(app.dependencies.core).toBe(`git+file://${stamp.remote.path}#${coreCommit}`);
+			const core = await stamp.readManifest('npm/stamp-workspace-core');
+			expect(core.version).toBe(`2.0.0+sha-${shortCommit}`);
+		});
+
+		test('rejects a source version that already has build metadata, including in a dry run', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0+build.1',
+				}),
+			}, 'stamp-build');
+			for (const flags of [['--stamp-commit'], ['--dry', '--stamp-commit']]) {
+				const result = await gitPublish(stamp.fixture.path, flags);
+				expect('exitCode' in result).toBe(true);
+				expect(result.output).toContain('Package "app" has version "1.0.0+build.1", which already has build metadata.');
+			}
+			expect(await stamp.remote.git('for-each-ref')).toBe('');
+		});
+
+		test('rejects a pack hook that changes the stamped version', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					scripts: { prepack: 'node hook.cjs' },
+				}),
+				'hook.cjs': 'const fs = require("fs"); const p = require("./package.json"); p.version = "1.0.1"; fs.writeFileSync("package.json", JSON.stringify(p));',
+			}, 'stamp-hook');
+			const result = await gitPublish(stamp.fixture.path, ['--stamp-commit']);
+			expect('exitCode' in result).toBe(true);
+			expect(result.output).toMatch(/has packed version "1\.0\.1", but --stamp-commit set "1\.0\.0\+sha-\w+"\. A pack hook changed the version\./);
+			expect(await stamp.remote.git('for-each-ref')).toBe('');
+		});
+	});
 });
