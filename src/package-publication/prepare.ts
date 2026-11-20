@@ -48,16 +48,14 @@ const isStampOnlyChange = async (
 	if (changed !== 'package.json') {
 		return false;
 	}
-	// nano-spawn strips a trailing newline, so a plain blob read could match a parent
-	// whose package.json ends with one. The size in the batch header keeps this byte-exact.
-	const { stdout } = await spawn('git', ['cat-file', '--batch'], {
-		...gitOptions,
-		stdin: { string: `${parentTree}:package.json\n` },
+	const parentContent = await getStdout(spawn('git', ['cat-file', 'blob', `${parentTree}:package.json`], gitOptions)).catch((error: unknown) => {
+		// Git exits with 128 when the parent has no package.json
+		if (error instanceof SubprocessError && error.exitCode === 128) {
+			return undefined;
+		}
+		throw error;
 	});
-	const headerEnd = stdout.indexOf('\n');
-	const [, type, size] = stdout.slice(0, headerEnd).split(' ');
-	const parentContent = stdout.slice(headerEnd + 1);
-	if (type !== 'blob' || Buffer.byteLength(parentContent) !== Number(size)) {
+	if (parentContent === undefined) {
 		return false;
 	}
 	let parentManifest: PackageJson;
@@ -72,7 +70,7 @@ const isStampOnlyChange = async (
 			...manifest,
 			version: parentManifest.version,
 			gitHead: parentManifest.gitHead,
-		}, null, 2) === parentContent;
+		}) === stringify(parentManifest);
 };
 
 export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPackageManagerGitUrl(fetchUrl)}#${commit}`;
@@ -117,7 +115,7 @@ export const preparePackagePublication = async ({
 		if (commitStamp) {
 			// pnpm pack drops build metadata from the packed version
 			if (manifest.version !== commitStamp.version
-				&& manifest.version !== commitStamp.version.slice(0, commitStamp.version.indexOf('+'))) {
+				&& manifest.version !== commitStamp.version.split('+')[0]) {
 				throw new Error(`Package ${stringify(packageName)} has packed version ${stringify(manifest.version)}, but --stamp-commit set ${stringify(commitStamp.version)}. A pack hook changed the version.`);
 			}
 			manifest.version = commitStamp.version;
@@ -173,11 +171,7 @@ export const preparePackagePublication = async ({
 		}
 		delete manifest.workspaces;
 		delete manifest.devDependencies;
-		// Always reformat a stamped manifest so isStampOnlyChange can reproduce its bytes
-		if (stringify(manifest) === original && !commitStamp) {
-			return content;
-		}
-		return Buffer.from(stringify(manifest, null, 2));
+		return stringify(manifest) === original ? content : Buffer.from(stringify(manifest, null, 2));
 	};
 	const { files, tree: newTree } = await importTarball({
 		tarball: packedTarball,

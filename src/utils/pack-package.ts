@@ -103,7 +103,7 @@ export const packPackage = async (
 	cwd: string,
 	gitRootPath: string,
 	gitSubdirectory: string,
-	version: string | undefined,
+	manifestFields: Readonly<Record<string, string>> | undefined,
 	signal: AbortSignal,
 ): Promise<string> => {
 	const isMonorepo = gitSubdirectory.length > 0;
@@ -134,10 +134,10 @@ export const packPackage = async (
 	signal.throwIfAborted();
 	await copyContained(cwd, packWorktreePackageRoot, candidates, signal);
 
-	// Set the version after copying, which supplies an untracked package.json, so pack hooks see it
-	if (version !== undefined) {
+	// Write after copying, which supplies an untracked package.json, so pack hooks see the fields
+	if (manifestFields) {
 		const packageJson = await PackageJson.load(packWorktreePackageRoot);
-		packageJson.update({ version });
+		packageJson.update(manifestFields);
 		// Replace the file so a tracked package.json symlink can't redirect the write
 		await fs.rm(path.join(packWorktreePackageRoot, 'package.json'));
 		await packageJson.save();

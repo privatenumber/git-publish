@@ -49,9 +49,12 @@ export const isCommitStampOf = (
 		return false;
 	}
 	const parsed = semver.parse(version);
-	const build = parsed?.build;
-	return build?.length === 1
+	if (!parsed) {
+		return false;
+	}
+	const { build } = parsed;
+	return build.length === 1
 		&& build[0]!.startsWith('sha-')
 		&& gitHead.startsWith(build[0]!.slice(4))
-		&& version.slice(0, version.indexOf('+')) === stamp.version.slice(0, stamp.version.indexOf('+'));
+		&& parsed.version === stamp.version.split('+')[0];
 };

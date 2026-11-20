@@ -57,7 +57,7 @@ For a private repository, the installing machine needs Git access to it (for Git
 | `Cannot publish packages with workspace dependencies` | A standalone package outside a workspace declares `workspace:` dependencies. Run from the workspace, or bundle them. |
 | `requires peer` or `in workspace range` | A packed peer range or explicit `workspace:` range does not match the target's version. Fix the range in the source manifest. |
 | `changed during packing` or `has unresolved` | A lifecycle hook rewrote an internal dependency, or the packed manifest still contains a `workspace:` value. Hooks may remove internal dependencies but not change or add them. |
-| `already has build metadata` or `A pack hook changed the version` | With `--stamp-commit`, the source version has `+...` build metadata, or a lifecycle hook rewrote the stamped version. Remove the build metadata or stop the hook from changing `version`. |
+| `not valid semver`, `already has build metadata`, or `A pack hook changed the version` | With `--stamp-commit`, the source version is not valid semver or has `+...` build metadata, or a lifecycle hook rewrote the stamped version. Fix the source `version` or stop the hook from changing it. |
 | `push URLs` | Every publication needs one push destination. Use separate remotes or `--remote <url>`, and run once per destination. |
 | `"files" lists paths that were not published` (warning) | The build did not run or the entry is wrong. Build before publishing or fix `files`. |
 

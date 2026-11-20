@@ -90,7 +90,7 @@ export const publishWorkspaceClosure = async ({
 					node.package.dir,
 					repositoryPath,
 					path.relative(repositoryPath, node.package.dir),
-					commitStamp?.version,
+					commitStamp,
 					signal,
 				);
 				setStatus('Preparing publication commit');
