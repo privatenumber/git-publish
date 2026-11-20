@@ -255,7 +255,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 			))) {
 				console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
 			}
-			console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl)}`);
+			console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl, argv.flags.json)}`);
 			if (jsonWriteError) {
 				console.error(`Publication succeeded, but could not write JSON file ${stringify(argv.flags.json)}: ${redactRemote(jsonWriteError.message)}. Publication details follow:`);
 				console.error(json.trimEnd());
