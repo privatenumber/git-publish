@@ -50,6 +50,8 @@ The stamp names the commit that was checked out and packed (HEAD), not the last 
 
 A HEAD stamp alone would change every package's `package.json` on every source commit. git-publish reuses the branch tip when the packed tree is unchanged, so every unchanged package would then get a new commit and a new install specifier on every publish. To keep reuse, the comparison with the tip ignores the stamp: if the tip is stamped and the new tree differs only in `version` and `gitHead`, git-publish keeps the tip, including its old stamp. The tip's stamp and commit message both name the earlier source commit, and that commit produced the same output.
 
+The comparison parses both `package.json` files and compares them as JSON, with the tip's `version` and `gitHead` put into the new manifest. So with `--stamp-commit`, a change that only reformats `package.json` also keeps the tip, while without the flag the byte difference creates a new commit. That is accepted, because consumers read the same JSON either way. A byte-exact comparison would need extra code to get the parent blob's exact bytes, since nano-spawn strips a trailing newline from output.
+
 A package whose build output contains its version gets a new commit on every source commit, because its output really changes.
 
 **Cost.** The rejected directory lookup was measured too. `git log -1 --format=%H HEAD -- <dir>` took 17 to 118 ms per package on clones with 8.6k commits and 80 packages, and with 22.6k commits and 33 packages. That is small next to packing, so cost was not the reason to reject it. The reuse check that git-publish runs instead reads one blob and diffs one tree per package.
