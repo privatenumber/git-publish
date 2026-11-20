@@ -87,10 +87,10 @@ By default, `git-publish` adds a commit to the existing branch. Lockfiles record
 - Package managers ignore build metadata when they compare versions, so the stamped version satisfies every range that the source version satisfies. A prerelease such as `1.2.3-a1b2c3d` would not: npm rejects it against a `^1.2.0` peer range.
 - When only the stamp would change, `git-publish` reuses the existing publication commit, and its stamp keeps naming the source commit it was published from. Reuse requires that:
   - All other files are identical, and no file mode changes, including the mode of `package.json`.
-  - `package.json` is identical when compared as parsed JSON with the stamp fields substituted. Formatting differences are ignored, but key order is not.
+  - `package.json` gives the same `JSON.stringify` output after its stamp fields are substituted. Formatting differences are ignored, but a change in the order of named keys is not.
   - The existing commit's stamp and its message name the same source commit.
 
-  A new publication commit is created only when a packed file actually changes. A build that writes the stamp into a packed file changes that file on every source commit.
+  Without `--fresh`, an unchanged package that meets these conditions keeps its publication commit. A build that writes the stamp into a packed file changes that file on every source commit.
 - The source version must parse as semver. node-semver normalizes forms such as `v1.2.3` to `1.2.3`. A version that does not parse, such as `1.2`, or that already has build metadata, such as `1.2.3+build.1`, is an error. So is a stamped version longer than node-semver's 256-character limit. A dry run reports the same error.
 
 ## JSON output

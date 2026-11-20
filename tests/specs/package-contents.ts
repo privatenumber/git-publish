@@ -844,7 +844,7 @@ describe('Package contents', async () => {
 			expect(await remote.git('show', ['npm/stamp-space:package.json '])).not.toBe(firstContent);
 		});
 
-		test('reads the parent message without signature output', async () => {
+		test('reads the parent message regardless of log display settings', async () => {
 			await using key = await createFixture();
 			await spawn('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key.getPath('key')]);
 			await using stamp = await createStampFixture({
@@ -860,6 +860,7 @@ describe('Package contents', async () => {
 			await fixture.git('config', ['user.signingkey', key.getPath('key.pub')]);
 			await fixture.git('config', ['commit.gpgSign', 'true']);
 			await fixture.git('config', ['log.showSignature', 'true']);
+			await fixture.git('config', ['i18n.logOutputEncoding', 'UTF-16LE']);
 			expect('exitCode' in await gitPublish(fixture.path, ['--stamp-commit'])).toBe(false);
 			const firstPublication = await remote.git('rev-parse', ['npm/stamp-signed']);
 

@@ -103,7 +103,7 @@ const canReuseParent = async (
 	if (!stampedCommit) {
 		return false;
 	}
-	const subject = await getStdout(spawnAbortable('git', ['log', '-1', '--no-show-signature', '--format=%s', parentCommit], gitOptions));
+	const subject = await getStdout(spawnAbortable('git', ['log', '-1', '--no-show-signature', '--encoding=UTF-8', '--format=%s', parentCommit], gitOptions));
 	return namesSourceCommit(subject, stampedCommit);
 };
 
