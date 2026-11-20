@@ -30,31 +30,38 @@ export const createCommitStamp = (
 	if (parsed.build.length > 0) {
 		throw new Error(`Package ${stringify(packageName)} has version ${stringify(version)}, which already has build metadata. Remove it to use --stamp-commit.`);
 	}
+	const stamped = `${parsed.version}+sha-${shortCommit}`;
+	// node-semver rejects versions longer than 256 characters.
+	// semver.valid() drops build metadata, so parse instead.
+	if (!semver.parse(stamped)) {
+		throw new Error(`Package ${stringify(packageName)} would get stamped version ${stringify(stamped)}, which is not valid semver. Versions can have at most 256 characters.`);
+	}
 	return {
-		version: `${parsed.version}+sha-${shortCommit}`,
+		version: stamped,
 		gitHead: commit,
 	};
 };
 
 /**
- * Whether a published version and gitHead form a commit stamp on the same
- * base version as `stamp`.
+ * The short source commit named by a well-formed commit stamp on the same
+ * base version as `stamp`, or undefined.
  */
-export const isCommitStampOf = (
+export const getStampedCommit = (
 	stamp: CommitStamp,
 	version: unknown,
 	gitHead: unknown,
 ) => {
 	if (typeof version !== 'string' || typeof gitHead !== 'string') {
-		return false;
+		return undefined;
 	}
 	const parsed = semver.parse(version);
-	if (!parsed) {
-		return false;
+	if (!parsed || parsed.build.length !== 1 || parsed.version !== stamp.version.split('+')[0]) {
+		return undefined;
 	}
-	const shortCommit = parsed.build.length === 1 && /^sha-([\da-f]{4,})$/.exec(parsed.build[0]!)?.[1];
-	return Boolean(shortCommit)
+	const shortCommit = /^sha-([\da-f]{4,})$/.exec(parsed.build[0]!)?.[1];
+	return shortCommit
 		&& /^(?:[\da-f]{40}|[\da-f]{64})$/.test(gitHead)
-		&& gitHead.startsWith(shortCommit as string)
-		&& parsed.version === stamp.version.split('+')[0];
+		&& gitHead.startsWith(shortCommit)
+		? shortCommit
+		: undefined;
 };

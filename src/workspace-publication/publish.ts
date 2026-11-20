@@ -7,7 +7,12 @@ import task from '../utils/task.ts';
 import { createPublishRepository } from '../publish-repository/create.ts';
 import { loadPublishBranches } from '../publish-repository/prepare-branch.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
-import { preparePackagePublication, type PackagePreparation, type PackagePublication } from '../package-publication/prepare.ts';
+import {
+	formatPublicationMessage,
+	preparePackagePublication,
+	type PackagePreparation,
+	type PackagePublication,
+} from '../package-publication/prepare.ts';
 import { readPackagePublicationPushTips, pushPackagePublications, type PackagePublicationPushMode } from '../package-publication/push.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
@@ -116,7 +121,11 @@ export const publishWorkspaceClosure = async ({
 					parent: existingBranches.has(node.branch) ? branches[index]!.localRef : undefined,
 					branch: node.branch,
 					fetchUrl: publishRemote.installUrl,
-					commitMessage: `Published ${plan.kind === 'standalone' ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(source.name)} (${source.shortCommit})`,
+					commitMessage: formatPublicationMessage(
+						plan.kind === 'standalone' ? undefined : node.key,
+						source.name,
+						source.shortCommit,
+					),
 					dependencyEdges: node.dependencies,
 					dependencyPublications,
 					validationContext: {

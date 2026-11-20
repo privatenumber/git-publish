@@ -8,7 +8,7 @@ import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/g
 import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { importTarball, type File } from './import-tarball.ts';
 import { validatePackedManifest, type PackedManifestValidationContext } from './validate.ts';
-import { isCommitStampOf, type CommitStamp } from './commit-stamp.ts';
+import { getStampedCommit, type CommitStamp } from './commit-stamp.ts';
 
 const { stringify } = JSON;
 
@@ -32,12 +32,21 @@ export type PackagePreparation = {
 
 export type PackagePublicationDependency = PublishGraphEdge;
 
+export const formatPublicationMessage = (
+	packageName: string | undefined,
+	sourceName: string,
+	shortCommit: string,
+) => `Published ${packageName === undefined ? '' : `${stringify(packageName)} `}from ${stringify(sourceName)} (${shortCommit})`;
+
+const namesSourceCommit = (subject: string, shortCommit: string) => (
+	subject.startsWith('Published ') && subject.endsWith(` (${shortCommit})`)
+);
+
 /**
- * Whether the new tree equals the parent tree except for the parent's commit stamp.
- * The parent's stamp names the source commit in the parent's own commit message,
- * so reusing the parent keeps an unchanged package's install specifier.
+ * The short commit named by the parent's stamp when the new tree equals the
+ * parent tree except for that stamp.
  */
-const isStampOnlyChange = async (
+const getStampOnlyChange = async (
 	parentTree: string,
 	newTree: string,
 	manifest: PackageJson,
@@ -48,7 +57,7 @@ const isStampOnlyChange = async (
 	const changed = await getStdout(spawnAbortable('git', ['diff-tree', '--raw', parentTree, newTree], gitOptions));
 	const entry = /^:(\d+) (\d+) \S+ \S+ M\tpackage\.json$/.exec(changed);
 	if (!entry || entry[1] !== entry[2]) {
-		return false;
+		return undefined;
 	}
 	const parentContent = await getStdout(spawnAbortable('git', ['cat-file', 'blob', `${parentTree}:package.json`], gitOptions));
 	let parentManifest: unknown;
@@ -56,18 +65,45 @@ const isStampOnlyChange = async (
 		parentManifest = JSON.parse(parentContent);
 	} catch {
 		// An unparseable parent manifest has no stamp to compare
-		return false;
+		return undefined;
 	}
 	if (typeof parentManifest !== 'object' || parentManifest === null || Array.isArray(parentManifest)) {
-		return false;
+		return undefined;
 	}
 	const { version, gitHead } = parentManifest as PackageJson;
-	return isCommitStampOf(stamp, version, gitHead)
-		&& stringify({
-			...manifest,
-			version,
-			gitHead,
-		}) === stringify(parentManifest);
+	const substituted = stringify({
+		...manifest,
+		version,
+		gitHead,
+	});
+	return substituted === stringify(parentManifest)
+		? getStampedCommit(stamp, version, gitHead)
+		: undefined;
+};
+
+/**
+ * Whether the parent publication can stand in for the new tree. With a stamp,
+ * the parent's stamp must name the source commit its own message names.
+ */
+const canReuseParent = async (
+	parentCommit: string,
+	parentTree: string,
+	newTree: string,
+	manifest: PackageJson,
+	stamp: CommitStamp | undefined,
+	gitOptions: SpawnOptions,
+) => {
+	if (!stamp) {
+		return newTree === parentTree;
+	}
+	const stampedCommit = newTree === parentTree
+		? getStampedCommit(stamp, stamp.version, stamp.gitHead)
+		: await getStampOnlyChange(parentTree, newTree, manifest, stamp, gitOptions);
+	if (!stampedCommit) {
+		return false;
+	}
+	const subject = await getStdout(spawnAbortable('git', ['log', '-1', '--format=%s', parentCommit], gitOptions));
+	return namesSourceCommit(subject, stampedCommit);
 };
 
 export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPackageManagerGitUrl(fetchUrl)}#${commit}`;
@@ -187,19 +223,11 @@ export const preparePackagePublication = async ({
 		? await getStdout(spawn('git', ['rev-parse', parent, `${parent}^{tree}`], gitOptions))
 		: '';
 	const [parentCommit, parentTree] = parentRevisions ? parentRevisions.split('\n') : [];
-	const reusedExistingCommit = parentTree !== undefined && (
-		newTree === parentTree
-		|| (commitStamp !== undefined && await isStampOnlyChange(
-			parentTree,
-			newTree,
-			packedManifest,
-			commitStamp,
-			{
-				...gitOptions,
-				signal,
-			},
-		))
-	);
+	const reusedExistingCommit = parentCommit !== undefined && parentTree !== undefined
+		&& await canReuseParent(parentCommit, parentTree, newTree, packedManifest, commitStamp, {
+			...gitOptions,
+			signal,
+		});
 	let commit: string;
 	if (parentCommit && reusedExistingCommit) {
 		commit = parentCommit;

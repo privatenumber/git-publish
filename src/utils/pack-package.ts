@@ -147,6 +147,7 @@ export const packPackage = async (
 		// Replace a tracked symlink so the write can't leave the checkout.
 		// Writing a regular file in place keeps its mode.
 		const manifestStat = await fs.lstat(manifestPath);
+		signal.throwIfAborted();
 		if (manifestStat.isSymbolicLink()) {
 			await fs.rm(manifestPath);
 		}

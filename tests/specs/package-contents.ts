@@ -8,6 +8,8 @@ import spawn from 'nano-spawn';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
+type GitFixture = Awaited<ReturnType<typeof createGitFixture>>;
+
 describe('Package contents', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
@@ -640,6 +642,22 @@ describe('Package contents', async () => {
 			expect(version).toBe(`1.0.0+sha-${shortCommit}`);
 		});
 
+		test('rejects a pnpm pack hook that changes the base version', async () => {
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					scripts: { prepack: 'node hook.cjs' },
+				}),
+				'hook.cjs': 'const fs = require("fs"); const p = require("./package.json"); p.version = "1.0.1"; fs.writeFileSync("package.json", JSON.stringify(p));',
+				'pnpm-lock.yaml': 'lockfileVersion: 9.0\n',
+			}, 'stamp-pnpm-hook');
+			const result = await gitPublish(stamp.fixture.path, ['--stamp-commit']);
+			expect('exitCode' in result).toBe(true);
+			expect(result.output).toContain('has packed version "1.0.1", but --stamp-commit set "1.0.0+sha-');
+			expect(await stamp.remote.git('for-each-ref')).toBe('');
+		});
+
 		test('stamps a versionless package as 0.0.0', async () => {
 			await using stamp = await createStampFixture({
 				'package.json': JSON.stringify({ name: 'app' }),
@@ -695,6 +713,84 @@ describe('Package contents', async () => {
 			const changedManifest = await expectStampMatchesMessage();
 			expect(changedManifest.gitHead).toBe(await fixture.git('rev-parse', ['HEAD']));
 		});
+
+		test('does not reuse a parent whose stamp differs from its message', async () => {
+			const foreignCommit = `abcdef1${'0'.repeat(33)}`;
+			await using stamp = await createStampFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+					scripts: { prepack: 'node hook.cjs' },
+				}),
+				// Copies provenance from elsewhere, and leaves an existing stamp alone
+				'hook.cjs': `const fs = require("fs"); const p = require("./package.json"); if (!p.version.includes("+")) { p.version = "1.0.0+sha-abcdef1"; p.gitHead = "${foreignCommit}"; fs.writeFileSync("package.json", JSON.stringify(p)); }`,
+			}, 'stamp-foreign');
+			const { fixture, remote } = stamp;
+			expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
+			const unstampedPublication = await remote.git('rev-parse', ['npm/stamp-foreign']);
+			const unstamped = await stamp.readManifest('npm/stamp-foreign');
+			expect(unstamped.gitHead).toBe(foreignCommit);
+
+			const result = await gitPublish(fixture.path, ['--stamp-commit']);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(await remote.git('rev-parse', ['npm/stamp-foreign^'])).toBe(unstampedPublication);
+			const commit = await fixture.git('rev-parse', ['HEAD']);
+			const shortCommit = await fixture.git('rev-parse', ['--short', 'HEAD']);
+			const manifest = await stamp.readManifest('npm/stamp-foreign');
+			expect(manifest.version).toBe(`1.0.0+sha-${shortCommit}`);
+			expect(manifest.gitHead).toBe(commit);
+		});
+
+		for (const [description, forge] of [
+			['an empty stamp', async (clone: GitFixture) => {
+				await clone.writeFile('package.json', JSON.stringify({
+					name: 'app',
+					version: '1.0.0+sha-',
+					gitHead: '',
+				}, null, 2));
+			}],
+			['a stamp whose gitHead does not match', async (clone: GitFixture) => {
+				const manifest = JSON.parse(await clone.readFile('package.json', 'utf8'));
+				manifest.gitHead = '0'.repeat(40);
+				await clone.writeFile('package.json', JSON.stringify(manifest, null, 2));
+			}],
+			['a null manifest', async (clone: GitFixture) => {
+				await clone.writeFile('package.json', 'null');
+			}],
+			['a package.json mode change', async (clone: GitFixture) => {
+				await fs.chmod(clone.getPath('package.json'), 0o755);
+			}],
+		] as const) {
+			test(`does not reuse a parent with ${description}`, async () => {
+				await using stamp = await createStampFixture({
+					'package.json': JSON.stringify({
+						name: 'app',
+						version: '1.0.0',
+					}),
+				}, 'stamp-forged');
+				const { fixture, remote } = stamp;
+				expect('exitCode' in await gitPublish(fixture.path, ['--stamp-commit'])).toBe(false);
+				const shortCommit = await fixture.git('rev-parse', ['--short', 'HEAD']);
+
+				// Commit the forged parent with a message git-publish would write
+				await using clone = await createGitFixture();
+				await clone.git('fetch', [remote.path, 'npm/stamp-forged']);
+				await clone.git('checkout', ['-B', 'forged', 'FETCH_HEAD']);
+				await forge(clone);
+				await clone.git('add', ['package.json']);
+				await clone.git('commit', ['-m', `Published from "stamp-forged" (${shortCommit})`]);
+				await clone.git('push', [remote.path, 'HEAD:npm/stamp-forged']);
+				const forged = await clone.git('rev-parse', ['HEAD']);
+
+				const result = await gitPublish(fixture.path, ['--stamp-commit']);
+				onTestFail(() => console.log(result.output));
+				expect('exitCode' in result).toBe(false);
+				expect(await remote.git('rev-parse', ['npm/stamp-forged^'])).toBe(forged);
+				const { version } = await stamp.readManifest('npm/stamp-forged');
+				expect(version).toBe(`1.0.0+sha-${shortCommit}`);
+			});
+		}
 
 		test('publishes a version bump as a new commit', async () => {
 			await using stamp = await createStampFixture({
@@ -760,11 +856,12 @@ describe('Package contents', async () => {
 			expect(await stamp.readManifest('npm/stamp-workspace-app')).toStrictEqual(app);
 		});
 
-		for (const [version, error] of [
-			['1.0.0+build.1', 'Package "app" has version "1.0.0+build.1", which already has build metadata.'],
-			['1.2', 'Package "app" has version "1.2", which is not valid semver.'],
+		for (const [description, version, error] of [
+			['build metadata', '1.0.0+build.1', 'Package "app" has version "1.0.0+build.1", which already has build metadata.'],
+			['an unparseable version', '1.2', 'Package "app" has version "1.2", which is not valid semver.'],
+			['a stamp over the length limit', `1.0.0-${'x'.repeat(240)}`, 'which is not valid semver. Versions can have at most 256 characters.'],
 		]) {
-			test(`rejects source version ${version}, including in a dry run`, async () => {
+			test(`rejects ${description}, including in a dry run`, async () => {
 				await using stamp = await createStampFixture({
 					'package.json': JSON.stringify({
 						name: 'app',
