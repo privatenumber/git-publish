@@ -1,6 +1,6 @@
 # Benchmarks
 
-`bench/index.ts` times the built CLI on a generated workspace and pushes to local bare repositories, so it needs no network. It runs Git and the package manager with a temporary home directory and an empty Git configuration, so your settings do not change the results. It needs the Node.js version in `.nvmrc`.
+`bench/index.ts` times the built CLI on a generated workspace and pushes to local bare repositories, so it needs no network. Its child processes inherit only `PATH` from your environment and use a temporary home directory with an empty Git configuration, so your Git, npm, and pnpm settings do not change the results. It needs the Node.js version in `.nvmrc`.
 
 ```sh
 pnpm bench
@@ -26,9 +26,9 @@ Select scenarios with `--scenario`, which can repeat. Only `republish` needs an 
 
 ## Reading the results
 
-Each scenario prints the median, minimum, and maximum wall time after one warmup run, and the median CPU time of the CLI process across its threads. CPU time excludes child processes such as Git and the package manager. When CLI CPU is a small fraction of wall time, the CLI's own JavaScript is not the bottleneck; finding where the remaining time goes needs a profile or per-command timings.
+Each scenario prints the median, minimum, and maximum wall time after one warmup run, and the median CPU time of the CLI process across its threads. CPU time excludes child processes such as Git and the package manager. CPU time does not show where the rest of the wall time goes; that needs a profile or per-command timings.
 
-Every publication run checks the CLI's `--json` result: it must publish exactly the expected packages, with new commits, or with reused commits for `republish`.
+Every run checks its result. `plan` must print exactly the expected packages, and the publication scenarios check the CLI's `--json` result: exactly the expected packages, with new commits, or with reused commits for `republish`.
 
 `--json <path>` writes the results with the Node.js version, platform, CPU count, and load average.
 

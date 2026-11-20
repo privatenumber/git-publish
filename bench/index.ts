@@ -64,10 +64,12 @@ for (const cliPath of cliPaths) {
 await using scratch = await createFixture({
 	'.gitconfig': '[user]\n\tname = bench\n\temail = bench@example.com\n[init]\n\tdefaultBranch = main\n',
 });
-// Isolates the fixture and the measured CLI from the user's Git configuration. HOME also
-// covers local push and fetch, which git-publish runs with GIT_CONFIG_GLOBAL unset.
+// Child processes inherit only PATH, so user settings such as npm_config_* or NODE_OPTIONS
+// cannot change the runs. HOME holds the Git configuration because git-publish runs local
+// push and fetch with GIT_CONFIG_GLOBAL unset.
 const environment: Record<string, string | undefined> = {
-	...Object.fromEntries(Object.keys(process.env).filter(key => key.startsWith('GIT_')).map(key => [key, undefined])),
+	...Object.fromEntries(Object.keys(process.env).map(key => [key, undefined])),
+	PATH: process.env.PATH,
 	HOME: scratch.path,
 	XDG_CONFIG_HOME: scratch.path,
 	GIT_CONFIG_GLOBAL: scratch.getPath('.gitconfig'),
@@ -120,7 +122,7 @@ const workspaceFiles: FileTree = {
 		createPackageFiles(name, dependencies),
 	])),
 };
-// git-publish detects pnpm from this file before any other marker
+// git-publish detects pnpm from this file before the markers of other package managers
 if (packageManager === 'pnpm') {
 	workspaceFiles['pnpm-workspace.yaml'] = 'packages:\n  - libs/*\n  - apps/*\n';
 }
@@ -151,23 +153,23 @@ type Result = {
 	}[];
 };
 
-// Runs the CLI once and, for a publication, checks that it published exactly the expected packages
+// Runs the CLI once and checks that it planned or published exactly the expected packages
 const runCli = async (
 	cliPath: string,
 	args: string[],
-	expected?: {
+	expected: {
 		names: string[];
-		reused: boolean;
+		check: 'planned' | 'published' | 'reused';
 	},
 ) => {
 	await fs.rm(resultFile, { force: true });
 	const start = performance.now();
-	await spawn(process.execPath, [
+	const { stdout } = await spawn(process.execPath, [
 		'--import',
 		path.join(import.meta.dirname, 'record-cpu.ts'),
 		cliPath,
 		...args,
-		...(expected ? ['--json', resultFile] : []),
+		...(expected.check === 'planned' ? [] : ['--json', resultFile]),
 	], {
 		cwd: workspace.path,
 		env: {
@@ -177,18 +179,23 @@ const runCli = async (
 	});
 	const wall = performance.now() - start;
 	const cpu = Number(await fs.readFile(cpuFile, 'utf8'));
-	if (expected) {
-		const result = JSON.parse(await fs.readFile(resultFile, 'utf8')) as Result;
-		const published = result.packages.map(item => item.name).sort().join(', ');
-		if (published !== expected.names.slice().sort().join(', ')) {
-			throw new Error(`${cliPath} published ${published}, expected ${expected.names.slice().sort().join(', ')}`);
-		}
-		const mismatched = result.packages
-			.filter(item => item.reused !== expected.reused)
-			.map(item => item.name);
-		if (mismatched.length > 0) {
-			throw new Error(`${cliPath} ${expected.reused ? 'created new commits for' : 'reused commits for'} ${mismatched.join(', ')}`);
-		}
+	// A dry run prints one "- <name> → <branch>" line per planned package
+	const packages = expected.check === 'planned'
+		? [...stdout.matchAll(/^- (\S+) → /gm)].map(match => ({
+			name: match[1]!,
+			reused: false,
+		}))
+		: (JSON.parse(await fs.readFile(resultFile, 'utf8')) as Result).packages;
+	const actualNames = packages.map(item => item.name).sort().join(', ');
+	const expectedNames = expected.names.slice().sort().join(', ');
+	if (actualNames !== expectedNames) {
+		throw new Error(`${cliPath} ${expected.check} ${actualNames || 'nothing'}, expected ${expectedNames}`);
+	}
+	const mismatched = packages
+		.filter(item => item.reused !== (expected.check === 'reused'))
+		.map(item => item.name);
+	if (mismatched.length > 0) {
+		throw new Error(`${cliPath} ${expected.check === 'reused' ? 'created new commits for' : 'reused commits for'} ${mismatched.join(', ')}`);
 	}
 	return {
 		wall,
@@ -213,7 +220,10 @@ const scenarios: {
 	{
 		name: 'plan',
 		description: 'Discover the workspace and plan every package (--dry)',
-		run: async ({ cliPath }) => runCli(cliPath, ['--dry', '--remote', await createRemote()]),
+		run: async ({ cliPath }) => runCli(cliPath, ['--dry', '--remote', await createRemote()], {
+			names: allPackages,
+			check: 'planned',
+		}),
 		published: 0,
 	},
 	{
@@ -221,7 +231,7 @@ const scenarios: {
 		description: 'First publish of every package to an empty remote',
 		run: async ({ cliPath }) => runCli(cliPath, ['--remote', await createRemote()], {
 			names: allPackages,
-			reused: false,
+			check: 'published',
 		}),
 		published: allPackages.length,
 	},
@@ -230,7 +240,7 @@ const scenarios: {
 		description: 'Publish every package again with no changes',
 		run: async ({ cliPath, populatedRemote }) => runCli(cliPath, ['--remote', populatedRemote!], {
 			names: allPackages,
-			reused: true,
+			check: 'reused',
 		}),
 		published: allPackages.length,
 	},
@@ -239,7 +249,7 @@ const scenarios: {
 		description: 'Publish one app and its libraries to an empty remote',
 		run: async ({ cliPath }) => runCli(cliPath, ['app-1', '--remote', await createRemote()], {
 			names: selectedPackages,
-			reused: false,
+			check: 'published',
 		}),
 		published: selectedPackages.length,
 	},
@@ -261,7 +271,7 @@ for (const cliPath of cliPaths) {
 		cli.populatedRemote = await createRemote();
 		await runCli(cliPath, ['--remote', cli.populatedRemote], {
 			names: allPackages,
-			reused: false,
+			check: 'published',
 		});
 	}
 	clis.push(cli);
