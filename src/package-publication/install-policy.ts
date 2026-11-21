@@ -6,23 +6,25 @@ export const getInstallPolicy = (
 	manifest: PackageJson,
 	packageManager: PackageManager,
 ) => {
-	const dependencies = {
-		...(packageManager === 'npm' && Object.fromEntries(
-			Object.entries(manifest.peerDependencies ?? {}).filter(([name]) => (
-				!manifest.peerDependenciesMeta?.[name]?.optional
-			)),
-		)),
+	const dependencies = Object.entries({
 		...manifest.dependencies,
 		...manifest.optionalDependencies,
-	};
+	});
 	const policy = {
-		git: false,
+		git: [] as [name: string, specifier: string][],
 		remote: false,
 	};
 	if (packageManager !== 'npm' && packageManager !== 'pnpm') {
 		return policy;
 	}
-	for (const [name, specifier] of Object.entries(dependencies)) {
+	if (packageManager === 'npm') {
+		for (const [name, specifier] of Object.entries(manifest.peerDependencies ?? {})) {
+			if (!manifest.peerDependenciesMeta?.[name]?.optional) {
+				dependencies.push([name, specifier]);
+			}
+		}
+	}
+	for (const [name, specifier] of dependencies) {
 		if (typeof specifier !== 'string') {
 			continue;
 		}
@@ -32,8 +34,10 @@ export const getInstallPolicy = (
 			: specifier;
 		try {
 			const { type } = npmPackageArg.resolve(name, spec);
-			if (type === 'git' || type === 'remote') {
-				policy[type] = true;
+			if (type === 'git') {
+				policy.git.push([name, specifier]);
+			} else if (type === 'remote') {
+				policy.remote = true;
 			}
 		} catch {
 			// This is install guidance, not validation of consumer dependency specs.

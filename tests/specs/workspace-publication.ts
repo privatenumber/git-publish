@@ -782,7 +782,7 @@ exec "${npmPath}" "$@"
 		return fixture;
 	};
 
-	test('batches history and selector-conflict lookups only on a shared remote without pushurl', async () => {
+	test('batches history and selector-conflict lookups when destination URLs match', async () => {
 		await using batchRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('batch', batchRemote.path);
 		const packagePath = fixture.getPath('packages/adapter');
@@ -821,6 +821,13 @@ exec '${gitPath}' "$@"
 
 		await fs.writeFile(callsPath, '');
 		await fixture.git('config', ['remote.origin.pushurl', batchRemote.path]);
+		const explicit = await gitPublish(packagePath, [], environment);
+		expect('exitCode' in explicit).toBe(false);
+		expect(await fs.readFile(callsPath, 'utf8')).toBe(batchedLog);
+
+		await fs.writeFile(callsPath, '');
+		// Same repository, but a different URL can have different Git rewrite rules.
+		await fixture.git('config', ['remote.origin.pushurl', pathToFileURL(batchRemote.path).href]);
 		const separate = await gitPublish(packagePath, [], environment);
 		expect('exitCode' in separate).toBe(false);
 		const separateLog = await fs.readFile(callsPath, 'utf8');
@@ -1898,6 +1905,7 @@ exec '${npmPath}' "$@"
 			'packages/a/package.json': JSON.stringify({
 				name: 'a',
 				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
 				peerDependencies: { core: '^1.0.0' },
 			}),
 			'packages/b/package.json': JSON.stringify({
@@ -1945,6 +1953,9 @@ exec '${npmPath}' "$@"
 		const manifest = JSON.parse(await setRemote.git('show', ['npm/sets-b:package.json']));
 		expect(core.installSpecifier).toBe(`${repository}#npm/sets-core`);
 		expect(manifest.dependencies.core).toBe(core.installSpecifier);
+		const runtimeAndPeer = JSON.parse(await setRemote.git('show', ['npm/sets-a:package.json']));
+		expect(runtimeAndPeer.dependencies.core).toBe(core.installSpecifier);
+		expect(runtimeAndPeer.peerDependencies.core).toBe('^1.0.0');
 		const cCommand = `npm install '${repository}#npm/sets-c' '${core.installSpecifier}'`;
 		expect(data.installSets).toStrictEqual({
 			a: {
@@ -1971,6 +1982,28 @@ exec '${npmPath}' "$@"
 		expect(result.stdout).toContain(`→ Install a\n  ${aCommand}\n  npm 12+: add --allow-git=root`);
 		expect(result.stdout).toContain(`→ Install b\n  ${bCommand}\n  npm 12+: add --allow-git=all`);
 		expect(result.stdout).toContain(`→ Install c\n  ${cCommand}\n  npm 12+: add --allow-git=all`);
+
+		// npm 12.2.2 expects the advertised HEAD to resolve, even with an explicit selector.
+		await setRemote.git('symbolic-ref', ['HEAD', 'refs/heads/npm/sets-core']);
+		const npmArguments = ['install', '--allow-git=root', '--no-audit', '--no-fund'];
+		await using directConsumer = await createFixture({ 'package.json': '{}' });
+		await using transitiveConsumer = await createFixture({ 'package.json': '{}' });
+		const [direct, transitive] = await Promise.allSettled([
+			spawn(npmPath, [...npmArguments, ...data.installSets.a!.installSpecifiers], {
+				cwd: directConsumer.path,
+			}),
+			spawn(npmPath, [...npmArguments, ...data.installSets.b!.installSpecifiers], {
+				cwd: transitiveConsumer.path,
+			}),
+		]);
+		onTestFail(() => console.log(direct, transitive));
+		expect(direct.status).toBe('fulfilled');
+		expect(await directConsumer.exists('node_modules/a/package.json')).toBe(true);
+		expect(await directConsumer.exists('node_modules/core/package.json')).toBe(true);
+		expect(transitive).toMatchObject({
+			status: 'rejected',
+			reason: { stderr: expect.stringContaining('EALLOWGIT') },
+		});
 	});
 
 	test('reports internal aliases in install sets and warns about npm policy', async () => {

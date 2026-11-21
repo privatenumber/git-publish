@@ -30,8 +30,7 @@ export const createPublishRepository = async ({
 }): Promise<PublishRepository> => {
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
 	const pushRemoteName = 'publish';
-	const shareRemote = !publishRemote.hasPushUrl
-		&& publishRemote.historyUrl === publishRemote.pushUrl;
+	const shareRemote = publishRemote.historyUrl === publishRemote.pushUrl;
 	const fetchRemoteName = shareRemote ? pushRemoteName : 'publish-source';
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');

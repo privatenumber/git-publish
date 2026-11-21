@@ -325,7 +325,7 @@ describe('Publication graph', () => {
 			reusedExistingCommit: false,
 			version: '1.0.0',
 			installPolicy: {
-				git: false,
+				git: [],
 				remote: false,
 			},
 			peerDependencies: {},
@@ -443,7 +443,7 @@ describe('Publication graph', () => {
 			reusedExistingCommit: false,
 			version: '1.0.0',
 			installPolicy: {
-				git: node.key === 'adapter',
+				git: node.key === 'adapter' ? [['external', 'git+https://example.test/external#main']] : [],
 				remote: node.key === 'adapter',
 			},
 			peerDependencies: {},
@@ -505,7 +505,7 @@ describe('Publication graph', () => {
 			reusedExistingCommit: false,
 			version: '1.0.0',
 			installPolicy: {
-				git: node.key === 'app',
+				git: node.key === 'app' ? [['external', 'git+https://example.test/external#main']] : [],
 				remote: false,
 			},
 			peerDependencies: {},

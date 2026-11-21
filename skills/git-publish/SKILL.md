@@ -45,7 +45,7 @@ Consumer settings the installing project needs:
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | Use `--allow-git=root` for direct Git installs and `--allow-git=all` if npm also installs Git runtime dependencies, optional dependencies, or required peers. Add `--allow-remote=all` if npm also installs dependencies or required peers from direct HTTP(S) tarball URLs. In `.npmrc`, omit `--`. |
+| npm 12+ | Use `--allow-git=root` for direct Git installs. Use `--allow-git=all` when npm fetches a Git dependency that the command does not list with the same specifier. Add `--allow-remote=all` if npm also installs dependencies or required peers from direct HTTP(S) tarball URLs. In `.npmrc`, omit `--`. |
 | pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when runtime or optional dependencies use Git or direct tarball URLs. Local `file:` dependencies do not need it. pnpm 12.21.0 also allows auto-installed required peers with Git or tarball URLs without changing the setting. |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Yarn needs `name@url` arguments, which the printed command uses. |
 | Bun | No Git dependency setting required |

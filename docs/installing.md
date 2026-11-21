@@ -16,7 +16,7 @@ For Yarn, the command uses `add` and includes the package name, which modern Yar
 yarn add 'my-package@https://github.com/owner/repo.git#npm/main'
 ```
 
-Install URLs use the bare branch name (`#<branch>`). Before packing, `git-publish` [validates rendered branch names](./cli.md#branches) and checks for conflicting refs, such as a same-named tag or a pull request ref that a package manager could resolve instead of the branch. Do not add conflicting refs after publication; the check cannot prevent someone from creating one later.
+Install URLs use the bare branch name (`#<branch>`). Before packing, `git-publish` [validates rendered branch names](./cli.md#branches) and checks for conflicting refs, such as a same-named tag or a pull request ref that a package manager could resolve instead of the branch. The check can miss unusual ref spellings and cannot prevent someone from adding a conflicting ref later.
 
 For a monorepo package, the command includes the selected package and any required internal peers. Package managers install runtime dependencies transitively from the branch URLs in the published manifests. They also attempt optional workspace dependencies, but may skip them, for example when a required peer is missing. Use the printed peer command to supply that peer when applicable. If a package appears both in the main command and as a runtime dependency, both use the same Git specifier.
 
@@ -28,7 +28,7 @@ Current package managers restrict Git dependencies by default. The consumer's pr
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | `--allow-git=root` for direct Git installs, or `--allow-git=all` if npm also installs Git runtime dependencies, optional dependencies, or required peers. Add `--allow-remote=all` if npm also installs dependencies or required peers from direct HTTP(S) tarball URLs. The same settings work in `.npmrc` without `--`. |
+| npm 12+ | Use `--allow-git=root` for direct Git installs. Use `--allow-git=all` when npm fetches a Git dependency that the command does not list with the same specifier. Add `--allow-remote=all` if npm also installs dependencies or required peers from direct HTTP(S) tarball URLs. The same settings work in `.npmrc` without `--`. |
 | pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when runtime or optional dependencies use Git or direct tarball URLs. Local `file:` dependencies do not require this setting. pnpm 12.21.0 also allows auto-installed required peers with these URLs without changing the setting. For one command: `pnpm add --config.block-exotic-subdeps=false <specifiers>` ([setting](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps)) |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install |
 | Bun | No Git dependency setting required |

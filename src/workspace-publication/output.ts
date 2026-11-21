@@ -23,7 +23,23 @@ export const createWorkspaceResult = (
 	const shorthand = singlePackage && !(packageManager === 'yarn' && preparations.get(singlePackage.key)!.publication.installSpecifier.startsWith('git+ssh://'))
 		? getGitHubInstallSpecifier(fetchUrl, singlePackage.branch)
 		: undefined;
-	const installPolicyNote = (...sets: ReadonlySet<string>[]) => {
+	const getInstallArguments = (targets: ReadonlyMap<string, string>) => {
+		const directSpecifiers = new Map<string, string>();
+		const args = [];
+		for (const [name, target] of targets) {
+			const specifier = shorthand ?? preparations.get(target)!.publication.installSpecifier;
+			directSpecifiers.set(name, specifier);
+			args.push(packageManager === 'yarn' || name !== target ? `${name}@${specifier}` : specifier);
+		}
+		return {
+			args,
+			directSpecifiers,
+		};
+	};
+	const installPolicyNote = (
+		directSpecifiers: ReadonlyMap<string, string>,
+		...sets: ReadonlySet<string>[]
+	) => {
 		if (packageManager === 'yarn') {
 			return 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml';
 		}
@@ -32,7 +48,9 @@ export const createWorkspaceResult = (
 		for (const names of sets) {
 			for (const name of names) {
 				const { installPolicy } = preparations.get(name)!;
-				git ||= installPolicy.git;
+				git ||= packageManager === 'npm'
+					? installPolicy.git.some(([key, specifier]) => directSpecifiers.get(key) !== specifier)
+					: installPolicy.git.length > 0;
 				remote ||= installPolicy.remote;
 			}
 		}
@@ -61,22 +79,16 @@ export const createWorkspaceResult = (
 				rootTargets.set(edge.key, edge.target);
 			}
 		}
-		const toSpecifiers = (targets: ReadonlyMap<string, string>) => (
-			[...targets].map(([name, target]) => {
-				const specifier = shorthand ?? preparations.get(target)!.publication.installSpecifier;
-				return packageManager === 'yarn' || name !== target ? `${name}@${specifier}` : specifier;
-			})
-		);
 		const command = all.size === 1 && packageManager !== 'yarn'
 			? `${packageManager} i`
 			: (packageManager === 'npm' ? 'npm install' : `${packageManager} add`);
-		const installSpecifiers = toSpecifiers(rootTargets);
+		const { args: installSpecifiers, directSpecifiers } = getInstallArguments(rootTargets);
 		const installCommand = `${command} ${installSpecifiers.map(shellQuote).join(' ')}`;
 		const peers = edges.filter(edge => (
 			(edge.kind === 'optionalPeer' || (edge.kind === 'peer' && !required.has(edge.from)))
 				&& installed.has(edge.from) && !rootTargets.has(edge.key)
 		));
-		const note = installPolicyNote(installed);
+		const note = installPolicyNote(directSpecifiers, installed);
 		const optionalDependencies = optional.filter(name => installed.has(name));
 		const notes = note ? [note] : [];
 		if (optionalDependencies.length > 0) {
@@ -94,8 +106,14 @@ export const createWorkspaceResult = (
 					}
 				}
 			}
-			notes.push(`Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}: install with ${command} ${toSpecifiers(optionalPeerTargets).map(shellQuote).join(' ')}`);
-			const peerPolicy = installPolicyNote(installed, peerPolicyClosure);
+			const followUp = getInstallArguments(optionalPeerTargets);
+			notes.push(`Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}: install with ${command} ${followUp.args.map(shellQuote).join(' ')}`);
+			// The follow-up runs after the main command, so both sets are direct dependencies.
+			const peerPolicy = installPolicyNote(
+				new Map([...directSpecifiers, ...followUp.directSpecifiers]),
+				installed,
+				peerPolicyClosure,
+			);
 			if (peerPolicy !== note) {
 				notes.push(`For optional peers: ${peerPolicy}`);
 			}

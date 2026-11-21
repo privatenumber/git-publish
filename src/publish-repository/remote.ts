@@ -8,7 +8,6 @@ export type PublishRemote = {
 	pushUrl: string;
 	installUrl: string;
 	historyUrl: string;
-	hasPushUrl: boolean;
 	configuredName?: string;
 };
 
@@ -104,7 +103,6 @@ export const getPublishRemote = async (
 		pushUrl: normalizeLocal(pushUrl),
 		installUrl: normalizeLocal(publicationUrls.installUrl),
 		historyUrl: normalizeLocal(publicationUrls.historyUrl),
-		hasPushUrl: configuredPushUrls.length > 0,
 		configuredName,
 	};
 };
