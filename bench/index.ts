@@ -194,32 +194,33 @@ const getRemoteHeads = async (remote: string) => {
 	}));
 };
 
-// Untimed: each package must have its own branch on the remote, pointing at the reported
-// commit, and a republish must leave the remote's branches exactly as they were. This catches
-// a build that skips or misreports pushes; the tests own what each branch contains.
+const diffHeads = (
+	a: Map<string, string>,
+	b: Map<string, string>,
+) => [...new Set([...a.keys(), ...b.keys()])].filter(branch => a.get(branch) !== b.get(branch));
+
+// Untimed: the remote's branches must be exactly the reported branches and commits, and a
+// republish must leave them as they were. This catches a build that skips pushes or pushes
+// branches it does not report. It trusts the reported package-to-branch mapping; the tests own
+// which package each branch holds and what it contains.
 const checkRemote = async (
 	cliPath: string,
 	remote: string,
 	result: Result,
 	previousHeads?: Map<string, string>,
 ) => {
-	const branches = new Set(result.packages.map(item => item.branch));
-	if (branches.size !== result.packages.length) {
-		throw new Error(`${cliPath} reported the same branch for more than one package`);
+	const reported = new Map(result.packages.map(item => [item.branch, item.commit]));
+	if (reported.size !== result.packages.length || result.packages.some(item => !item.commit)) {
+		throw new Error(`${cliPath} reported a missing commit or the same branch for more than one package`);
 	}
 	const heads = await getRemoteHeads(remote);
-	const unpushed = result.packages
-		.filter(item => !item.commit || heads.get(item.branch) !== item.commit)
-		.map(item => item.name);
-	if (unpushed.length > 0) {
-		throw new Error(`${cliPath} reported commits that the remote does not have for ${unpushed.join(', ')}`);
+	const unexpected = diffHeads(reported, heads);
+	if (unexpected.length > 0) {
+		throw new Error(`${cliPath} left remote branches that differ from its report: ${unexpected.join(', ')}`);
 	}
-	if (previousHeads) {
-		const moved = [...new Set([...previousHeads.keys(), ...heads.keys()])]
-			.filter(branch => previousHeads.get(branch) !== heads.get(branch));
-		if (moved.length > 0) {
-			throw new Error(`${cliPath} changed the remote branches ${moved.join(', ')} on an unchanged republish`);
-		}
+	const moved = previousHeads ? diffHeads(previousHeads, heads) : [];
+	if (moved.length > 0) {
+		throw new Error(`${cliPath} changed the remote branches ${moved.join(', ')} on an unchanged republish`);
 	}
 };
 
