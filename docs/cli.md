@@ -84,8 +84,8 @@ The added `version` build metadata and `gitHead` together are the version SHA.
 
 - `version` gets `+sha-<short commit>` semver build metadata. The short commit is the one the publication commit message names. A package without a `version` gets `0.0.0+sha-<short commit>`.
 - `gitHead`, the field npm uses for the commit a package was built from, gets the full source commit ID.
-- The version SHA, both `version` and `gitHead`, is written to `package.json` in the isolated checkout before packing. Lifecycle hooks and build scripts that run during packing can read it from `package.json` and `npm_package_version`. Files built before `git-publish` runs are not rewritten.
-- A hook must not change the version. With npm, Yarn, and Bun, `git-publish` rejects a packed version that differs from the version with its SHA. pnpm drops build metadata when it packs, so with pnpm `git-publish` can't detect a script that removes the version SHA.
+- The version SHA, both `version` and `gitHead`, is written to `package.json` in the isolated checkout before packing. Lifecycle hooks and build scripts that run during packing can read both fields from `package.json`, and the SHA-suffixed version from `npm_package_version`. Files built before `git-publish` runs are not rewritten.
+- A hook must not change the version. With npm, Yarn, and Bun, `git-publish` rejects a packed version that differs from the version with its SHA. pnpm drops build metadata when it packs, so with pnpm `git-publish` can't detect a script that removes the build metadata.
 - Package managers ignore build metadata when they compare versions, so the version with its SHA satisfies every range that the source version satisfies. A prerelease such as `1.2.3-a1b2c3d` would not: npm rejects it against a `^1.2.0` peer range.
 - When only the version SHA would change, `git-publish` reuses the existing publication commit, and its version SHA keeps naming the source commit it was published from. Reuse requires that:
   - All other files are identical, and no file mode changes, including the mode of `package.json`.
