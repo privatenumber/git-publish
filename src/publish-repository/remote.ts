@@ -37,7 +37,8 @@ const getLiteralPushUrl = async (url: string, options: SpawnOptions) => {
 			}
 		}
 	}
-	return pushUrl;
+	// Git drops an empty push alias instead of using it as a destination.
+	return pushUrl || undefined;
 };
 
 export const getPublishRemote = async (
@@ -90,6 +91,9 @@ export const getPublishRemote = async (
 		throw new Error(`${label} has invalid Git remote configuration.`);
 	});
 	const pushUrl = expandedPush ?? literalPush ?? expandedFetch;
+	if (!pushUrl || !expandedFetch) {
+		throw new Error(`${label} has invalid Git remote configuration.`);
+	}
 	// Keep consumer-facing aliases for ordinary insteadOf and explicit push URLs.
 	const installPushUrl = literalPush ?? (
 		expandedPush !== undefined && configuredPushUrls.length === 0 && expandedPush !== expandedFetch

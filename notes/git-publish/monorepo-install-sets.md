@@ -29,7 +29,7 @@ Current package managers block Git dependencies that are declared by another Git
 
 | Package manager | Default for a Git dependency of a Git dependency | Source |
 | --- | --- | --- |
-| npm 12 | Blocked unless `allow-git=all`. `allow-git=root` allows only direct Git dependencies. | [npm v12.0.0 release notes](https://github.com/npm/cli/releases/tag/v12.0.0): "allow-git and allow-remote now default to "none"; set them to "all" (or "root") to install git or user-supplied tarball-URL dependencies." |
+| npm 12 | Requires `allow-git=all` unless the install command directly lists the same dependency key and exact specifier. In that case, `allow-git=root` suffices. | [npm policy experiment](./branch-channel.md#install-policy-for-packed-dependencies) |
 | pnpm 11, 12 | Blocked by `blockExoticSubdeps`, which defaults to `true`; there is no per-repository allowlist | [`assertExoticSubdepAllowed` at v11.28.10](https://github.com/pnpm/pnpm/blob/v11.28.10/pnpm11/installing/deps-resolver/src/resolveDependency.ts#L150-L165); [setting docs](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps) (accessed 2026-11-07) |
 | Yarn 4 | Every Git repository is blocked, including direct ones, until it matches `approvedGitRepositories` (default `[]`) | [plugin-git at @yarnpkg/cli/4.18.1](https://github.com/yarnpkg/berry/blob/@yarnpkg/cli/4.18.1/packages/plugin-git/sources/index.ts#L36-L41) |
 | npm 11, pnpm 10, Yarn 1, Bun | Allowed | Observed |

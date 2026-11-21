@@ -8,12 +8,17 @@ import {
 	configurePublishTransport, type PublishRemote,
 } from './remote.ts';
 
+export type PublishEndpoint = {
+	name: string;
+	url: string;
+};
+
 export type PublishRepository = {
 	packWorktreePath: string;
 	packTemporaryDirectory: string;
 	gitOptions: SpawnOptions;
-	pushRemoteName: string;
-	fetchRemoteName: string;
+	history: PublishEndpoint;
+	push: PublishEndpoint;
 	dispose(): Promise<void>;
 };
 
@@ -29,9 +34,16 @@ export const createPublishRepository = async ({
 	signal: AbortSignal;
 }): Promise<PublishRepository> => {
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
-	const pushRemoteName = 'publish';
-	const shareRemote = publishRemote.historyUrl === publishRemote.pushUrl;
-	const fetchRemoteName = shareRemote ? pushRemoteName : 'publish-source';
+	const push: PublishEndpoint = {
+		name: 'publish',
+		url: publishRemote.pushUrl,
+	};
+	const history = publishRemote.historyUrl === push.url
+		? push
+		: {
+			name: 'publish-source',
+			url: publishRemote.historyUrl,
+		};
 	const transportConfigParameters = await getTransportConfigParameters(sourceRepositoryOptions);
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');
@@ -70,21 +82,21 @@ export const createPublishRepository = async ({
 	try {
 		// The isolated client can hold credentials copied from the source remote.
 		await fs.chmod(temporaryDirectory, 0o700);
-		await spawnAbortable('git', ['clone', '--origin', fetchRemoteName, '--shared', '--no-checkout', sourceRepositoryPath, publishRepositoryPath], {
+		await spawnAbortable('git', ['clone', '--origin', history.name, '--shared', '--no-checkout', sourceRepositoryPath, publishRepositoryPath], {
 			env: gitEnvironment,
 			signal,
 		});
-		await spawnAbortable('git', ['remote', 'set-url', fetchRemoteName, publishRemote.historyUrl], {
+		await spawnAbortable('git', ['remote', 'set-url', history.name, history.url], {
 			...gitOptions,
 			signal,
 		});
-		if (fetchRemoteName !== pushRemoteName) {
-			await spawnAbortable('git', ['remote', 'add', pushRemoteName, publishRemote.pushUrl], {
+		if (history !== push) {
+			await spawnAbortable('git', ['remote', 'add', push.name, push.url], {
 				...gitOptions,
 				signal,
 			});
 		}
-		await spawnAbortable('git', ['config', `remote.${pushRemoteName}.pushurl`, publishRemote.pushUrl], {
+		await spawnAbortable('git', ['config', `remote.${push.name}.pushurl`, push.url], {
 			...gitOptions,
 			signal,
 		});
@@ -92,16 +104,16 @@ export const createPublishRepository = async ({
 			sourceRepositoryOptions,
 			destinationRepositoryPath: publishRepositoryPath,
 			remote: publishRemote,
-			fetchRemoteName,
-			pushRemoteName,
+			fetchRemoteName: history.name,
+			pushRemoteName: push.name,
 			systemConfigPath: gitEnvironment.GIT_CONFIG_SYSTEM,
 			globalConfigPath: gitEnvironment.GIT_CONFIG_GLOBAL,
 		});
 		await configurePublishTransport({
 			gitOptions,
 			publishRemote,
-			fetchRemoteName,
-			pushRemoteName,
+			fetchRemoteName: history.name,
+			pushRemoteName: push.name,
 		});
 		await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], {
 			...gitOptions,
@@ -136,8 +148,8 @@ export const createPublishRepository = async ({
 		packWorktreePath,
 		packTemporaryDirectory,
 		gitOptions,
-		pushRemoteName,
-		fetchRemoteName,
+		history,
+		push,
 		dispose,
 	};
 };

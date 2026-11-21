@@ -543,6 +543,39 @@ describe('Remote transport', async () => {
 		expect(await upstream.git('for-each-ref')).toBe('');
 	});
 
+	for (const kind of ['named', 'literal']) {
+		test(`ignores an empty push-only rewrite for a ${kind} remote`, async () => {
+			await using destination = await createGitFixture(undefined, ['--bare']);
+			await using source = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'standalone',
+					version: '1.0.0',
+				}),
+			}, ['--initial-branch=source']);
+			await source.git('add', ['.']);
+			await source.git('commit', ['-m', 'Initial commit']);
+			await source.git('remote', ['add', 'origin', destination.path]);
+			await source.git('config', ['url..pushInsteadOf', destination.path]);
+
+			const remote = kind === 'named' ? 'origin' : destination.path;
+			const result = await gitPublish(source.path, ['--remote', remote]);
+			onTestFail(() => console.log(result));
+			expect('exitCode' in result).toBe(false);
+			expect(await source.git('for-each-ref', ['--format=%(refname)', 'refs/heads'])).toBe('refs/heads/source');
+			expect(await destination.git('for-each-ref', ['--format=%(refname)'])).toBe('refs/heads/npm/source');
+		});
+	}
+
+	test('rejects a named push URL rewritten to an empty string', async () => {
+		await using source = await createGitFixture();
+		await source.git('remote', ['add', 'origin', './fetch.git']);
+		await source.git('config', ['remote.origin.pushurl', './push.git']);
+		await source.git('config', ['url..insteadOf', './push.git']);
+		await expect(getPublishRemote(source.path, 'origin', true)).rejects.toThrow(
+			'Remote "origin" has invalid Git remote configuration.',
+		);
+	});
+
 	for (const [kind, rewriteScope] of [
 		['literal', 'global'],
 		['named', 'local'],

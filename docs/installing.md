@@ -20,6 +20,8 @@ Install URLs use the bare branch name (`#<branch>`). Before packing, `git-publis
 
 For a monorepo package, the command includes the selected package and any required internal peers. Package managers install runtime dependencies transitively from the branch URLs in the published manifests. They also attempt optional workspace dependencies, but may skip them, for example when a required peer is missing. Use the printed peer command to supply that peer when applicable. If a package appears both in the main command and as a runtime dependency, both use the same Git specifier.
 
+With Yarn Plug'n'Play and `pnpFallbackMode: none`, installing a peer at the root does not supply it through an intermediate package. If `a` depends on `b` and `b` needs peer `c`, declare `c` as a peer of `a` too so Yarn can pass the root's `c` through.
+
 Install URLs are derived from the selected push URL. git-publish resolves transport URLs in the source repository and does not rewrite them again during publication. A consumer with its own Git URL rewrites may resolve the printed URL to a different repository. For publications with internal dependencies, the command uses the same Git URL form as the manifest. Yarn also keeps explicit GitHub SSH URLs for single packages because it expands GitHub shorthand to HTTPS.
 
 ## Package manager settings
@@ -30,8 +32,10 @@ Current package managers restrict Git dependencies by default. The consumer's pr
 | --- | --- |
 | npm 12+ | Use `--allow-git=root` for direct Git installs. Use `--allow-git=all` when npm fetches a Git dependency that the command does not list with the same specifier. Add `--allow-remote=all` if npm also installs dependencies or required peers from direct HTTP(S) tarball URLs. The same settings work in `.npmrc` without `--`. |
 | pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when runtime or optional dependencies use Git or direct tarball URLs. Local `file:` dependencies do not require this setting. pnpm 12.21.0 also allows auto-installed required peers with these URLs without changing the setting. For one command: `pnpm add --config.block-exotic-subdeps=false <specifiers>` ([setting](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps)) |
-| Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install |
+| Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Local-file remotes do not work with Yarn 4.18.1: it rejects `git+file:` URLs even when approved. Use an HTTPS or SSH remote instead. |
 | Bun | No Git dependency setting required |
+
+For npm installs from a non-hosted remote, the remote's `HEAD` must point to an existing branch. A new bare remote that only receives publish branches may still point to an unborn default branch. Set `HEAD` on the server to an existing branch. See the [npm remote HEAD requirement](../notes/git-publish/remote-urls.md#npm-needs-the-remotes-head-to-resolve).
 
 ## Updating
 
