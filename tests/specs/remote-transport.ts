@@ -196,76 +196,66 @@ describe('Remote transport', async () => {
 			});
 	});
 
-	for (const mode of ['pushurl', 'pushInsteadOf', 'generic SSH'] as const) {
+	for (const mode of ['pushurl', 'relative pushInsteadOf', 'absolute pushInsteadOf', 'generic SSH'] as const) {
 		test(`checks tags at the push destination with ${mode}`, async () => {
-			await using mirror = await createGitFixture(undefined, ['--bare']);
-			await using destination = await createGitFixture(undefined, ['--bare']);
-			await using fixture = await createGitFixture({
-				'package.json': JSON.stringify({
-					name: 'app',
-					version: '1.0.0',
-				}),
-			}, ['--initial-branch=source']);
-			const destinationUrl = pathToFileURL(destination.path).href;
-			await fixture.git('add', ['.']);
-			await fixture.git('commit', ['-m', 'Initial commit']);
+			await using fixture = await createFixture({
+				'mirror.git': {},
+				'fork=preview.git': {},
+				source: {
+					'package.json': JSON.stringify({
+						name: 'app',
+						version: '1.0.0',
+					}),
+				},
+			});
+			const source = fixture.getPath('source');
+			const mirrorPath = fixture.getPath('mirror.git');
+			const pushPath = fixture.getPath('fork=preview.git');
+			const git = createGit(source);
+			const mirror = createGit(mirrorPath);
+			const destination = createGit(pushPath);
+			await Promise.all([
+				git.init(['--initial-branch=source']),
+				mirror.init(['--bare']),
+				destination.init(['--bare']),
+			]);
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
 			const tag = 'refs/tags/npm/source';
-			await fixture.git('update-ref', [tag, 'HEAD']);
-			await fixture.git('push', [destination.path, tag]);
+			await git('update-ref', [tag, 'HEAD']);
+			await git('push', [pushPath, tag]);
+			let installUrl = pathToFileURL(pushPath).href;
 			if (mode === 'generic SSH') {
 				const fetchUrl = 'ssh://git@example.test/remote';
 				const pushUrl = `${fetchUrl}.git`;
-				await fixture.git('remote', ['add', 'origin', fetchUrl]);
-				await fixture.git('config', ['remote.origin.pushurl', pushUrl]);
-				await fixture.git('config', [`url.${mirror.path}.insteadOf`, fetchUrl]);
-				await fixture.git('config', [`url.${destination.path}.insteadOf`, pushUrl]);
-				const remote = await getPublishRemote(fixture.path, 'origin', true);
-				expect(remote.historyUrl).toBe(pushUrl);
-				expect(remote.installUrl).toBe(pushUrl);
+				await git('remote', ['add', 'origin', fetchUrl]);
+				await git('config', ['remote.origin.pushurl', pushUrl]);
+				await git('config', [`url.${mirrorPath}.insteadOf`, fetchUrl]);
+				await git('config', [`url.${pushPath}.insteadOf`, pushUrl]);
+				installUrl = pushUrl;
 			} else {
-				await fixture.git('remote', ['add', 'origin', destinationUrl]);
-				await fixture.git('config', [`url.${mirror.path}.insteadOf`, destinationUrl]);
-				await fixture.git('config', mode === 'pushurl'
-					? ['remote.origin.pushurl', destination.path]
-					: [`url.${destination.path}.pushInsteadOf`, destinationUrl]);
+				const fetchUrl = mode === 'relative pushInsteadOf' ? '../mirror.git' : mirrorPath;
+				await git('remote', ['add', 'origin', fetchUrl]);
+				await git('config', mode === 'pushurl'
+					? ['remote.origin.pushurl', pushPath]
+					: [`url.${pushPath}.pushInsteadOf`, fetchUrl]);
 				if (mode === 'pushurl') {
-					await fixture.git('config', [`url.${mirror.path}.pushInsteadOf`, destination.path]);
-				} else {
-					await fixture.git('config', [`url.${mirror.path}.insteadOf`, destination.path]);
+					await git('config', [`url.${mirrorPath}.pushInsteadOf`, pushPath]);
 				}
 			}
 			for (const arguments_ of [[], ['--fresh']]) {
-				const result = await gitPublish(fixture.path, arguments_);
+				const result = await gitPublish(source, arguments_);
 				expect(result.output).toContain(`Remote tag "${tag}" conflicts with publish branch "npm/source"`);
 			}
-			expect(await destination.git('for-each-ref', ['--format=%(refname)'])).toBe(tag);
-			expect(await mirror.git('for-each-ref')).toBe('');
+			expect(await destination('for-each-ref', ['--format=%(refname)'])).toBe(tag);
+			await destination('update-ref', ['-d', tag]);
+			const result = await gitPublish(source);
+			expect('exitCode' in result).toBe(false);
+			expect(result.stdout).toContain(`git+${installUrl}#npm/source`);
+			expect(await destination('for-each-ref', ['--format=%(refname)'])).toBe('refs/heads/npm/source');
+			expect(await mirror('for-each-ref')).toBe('');
 		});
 	}
-
-	test('prints the configured URL and lets Git apply one global rewrite', async () => {
-		await using destination = await createGitFixture(undefined, ['--bare']);
-		await using other = await createGitFixture(undefined, ['--bare']);
-		await using fixture = await createGitFixture({
-			'package.json': JSON.stringify({
-				name: 'app',
-				version: '1.0.0',
-			}),
-		}, ['--initial-branch=source']);
-		await fixture.git('add', ['.']);
-		await fixture.git('commit', ['-m', 'Initial commit']);
-		const url = 'https://example.test/a.git';
-		await fixture.git('remote', ['add', 'origin', url]);
-		await using config = await createFixture();
-		const configPath = config.getPath('gitconfig');
-		await fixture.git('config', ['--file', configPath, `url.${destination.path}.insteadOf`, url]);
-		await fixture.git('config', ['--file', configPath, `url.${other.path}.insteadOf`, destination.path]);
-		const result = await gitPublish(fixture.path, [], { GIT_CONFIG_GLOBAL: configPath });
-		expect('exitCode' in result).toBe(false);
-		expect(result.stdout).toContain(`git+${url}#npm/source`);
-		expect(await destination.git('rev-parse', ['refs/heads/npm/source'])).toMatch(/^[0-9a-f]{40}$/);
-		expect(await other.git('for-each-ref')).toBe('');
-	});
 
 	test('publishes to an option-like configured remote name', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
@@ -480,6 +470,15 @@ describe('Remote transport', async () => {
 		await expect(result).rejects.toThrow('Selected remote has 2 push URLs.');
 		await expect(result).rejects.not.toThrow('secret');
 		await expect(result).rejects.not.toThrow('example.test');
+	});
+
+	test('redacts a URL-shaped remote name when its only destination is invalid', async () => {
+		await using fixture = await createGitFixture();
+		const name = 'https://user:secret@example.test/repo';
+		await fixture.git('config', [`remote.${name}.url`, 's3://user:other-secret@host/repo']);
+		const result = getPublishRemote(fixture.path, name, false);
+		await expect(result).rejects.toThrow('The remote URL uses a URL that package managers cannot install from.');
+		await expect(result).rejects.not.toThrow('secret');
 	});
 
 	test('loads standalone history from the push destination', async () => {

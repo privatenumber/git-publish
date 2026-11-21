@@ -16,8 +16,8 @@ export const parseGitConfig = (config: string, scope: GitConfigScope) => config.
 	const separatorIndex = entry.indexOf('\n');
 	return {
 		scope,
-		key: separatorIndex === -1 ? entry : entry.slice(0, separatorIndex),
-		value: separatorIndex === -1 ? 'true' : entry.slice(separatorIndex + 1),
+		key: entry.slice(0, separatorIndex),
+		value: entry.slice(separatorIndex + 1),
 	};
 });
 
@@ -94,11 +94,13 @@ export const materializePublishGitConfig = async ({
 	if (failedWrite) {
 		throw failedWrite.reason;
 	}
-	const remoteNames = new Set([fetchRemoteName, pushRemoteName]);
+	const remoteNames = fetchRemoteName === pushRemoteName
+		? [pushRemoteName]
+		: [fetchRemoteName, pushRemoteName];
 	const configPath = await getStdout(spawn('git', ['rev-parse', '--git-path', 'config'], { cwd: destinationRepositoryPath }));
 	await fs.appendFile(path.resolve(destinationRepositoryPath, configPath), [
 		...publishConfig.filter(({ scope }) => scope === 'local' || scope === 'worktree'),
-		...[...remoteNames].flatMap(remoteName => remoteConfig.map(entry => ({
+		...remoteNames.flatMap(remoteName => remoteConfig.map(entry => ({
 			...entry,
 			key: `remote.${remoteName}.${entry.key.slice(remoteConfigPrefix.length)}`,
 		}))),

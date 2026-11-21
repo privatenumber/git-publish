@@ -13,6 +13,30 @@ describe('Publish history', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('does not push a reachable annotated tag when push.followTags is enabled', async () => {
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=main']);
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', destination.path]);
+		await git('push', ['origin', 'HEAD:refs/heads/npm/main']);
+		await git('tag', ['-a', '--no-sign', 'npm/main', '-m', 'Conflicting tag']);
+		await git('config', ['push.followTags', 'true']);
+		await fixture.writeFile('index.js', 'export const version = 2;');
+		await git('add', ['index.js']);
+		await git('commit', ['-m', 'Update package']);
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result).toBe(false);
+		expect(await destination.git('for-each-ref', ['--format=%(refname)'])).toBe('refs/heads/npm/main');
+		expect(await destination.git('show', ['refs/heads/npm/main:index.js'])).toBe('export const version = 2;');
+	});
+
 	test('explains why a fresh standalone publication needs remote read access', async () => {
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({

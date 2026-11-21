@@ -14,12 +14,9 @@ export const loadPublishBranches = async (
 	mode: 'normal' | 'force' | 'lease',
 	signal: AbortSignal,
 ) => {
-	const {
-		gitOptions, fetchRemoteName, pushRemoteName, readConfig,
-	} = repository;
+	const { gitOptions, fetchRemoteName, pushRemoteName } = repository;
 	const listReferences = async (remoteName: string, url: string, kind: 'heads' | 'tags' | 'both') => {
 		const { stdout } = await spawnAbortable('git', [
-			...readConfig,
 			'ls-remote',
 			'--refs',
 			remoteName,
@@ -68,7 +65,7 @@ export const loadPublishBranches = async (
 		}
 	}
 	if (refspecs.length > 0) {
-		await spawnAbortable('git', [...readConfig, 'fetch', '--depth=1', '--no-tags', fetchRemoteName, ...refspecs], {
+		await spawnAbortable('git', ['fetch', '--depth=1', '--no-tags', fetchRemoteName, ...refspecs], {
 			...gitOptions,
 			signal,
 		});

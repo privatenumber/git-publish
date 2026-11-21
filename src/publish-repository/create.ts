@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,7 +14,6 @@ export type PublishRepository = {
 	gitOptions: SpawnOptions;
 	pushRemoteName: string;
 	fetchRemoteName: string;
-	readConfig: string[];
 	dispose(): Promise<void>;
 };
 
@@ -32,7 +30,9 @@ export const createPublishRepository = async ({
 }): Promise<PublishRepository> => {
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
 	const pushRemoteName = 'publish';
-	const fetchRemoteName = publishRemote.hasPushUrl ? 'publish-source' : pushRemoteName;
+	const shareRemote = !publishRemote.hasPushUrl
+		&& publishRemote.historyUrl === publishRemote.pushUrl;
+	const fetchRemoteName = shareRemote ? pushRemoteName : 'publish-source';
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');
 	const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
@@ -65,7 +65,6 @@ export const createPublishRepository = async ({
 		return disposal;
 	};
 
-	let readConfig: string[] = [];
 	try {
 		// The isolated client can hold credentials copied from the source remote.
 		await fs.chmod(temporaryDirectory, 0o700);
@@ -82,12 +81,12 @@ export const createPublishRepository = async ({
 				...gitOptions,
 				signal,
 			});
-			// An explicit pushurl uses insteadOf, not pushInsteadOf.
-			await spawnAbortable('git', ['config', `remote.${pushRemoteName}.pushurl`, publishRemote.pushUrl], {
-				...gitOptions,
-				signal,
-			});
 		}
+		// An explicit pushurl prevents Git from applying another push-only rewrite after the tag check.
+		await spawnAbortable('git', ['config', `remote.${pushRemoteName}.pushurl`, publishRemote.pushUrl], {
+			...gitOptions,
+			signal,
+		});
 		await materializePublishGitConfig({
 			sourceRepositoryOptions,
 			destinationRepositoryPath: publishRepositoryPath,
@@ -97,28 +96,6 @@ export const createPublishRepository = async ({
 			systemConfigPath: gitEnvironment.GIT_CONFIG_SYSTEM,
 			globalConfigPath: gitEnvironment.GIT_CONFIG_GLOBAL,
 		});
-		if (fetchRemoteName === pushRemoteName) {
-			const getUrl = (...flags: string[]) => spawnAbortable(
-				'git', ['remote', 'get-url', ...flags, pushRemoteName], {
-					...gitOptions,
-					signal,
-				},
-			).then(({ stdout }) => stdout);
-			const [fetchUrl, pushUrl] = await Promise.all([getUrl(), getUrl('--push')]);
-			if (fetchUrl !== pushUrl) {
-				// ls-remote and fetch cannot select pushInsteadOf. Read the push endpoint
-				// through a one-use alias so Git does not rewrite the resolved URL again.
-				const alias = `git-publish-${randomUUID()}:`;
-				readConfig = [
-					'-c',
-					`remote.${pushRemoteName}.url=`,
-					'-c',
-					`remote.${pushRemoteName}.url=${alias}`,
-					'-c',
-					`url.${pushUrl}.insteadOf=${alias}`,
-				];
-			}
-		}
 		await configurePublishTransport({
 			gitOptions,
 			publishRemote,
@@ -146,7 +123,6 @@ export const createPublishRepository = async ({
 		gitOptions,
 		pushRemoteName,
 		fetchRemoteName,
-		readConfig,
 		dispose,
 	};
 };

@@ -792,7 +792,7 @@ exec "${npmPath}" "$@"
 		const callsPath = fixture.getPath('git-calls');
 		await using commands = await createFixture({
 			git: `#!/bin/sh
-case "$1" in ls-remote|fetch) printf '%s\n' "$*" >> '${callsPath}';; esac
+case "$1" in ls-remote|fetch|push) printf '%s\n' "$*" >> '${callsPath}';; esac
 exec '${gitPath}' "$@"
 `,
 		});
@@ -810,8 +810,9 @@ exec '${gitPath}' "$@"
 		expect(batchedCalls[0]).toBe(
 			['ls-remote', '--refs', 'publish', ...heads.flatMap((head, index) => [head, tags[index]])].join(' '),
 		);
-		expect(batchedCalls).toHaveLength(2);
+		expect(batchedCalls).toHaveLength(3);
 		expect(batchedCalls[1]).toMatch(/^fetch .* publish /);
+		expect(batchedCalls[2]).toMatch(/^push .* --no-verify publish /);
 
 		await fs.writeFile(callsPath, '');
 		await fixture.git('config', ['remote.origin.pushurl', batchRemote.path]);
@@ -823,8 +824,9 @@ exec '${gitPath}' "$@"
 			['ls-remote', '--refs', 'publish-source', ...heads].join(' '),
 			['ls-remote', '--refs', 'publish', ...tags].join(' '),
 		]);
-		expect(separateCalls).toHaveLength(3);
+		expect(separateCalls).toHaveLength(4);
 		expect(separateCalls[2]).toMatch(/^fetch .* publish-source /);
+		expect(separateCalls[3]).toMatch(/^push .* --no-verify publish /);
 	});
 
 	test('rejects a remote tag on a transitive package branch before packing, except in dry runs', async () => {

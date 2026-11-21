@@ -24,7 +24,7 @@ export const pushPackagePublications = async ({
 	signal: AbortSignal;
 }): Promise<void> => {
 	const publications = [...input];
-	const args = ['push', ...(publications.length > 1 ? ['--atomic'] : [])];
+	const args = ['push', '--no-follow-tags', ...(publications.length > 1 ? ['--atomic'] : [])];
 	if (mode === 'force') {
 		args.push('--force');
 	} else if (mode === 'lease') {
