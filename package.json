@@ -29,6 +29,7 @@
 		"lint": "lintroll --cache",
 		"type-check": "tsc",
 		"test": "node tests/index.ts",
+		"bench": "pnpm build && node bench/index.ts",
 		"prepack": "pnpm build && clean-pkg-json"
 	},
 	"engines": {
