@@ -159,10 +159,14 @@ await spawn(packageManager, ['install'], workspaceOptions);
 await spawn('git', ['add', '.'], workspaceOptions);
 await spawn('git', ['commit', '-q', '-m', 'Initial commit'], workspaceOptions);
 
-// Outside any repository, so the caller's local Git configuration cannot apply
+// Stops Git from finding a repository above the scratch directory, such as one containing
+// TMPDIR, so the caller's local Git configuration cannot apply
 const gitOptions = {
 	cwd: scratch.path,
-	env: environment,
+	env: {
+		...environment,
+		GIT_CEILING_DIRECTORIES: path.dirname(scratch.path),
+	},
 };
 
 let remoteCount = 0;
@@ -191,7 +195,8 @@ const getRemoteHeads = async (remote: string) => {
 };
 
 // Untimed: each package must have its own branch on the remote, pointing at the reported
-// commit. A republish must also leave every branch at the tip it had before the run.
+// commit, and a republish must leave the remote's branches exactly as they were. This catches
+// a build that skips or misreports pushes; the tests own what each branch contains.
 const checkRemote = async (
 	cliPath: string,
 	remote: string,
@@ -209,11 +214,12 @@ const checkRemote = async (
 	if (unpushed.length > 0) {
 		throw new Error(`${cliPath} reported commits that the remote does not have for ${unpushed.join(', ')}`);
 	}
-	const moved = result.packages
-		.filter(item => previousHeads && previousHeads.get(item.branch) !== item.commit)
-		.map(item => item.name);
-	if (moved.length > 0) {
-		throw new Error(`${cliPath} moved the branches of ${moved.join(', ')} on an unchanged republish`);
+	if (previousHeads) {
+		const moved = [...new Set([...previousHeads.keys(), ...heads.keys()])]
+			.filter(branch => previousHeads.get(branch) !== heads.get(branch));
+		if (moved.length > 0) {
+			throw new Error(`${cliPath} changed the remote branches ${moved.join(', ')} on an unchanged republish`);
+		}
 	}
 };
 

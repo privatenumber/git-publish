@@ -28,7 +28,7 @@ Select scenarios with `--scenario`, which can repeat. Only `republish` needs an 
 
 Each scenario prints the median, minimum, and maximum wall time after one warmup run, and the median CPU time of the CLI process across its threads. CPU time excludes child processes such as Git and the package manager. CPU time does not show where the rest of the wall time goes; that needs a profile or per-command timings.
 
-Every run checks its result. `plan` must print exactly the expected packages, and the publication scenarios check the CLI's `--json` result: exactly the expected packages, with new commits, or with reused commits for `republish`. After the timer stops, each package must have its own branch on the remote, pointing at the reported commit, and a `republish` must leave every branch at the tip it had before the timed runs.
+Every run checks its result. `plan` must print exactly the expected packages, and the publication scenarios check the CLI's `--json` result: exactly the expected packages, with new commits, or with reused commits for `republish`. After the timer stops, each package must have its own branch on the remote, pointing at the reported commit, and a `republish` must leave the remote's branches exactly as they were. These checks catch a build that skips or misreports pushes. They do not check what each branch contains; the tests cover that.
 
 `--json <path>` writes the results with the Node.js version, platform, CPU count, and load average.
 
