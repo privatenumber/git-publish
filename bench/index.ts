@@ -170,6 +170,8 @@ const createRemote = async () => {
 type Result = {
 	packages: {
 		name: string;
+		branch: string;
+		commit: string;
 		reused: boolean;
 	}[];
 };
@@ -177,6 +179,7 @@ type Result = {
 // Runs the CLI once and checks that it planned or published exactly the expected packages
 const runCli = async (
 	cliPath: string,
+	remote: string,
 	args: string[],
 	expected: {
 		names: string[];
@@ -190,6 +193,8 @@ const runCli = async (
 		path.join(import.meta.dirname, 'record-cpu.ts'),
 		cliPath,
 		...args,
+		'--remote',
+		remote,
 		...(expected.check === 'planned' ? [] : ['--json', resultFile]),
 	], {
 		cwd: workspace.path,
@@ -218,6 +223,20 @@ const runCli = async (
 	if (mismatched.length > 0) {
 		throw new Error(`${cliPath} has the wrong reused flag for ${mismatched.join(', ')}, expected ${expected.check}`);
 	}
+	// Untimed: the reported commits must be what the remote's branches point at
+	if (result) {
+		const { stdout: heads } = await spawn('git', ['ls-remote', '--heads', remote], { env: environment });
+		const remoteCommits = new Map(heads.split('\n').filter(Boolean).map((line) => {
+			const [commit, ref] = line.split('\t');
+			return [ref!.slice('refs/heads/'.length), commit!];
+		}));
+		const unpushed = result.packages
+			.filter(item => remoteCommits.get(item.branch) !== item.commit)
+			.map(item => item.name);
+		if (unpushed.length > 0) {
+			throw new Error(`${cliPath} reported commits that the remote does not have for ${unpushed.join(', ')}`);
+		}
+	}
 	return {
 		wall,
 		cpu,
@@ -235,35 +254,40 @@ const selectedPackages = ['app-1', ...apps.get('app-1')!];
 const scenarios: {
 	name: string;
 	description: string;
-	getArguments: (cli: Cli) => Promise<string[]>;
+	getRemote: (cli: Cli) => Promise<string>;
+	args: string[];
 	names: string[];
 	check: 'planned' | 'published' | 'reused';
 }[] = [
 	{
 		name: 'plan',
 		description: 'Discover the workspace and plan every package (--dry)',
-		getArguments: async () => ['--dry', '--remote', await createRemote()],
+		getRemote: createRemote,
+		args: ['--dry'],
 		names: allPackages,
 		check: 'planned',
 	},
 	{
 		name: 'publish',
 		description: 'First publish of every package to an empty remote',
-		getArguments: async () => ['--remote', await createRemote()],
+		getRemote: createRemote,
+		args: [],
 		names: allPackages,
 		check: 'published',
 	},
 	{
 		name: 'republish',
 		description: 'Publish every package again with no changes',
-		getArguments: async ({ populatedRemote }) => ['--remote', populatedRemote!],
+		getRemote: async ({ populatedRemote }) => populatedRemote!,
+		args: [],
 		names: allPackages,
 		check: 'reused',
 	},
 	{
 		name: 'select',
 		description: 'Publish one app and its libraries to an empty remote',
-		getArguments: async () => ['app-1', '--remote', await createRemote()],
+		getRemote: createRemote,
+		args: ['app-1'],
 		names: selectedPackages,
 		check: 'published',
 	},
@@ -283,7 +307,7 @@ for (const cliPath of cliPaths) {
 	// A remote per CLI keeps republish a no-change run even if builds pack differently
 	if (selectedNames.includes('republish')) {
 		build.populatedRemote = await createRemote();
-		await runCli(cliPath, ['--remote', build.populatedRemote], {
+		await runCli(cliPath, build.populatedRemote, [], {
 			names: allPackages,
 			check: 'published',
 		});
@@ -303,7 +327,8 @@ for (const scenario of scenarios.filter(({ name }) => selectedNames.includes(nam
 		// Rotate the order every round so no build always runs first
 		for (let offset = 0; offset < builds.length; offset += 1) {
 			const build = builds[(round + offset) % builds.length]!;
-			const sample = await runCli(build.cliPath, await scenario.getArguments(build), scenario);
+			const remote = await scenario.getRemote(build);
+			const sample = await runCli(build.cliPath, remote, scenario.args, scenario);
 			if (round > 0) {
 				samples.get(build)!.push(sample);
 			}
