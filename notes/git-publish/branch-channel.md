@@ -32,7 +32,7 @@ Nested dependency `core` declared by `app` with each selector. Each cell is "no 
 
 No tested selector is both accepted by all four managers and unambiguous. The bare name is accepted by all four, so git-publish uses it and checks the remote for tags with publish branch names before packing. A dry run reads local remote config without contacting the remote and does not perform this check. The check cannot stop a tag created after the lookup, so the docs tell users not to create tags with publish branch names. In the npm collision fixture, `npm ci` installed branch content that differed from the commit in the lockfile.
 
-**Tag lookup destination.** Compare effective fetch and push URLs, not raw config. The [transport regression](../../tests/specs/remote-transport.ts) configures a `file://` fetch URL and plain-path push URL that name the same repository before `insteadOf` redirects only the fetch URL. The tag at the push destination must block normal and fresh publication. [Git expands URL rewrites in `remote get-url`](https://github.com/git/git/blob/v2.54.0/Documentation/git-remote.adoc?plain=1#L135-L144). Git 2.54.0 applies prefixes once; when `a` rewrites to `b` and `b` would rewrite to `c`, a lookup for `a` returns `b`. The isolated publish repository uses the effective URLs without copying the rewrite rules.
+The tag check reads the [push destination](./remote-urls.md#push-destination-identity), even when Git reads branch history elsewhere.
 
 ### Rendered branch validation
 

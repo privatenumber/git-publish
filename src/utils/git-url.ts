@@ -64,11 +64,13 @@ export const parseRepository = (value: string, directory: string) => {
 	if (!host) {
 		return { identity: `file:${path.resolve(directory, value)}` };
 	}
-	const rawPath = parsed.path.replace(/\/+$/, '').replace(/\.git$/, '');
+	const hostIsHosted = hostedGitHosts.has(host);
+	const trimmedPath = parsed.path.replace(/\/+$/, '');
+	const rawPath = hostIsHosted ? trimmedPath.replace(/\.git$/, '') : trimmedPath;
 	const pathname = kind === 'scp'
 		? scpPath(rawPath, host)
 		: rawPath;
-	const user = (kind === 'scp' || kind === 'ssh') && !hostedGitHosts.has(host)
+	const user = (kind === 'scp' || kind === 'ssh') && !hostIsHosted
 		? `${parsed.user}@`
 		: '';
 	return {

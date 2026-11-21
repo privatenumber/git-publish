@@ -20,7 +20,7 @@ Install URLs use the bare branch name (`#<branch>`). `git-publish` [validates re
 
 For a monorepo package, the command includes the selected package and any required internal peers. Package managers install runtime dependencies transitively from the branch URLs in the published manifests. They also attempt optional workspace dependencies, but may skip them, for example when a required peer is missing. Use the printed peer command to supply that peer when applicable. If a package appears both in the main command and as a runtime dependency, both use the same Git specifier.
 
-Install URLs name the repository that receives the push after Git applies URL rewrites. When a remote fetches from an upstream repository and pushes to your fork, the install URLs point at the fork. For publications with internal dependencies, the command uses the same Git URL form as the manifest. Yarn also keeps explicit GitHub SSH URLs for single packages because it expands GitHub shorthand to HTTPS.
+Install URLs use the configured destination, without applying the publisher's Git URL rewrites. If you publish to a fork using `pushurl`, the install URLs point at the fork. For publications with internal dependencies, the command uses the same Git URL form as the manifest. Yarn also keeps explicit GitHub SSH URLs for single packages because it expands GitHub shorthand to HTTPS.
 
 ## Package manager settings
 

@@ -782,30 +782,49 @@ exec "${npmPath}" "$@"
 		return fixture;
 	};
 
-	test('batches remote branch and tag lookups when history follows the effective push destination', async () => {
+	test('batches history and tag lookups only on a shared remote without pushurl', async () => {
 		await using batchRemote = await createGitFixture(undefined, ['--bare']);
-		await using mirror = await createGitFixture(undefined, ['--bare']);
-		const fetchUrl = pathToFileURL(batchRemote.path).href;
-		await using fixture = await createChainWorkspace('batch', fetchUrl);
-		await fixture.git('config', ['remote.origin.pushurl', batchRemote.path]);
-		await fixture.git('config', [`url.${mirror.path}.insteadOf`, fetchUrl]);
+		await using fixture = await createChainWorkspace('batch', batchRemote.path);
 		const packagePath = fixture.getPath('packages/adapter');
 		const first = await gitPublish(packagePath);
 		expect('exitCode' in first).toBe(false);
 		const gitPath = path.resolve(await which('git'));
+		const callsPath = fixture.getPath('git-calls');
 		await using commands = await createFixture({
 			git: `#!/bin/sh
-case "$1" in ls-remote|fetch) printf '%s\n' "$1" >> '${fixture.getPath('git-calls')}';; esac
+case "$1" in ls-remote|fetch) printf '%s\n' "$*" >> '${callsPath}';; esac
 exec '${gitPath}' "$@"
 `,
 		});
 		await fs.chmod(commands.getPath('git'), 0o755);
-		const result = await gitPublish(packagePath, [], {
+		const environment = {
 			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
-		});
-		expect('exitCode' in result).toBe(false);
-		const calls = await fixture.readFile('git-calls', 'utf8');
-		expect(calls.trim().split('\n')).toStrictEqual(['ls-remote', 'fetch']);
+		};
+		const branches = ['core', 'broker', 'adapter'].map(name => `npm/batch-@test/${name}`);
+		const heads = branches.map(branch => `refs/heads/${branch}`);
+		const tags = branches.map(branch => `refs/tags/${branch}`);
+		const batched = await gitPublish(packagePath, [], environment);
+		expect('exitCode' in batched).toBe(false);
+		const batchedLog = await fs.readFile(callsPath, 'utf8');
+		const batchedCalls = batchedLog.trim().split('\n');
+		expect(batchedCalls[0]).toBe(
+			['ls-remote', '--refs', 'publish', ...heads.flatMap((head, index) => [head, tags[index]])].join(' '),
+		);
+		expect(batchedCalls).toHaveLength(2);
+		expect(batchedCalls[1]).toMatch(/^fetch .* publish /);
+
+		await fs.writeFile(callsPath, '');
+		await fixture.git('config', ['remote.origin.pushurl', batchRemote.path]);
+		const separate = await gitPublish(packagePath, [], environment);
+		expect('exitCode' in separate).toBe(false);
+		const separateLog = await fs.readFile(callsPath, 'utf8');
+		const separateCalls = separateLog.trim().split('\n');
+		expect(separateCalls.slice(0, 2)).toStrictEqual([
+			['ls-remote', '--refs', 'publish-source', ...heads].join(' '),
+			['ls-remote', '--refs', 'publish', ...tags].join(' '),
+		]);
+		expect(separateCalls).toHaveLength(3);
+		expect(separateCalls[2]).toMatch(/^fetch .* publish-source /);
 	});
 
 	test('rejects a remote tag on a transitive package branch before packing, except in dry runs', async () => {
@@ -904,13 +923,11 @@ exec "${npmPath}" "$@"
 		}
 	});
 
-	test('publishes and reloads a workspace closure from the effective push destination', async () => {
+	test('publishes and reloads a workspace closure from the push destination', async () => {
 		await using upstream = await createGitFixture(undefined, ['--bare']);
 		await using destination = await createGitFixture(undefined, ['--bare']);
-		const fetchUrl = pathToFileURL(destination.path).href;
-		await using fixture = await createChainWorkspace('triangular', fetchUrl);
+		await using fixture = await createChainWorkspace('triangular', upstream.path);
 		await fixture.git('config', ['remote.origin.pushurl', destination.path]);
-		await fixture.git('config', [`url.${upstream.path}.insteadOf`, fetchUrl]);
 		await using output = await createFixture();
 		const args = ['--json', output.getPath('result.json')];
 		const first = await gitPublish(fixture.getPath('packages/adapter'), args);

@@ -14,12 +14,14 @@ export const loadPublishBranches = async (
 	mode: 'normal' | 'force' | 'lease',
 	signal: AbortSignal,
 ) => {
-	const { gitOptions, fetchRemoteName, pushRemoteName } = repository;
+	const {
+		gitOptions, fetchRemoteName, pushRemoteName, readConfig,
+	} = repository;
 	const listReferences = async (remoteName: string, url: string, kind: 'heads' | 'tags' | 'both') => {
 		const { stdout } = await spawnAbortable('git', [
+			...readConfig,
 			'ls-remote',
 			'--refs',
-			...(kind === 'tags' ? ['--tags'] : []),
 			remoteName,
 			...branches.flatMap(({ publishBranch }) => [
 				...(kind === 'tags' ? [] : [`refs/heads/${publishBranch}`]),
@@ -43,7 +45,7 @@ export const loadPublishBranches = async (
 		}
 		return references;
 	};
-	const separateTagLookup = mode === 'normal' && !remote.sameHistoryRepository;
+	const separateTagLookup = mode === 'normal' && fetchRemoteName !== pushRemoteName;
 	const references = mode === 'normal'
 		? await listReferences(fetchRemoteName, remote.historyUrl, separateTagLookup ? 'heads' : 'both')
 		: await listReferences(pushRemoteName, remote.pushUrl, mode === 'lease' ? 'both' : 'tags');
@@ -66,7 +68,7 @@ export const loadPublishBranches = async (
 		}
 	}
 	if (refspecs.length > 0) {
-		await spawnAbortable('git', ['fetch', '--depth=1', '--no-tags', fetchRemoteName, ...refspecs], {
+		await spawnAbortable('git', [...readConfig, 'fetch', '--depth=1', '--no-tags', fetchRemoteName, ...refspecs], {
 			...gitOptions,
 			signal,
 		});
