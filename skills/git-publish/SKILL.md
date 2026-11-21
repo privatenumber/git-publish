@@ -21,7 +21,9 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 | Record the source commit in each published `package.json` (`version` gets `+sha-<commit>`, `gitHead` the full commit) | `npx git-publish --version-sha` |
 | Get machine-readable results, such as for a PR comment | `npx git-publish --json result.json` |
 
-`--fresh` rewrites the published branch, and an existing lockfile pinned to an old commit can stop installing once that commit is garbage-collected. Use it only when the user asks for it.
+`--fresh` rewrites the published branch, and an existing lockfile pinned to an old commit can stop installing once that commit is garbage-collected. Use it only when the user asks for it. Publishing requires read access to the destination refs for the tag check, even with `--fresh`.
+
+Choose a rendered Git branch using ASCII letters, digits, and `. _ / @ -`. Do not start it with `refs/`, `heads/`, `tags/`, or `remotes/`, use `HEAD` in any case, or use a bare name of 7 to 64 hexadecimal digits. If the default name fails, use `--branch 'preview/{package}'` or `--branch 'preview/{gitSha}/{package}'`.
 
 ## Monorepos
 
@@ -35,7 +37,7 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 
 After a push, git-publish prints the install command for the repository's package manager. Use it as printed:
 
-- Install the selected package and its required internal peers with the printed command. Runtime dependencies install transitively. Arguments and manifests use the same bare branch refs, such as `npm i 'owner/repo#npm/main'`.
+- Install the selected package and its required internal peers with the printed command. Runtime dependencies install transitively. The package manager may skip optional workspace dependencies. Use the printed peer command to supply a missing peer when applicable. Arguments and manifests use the same bare branch refs, such as `npm i 'owner/repo#npm/main'`.
 - Treat publish branches like a prerelease dist-tag. The lockfile pins commits. To move the whole channel forward, update every channel package by name, including transitive ones (`npm update app core`, `pnpm update app core`, `bun update app core`, or `yarn up -R app core`). Updating only the selected package can leave dependencies behind.
 - When migrating from a commit-pinned publication, use the new commands to replace direct commit pins before updating. Do not create tags with publish branch names. Package managers can resolve those tags instead of the branches.
 
@@ -43,8 +45,8 @@ Consumer settings the installing project needs:
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | `--allow-git=all` on the install command (or `allow-git=all` in `.npmrc`) when the package has internal Git runtime dependencies. If all Git dependencies are direct, use `--allow-git=root` or `allow-git=root` instead. |
-| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when the package has internal Git runtime dependencies |
+| npm 12+ | `--allow-git=all` on the install command (or `allow-git=all` in `.npmrc`) when the package has Git runtime or optional dependencies. If all Git dependencies are direct, use `--allow-git=root` or `allow-git=root` instead. |
+| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when the package has Git runtime or optional dependencies |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Yarn needs `name@url` arguments, which the printed command uses. |
 | Bun | No Git dependency setting required |
 

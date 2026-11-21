@@ -15,6 +15,29 @@ describe('Package managers', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('reports Git policy for external dependencies in a packed standalone manifest', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+				optionalDependencies: { external: 'git+https://example.test/external.git#main' },
+			}),
+		}, ['--initial-branch=external-git']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		const npm = await gitPublish(fixture.path);
+		expect('exitCode' in npm).toBe(false);
+		expect(npm.stdout).toContain('npm 12+: add --allow-git=all');
+
+		await fixture.writeFile('pnpm-lock.yaml', '');
+		await fixture.git('add', ['pnpm-lock.yaml']);
+		await fixture.git('commit', ['-m', 'Use pnpm']);
+		const pnpm = await gitPublish(fixture.path);
+		expect('exitCode' in pnpm).toBe(false);
+		expect(pnpm.stdout).toContain('pnpm 11+: set blockExoticSubdeps: false');
+	});
+
 	describe('bun', () => {
 		test('catalog protocol is resolved', async () => {
 			const branchName = 'test-bun-catalog';
@@ -97,7 +120,7 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 			['yarn', 'yarn.lock', 'yarn add', '@org/test-pkg@git+ssh://git@github.com/owner/repository.git#', true],
 		] as const) {
 			test(`prints the ${packageManager} install command${ssh ? ' over SSH' : ''}`, async () => {
-				const branchName = `test-${packageManager}-install-command${ssh ? '+&=%' : ''}`;
+				const branchName = `test-${packageManager}-install-command${ssh ? '-ssh/preview_1.0' : ''}`;
 				const specifier = `${specifierPrefix}npm/${branchName}`;
 				const remoteUrl = ssh ? 'git@github.com:owner/repository.git' : 'https://github.com/owner/repository.git';
 				await using fixture = await createGitFixture({

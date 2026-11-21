@@ -32,7 +32,34 @@ Nested dependency `core` declared by `app` with each selector. Each cell is "no 
 
 No tested selector is both accepted by all four managers and unambiguous. The bare name is accepted by all four, so git-publish uses it and checks the remote for tags with publish branch names before packing. A dry run reads local remote config without contacting the remote and does not perform this check. The check cannot stop a tag created after the lookup, so the docs tell users not to create tags with publish branch names. In the npm collision fixture, `npm ci` installed branch content that differed from the commit in the lockfile.
 
-Bare selectors are portable for the tested ordinary branch names, not for every valid Git ref. With a direct dependency in `package.json`, pnpm 12.21.0 failed to install `#npm/a&b`, and Bun 1.4.4 failed to install `#npm/a#b`, both over `git+file:`. `npm/a+b`, `npm/a=b`, and `npm/a%b` worked in all four tested managers. Avoid `&` and `#` in custom publish branch names.
+### Rendered branch validation
+
+These fixtures installed `app`, whose manifest used the selector below for `core`. `Branch` means the installed content and the lockfile both matched the intended branch tip. The Git repositories and package-manager versions match [the experiment below](#experiment). The qualified-name cases included a competing ref.
+
+| Bare selector | npm | pnpm | Yarn | Bun |
+| --- | --- | --- | --- | --- |
+| `npm/feature/a-@scope/core_1.2`, `npm/a@b` | Branch | Branch | Branch | Branch |
+| `npm/a&b` | Branch | Error | Branch | Branch |
+| `npm/a#b` | Branch | Branch | Branch | Error |
+| `npm/a+b`, `npm/a=b`, `npm/a'b`, `npm/a,b` | Branch | Branch | Branch | Branch |
+| `npm/a%b` | Branch | Branch | Error | Branch |
+| `npm/a%2Fb` | Branch | Other branch | Branch | Branch |
+| `npm/aé` | Error | Branch | Branch | Branch |
+| `refs/tags/core` | Tag | Tag | Branch | Tag |
+| `tags/core` | Branch | Tag | Branch | Tag |
+| `heads/core`, `refs/heads/core` | Branch | Other branch | Branch | Other branch |
+| `HEAD` | Default branch | Default branch | Default branch | Default branch |
+| `head`, `HeAd` | Branch | Branch | Branch | Default branch |
+| 3 to 6 lowercase hex digits | Branch | Branch | Branch | Branch |
+| 7, 8, 12, 32, or 39 lowercase hex digits | Branch | Error | Branch | Branch |
+| 40 lowercase hex digits, no object with that ID | Error | Error | Error | Error |
+| 40 uppercase hex digits, no object with that ID | Branch | Branch | Branch | Error |
+| 63 or 64 lowercase hex digits | Error | Branch | Branch | Branch |
+| 65 lowercase hex digits, or `npm/` followed by 40 lowercase hex digits | Branch | Branch | Branch | Branch |
+
+In a separate fixture, Bun accepted a 40-hex branch named after an existing Git object, recorded the branch name instead of its resolved tip in the lockfile, then advanced the dependency on a cold frozen install. The all-hex errors above used names that were not object IDs.
+
+Planning now checks every rendered name, including in `--dry`. Allow ASCII letters, digits, and `. _ / @ -` so default branches for scoped packages still work. Do not allow `refs/`, `heads/`, `tags/`, or `remotes/` at the start (`remotes/` is another Git ref namespace). Reject `HEAD` in any case and whole names of 7 to 64 hexadecimal digits, case-insensitively. pnpm starts interpreting hex as a commit at seven digits; npm's [Pacote hash matcher at v12.2.3](https://github.com/npm/cli/blob/v12.2.3/node_modules/pacote/lib/git.js#L13) covers 40 to 64, and Bun also interprets uppercase 40-hex names as commits. Git branch validation still applies. The allowlist deliberately omits punctuation outside common branch and package names even when a tested spelling worked.
 
 Upstream selector behavior, at the inspected versions:
 

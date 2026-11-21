@@ -13,6 +13,26 @@ describe('Publish history', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('explains why a fresh standalone publication needs remote read access', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=standalone-unreadable']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		const url = 'ssh://git@example.test/repo.git';
+		await fixture.git('remote', ['add', 'origin', url]);
+		const result = await gitPublish(fixture.path, ['--fresh'], {
+			GIT_SSH_COMMAND: "sh -c 'echo upload-pack-denied >&2; exit 1' --",
+			GIT_SSH_VARIANT: 'simple',
+		});
+		expect('exitCode' in result && result.exitCode).toBe(1);
+		expect(result.output).toContain(`git-publish must list refs on "${url}" to check for tags with publish branch names`);
+		expect(result.output).toContain('upload-pack-denied');
+	});
+
 	test('rejects a same-named remote tag on a fresh standalone publication', async () => {
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({

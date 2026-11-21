@@ -16,9 +16,9 @@ For Yarn, the command uses `add` and includes the package name, which modern Yar
 yarn add 'my-package@https://github.com/owner/repo.git#npm/main'
 ```
 
-Install URLs use the bare branch name (`#<branch>`). Avoid `&` and `#` in custom publish branch names: Git accepts them, but some package managers fail to resolve them. Do not create tags with the same name as a publish branch. Package managers can resolve the tag instead of the branch. `git-publish` checks for existing tags before packing, but cannot prevent someone from adding one later.
+Install URLs use the bare branch name (`#<branch>`). `git-publish` [validates rendered branch names](./cli.md#branches) before packing. Do not create tags with the same name as a publish branch. Package managers can resolve the tag instead of the branch. `git-publish` checks for existing tags before packing, but cannot prevent someone from adding one later.
 
-For a monorepo package, the command includes the selected package and any required internal peers. Internal runtime dependencies, including optional ones, install transitively from the branch URLs in the published manifests. If a package appears both in the command and as a runtime dependency, both use the same Git specifier.
+For a monorepo package, the command includes the selected package and any required internal peers. Package managers install runtime dependencies transitively from the branch URLs in the published manifests. They also attempt optional workspace dependencies, but may skip them, for example when a required peer is missing. Use the printed peer command to supply that peer when applicable. If a package appears both in the main command and as a runtime dependency, both use the same Git specifier.
 
 Install URLs name the repository that receives the push. When a remote fetches from an upstream repository and pushes to your fork, the install URLs point at the fork. For publications with internal dependencies, the command uses the same Git URL form as the manifest. Yarn also keeps explicit GitHub SSH URLs for single packages because it expands GitHub shorthand to HTTPS.
 
@@ -28,8 +28,8 @@ Current package managers restrict Git dependencies by default. The consumer's pr
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | `--allow-git=all` on the install command (or `allow-git=all` in `.npmrc`) when the package has internal Git runtime dependencies. If all Git dependencies are direct, use `--allow-git=root` or `allow-git=root` instead. |
-| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when the package has internal Git runtime dependencies. For one command: `pnpm add --config.block-exotic-subdeps=false <specifiers>` ([setting](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps)) |
+| npm 12+ | `--allow-git=all` on the install command (or `allow-git=all` in `.npmrc`) when the package has Git runtime or optional dependencies. If all Git dependencies are direct, use `--allow-git=root` or `allow-git=root` instead. |
+| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when the package has Git runtime or optional dependencies. For one command: `pnpm add --config.block-exotic-subdeps=false <specifiers>` ([setting](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps)) |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install |
 | Bun | No Git dependency setting required |
 

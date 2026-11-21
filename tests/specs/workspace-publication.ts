@@ -2021,7 +2021,7 @@ exec '${npmPath}' "$@"
 		expect(json.installSets.app!.optional).toStrictEqual(['optional']);
 		const optional = json.packages.find(item => item.name === 'optional')!;
 		expect(result.stdout).not.toContain(optional.installSpecifier);
-		expect(result.stdout).toContain('Optional workspace dependencies optional install transitively');
+		expect(result.stdout).toContain('Optional workspace dependencies optional are attempted transitively and may be skipped by the package manager');
 		const manifest = JSON.parse(await remote.git('show', ['npm/optional-app:package.json']));
 		expect(manifest.optionalDependencies.optional).toBe(optional.installSpecifier);
 	});
@@ -2342,6 +2342,11 @@ exec '${npmPath}' "$@"
 				title: 'rejects invalid rendered workspace branches before creating refs',
 				template: 'preview/invalid..{package}',
 				error: 'Invalid publish branch "preview/invalid..@test/core".',
+			},
+			{
+				title: 'rejects qualified bare selectors for every planned workspace branch',
+				template: 'refs/tags/{package}',
+				error: 'Invalid publish branch "refs/tags/@test/core".',
 			},
 		]) {
 		test(title, async () => {

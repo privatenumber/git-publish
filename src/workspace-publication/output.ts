@@ -17,7 +17,9 @@ export const createWorkspaceResult = (
 	const { edges, edgesBySource, reachable } = createInstallGraph(plan);
 	type Edge = (typeof edges)[number];
 	const isRequired = (edge: Edge) => edge.kind === 'dependency' || edge.kind === 'peer';
-	const runtimeEdges = edges.filter(edge => edge.kind === 'dependency' || edge.kind === 'optional');
+	const hasGitSubdependencies = (names: ReadonlySet<string>) => (
+		[...names].some(name => preparations.get(name)!.hasGitSubdependencies)
+	);
 	const orderedNames = plan.nodes.map(node => node.key);
 	const branchSpecifiers = new Map(plan.nodes.map(({ key, branch }) => {
 		const { installSpecifier } = preparations.get(key)!.publication;
@@ -26,14 +28,14 @@ export const createWorkspaceResult = (
 			&& !(packageManager === 'yarn' && installSpecifier.startsWith('git+ssh://'));
 		return [key, (useShorthand && getGitHubInstallSpecifier(fetchUrl, branch)) || installSpecifier];
 	}));
-	const gitPolicyNote = (hasRuntimeDependencies: boolean) => {
+	const gitPolicyNote = (hasGitDependencies: boolean) => {
 		if (packageManager === 'yarn') {
 			return 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml';
 		}
 		if (packageManager === 'npm') {
-			return `npm 12+: add --allow-git=${hasRuntimeDependencies ? 'all' : 'root'}`;
+			return `npm 12+: add --allow-git=${hasGitDependencies ? 'all' : 'root'}`;
 		}
-		if (packageManager === 'pnpm' && hasRuntimeDependencies) {
+		if (packageManager === 'pnpm' && hasGitDependencies) {
 			return 'pnpm 11+: set blockExoticSubdeps: false in pnpm-workspace.yaml';
 		}
 		return '';
@@ -66,25 +68,25 @@ export const createWorkspaceResult = (
 			: (packageManager === 'npm' ? 'npm install' : `${packageManager} add`);
 		const installSpecifiers = toSpecifiers(rootTargets);
 		const installCommand = `${command} ${installSpecifiers.map(shellQuote).join(' ')}`;
-		const hasRuntimeDependencies = runtimeEdges.some(edge => installed.has(edge.from));
+		const hasGitDependencies = hasGitSubdependencies(installed);
 		const peers = edges.filter(edge => (
 			(edge.kind === 'optionalPeer' || (edge.kind === 'peer' && !required.has(edge.from)))
 				&& installed.has(edge.from) && !rootTargets.has(edge.key)
 		));
 		const optionalPeerTargets = new Map(peers.map(peer => [peer.key, peer.target]));
-		const peerClosure = reachable(optionalPeerTargets.values(), edge => (
+		const peerPolicyClosure = reachable(optionalPeerTargets.values(), edge => (
 			edge.kind !== 'optionalPeer'
 		));
-		for (const name of peerClosure) {
+		for (const name of reachable(optionalPeerTargets.values(), isRequired)) {
 			for (const edge of edgesBySource.get(name)!) {
 				if (edge.kind === 'peer' && !rootTargets.has(edge.key)) {
 					optionalPeerTargets.set(edge.key, edge.target);
 				}
 			}
 		}
-		const note = gitPolicyNote(hasRuntimeDependencies);
+		const note = gitPolicyNote(hasGitDependencies);
 		const peerPolicy = gitPolicyNote(
-			hasRuntimeDependencies || runtimeEdges.some(edge => peerClosure.has(edge.from)),
+			hasGitDependencies || hasGitSubdependencies(peerPolicyClosure),
 		);
 		const optionalDependencies = optional.filter(name => installed.has(name));
 		return [root, {
@@ -100,7 +102,7 @@ export const createWorkspaceResult = (
 			notes: [
 				note,
 				optionalDependencies.length > 0
-					? `Optional workspace dependencies ${optionalDependencies.join(', ')} install transitively`
+					? `Optional workspace dependencies ${optionalDependencies.join(', ')} are attempted transitively and may be skipped by the package manager.${peers.length > 0 ? ' If a required peer is missing, use the peer command below to supply it.' : ''}`
 					: '',
 				peers.length > 0
 					? `Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}: install with ${command} ${toSpecifiers(optionalPeerTargets).map(shellQuote).join(' ')}`

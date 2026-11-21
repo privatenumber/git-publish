@@ -324,6 +324,7 @@ describe('Publication graph', () => {
 			unpublishedFilesFieldEntries: [],
 			reusedExistingCommit: false,
 			version: '1.0.0',
+			hasGitSubdependencies: false,
 			peerDependencies: {},
 			dependencies: [],
 			peers: [],
@@ -401,9 +402,19 @@ describe('Publication graph', () => {
 				name: 'adapter',
 				version: '1.0.0',
 				peerDependencies: { core: 'workspace:*' },
+				optionalDependencies: { extra: 'workspace:*' },
 			},
 			core: {
 				name: 'core',
+				version: '1.0.0',
+			},
+			extra: {
+				name: 'extra',
+				version: '1.0.0',
+				peerDependencies: { platform: 'workspace:*' },
+			},
+			platform: {
+				name: 'platform',
 				version: '1.0.0',
 			},
 		});
@@ -428,6 +439,7 @@ describe('Publication graph', () => {
 			unpublishedFilesFieldEntries: [],
 			reusedExistingCommit: false,
 			version: '1.0.0',
+			hasGitSubdependencies: node.key === 'adapter',
 			peerDependencies: {},
 			dependencies: [],
 			peers: [],
@@ -442,6 +454,8 @@ describe('Publication graph', () => {
 		}, preparations, 'main', 'abc', 'npm', 'https://example.test/repo');
 		const output = formatWorkspaceResult(result);
 		expect(output).toContain("Optional peers adapter: install with npm install 'git+https://example.test/repo#npm/adapter' 'git+https://example.test/repo#npm/core'");
+		expect(output).not.toContain('#npm/platform');
+		expect(output).toContain('For optional peers: npm 12+: add --allow-git=all');
 		expect(output).not.toContain('Optional workspace dependencies core install transitively');
 	});
 
@@ -484,6 +498,7 @@ describe('Publication graph', () => {
 			unpublishedFilesFieldEntries: [],
 			reusedExistingCommit: false,
 			version: '1.0.0',
+			hasGitSubdependencies: node.key === 'app',
 			peerDependencies: {},
 			dependencies: [],
 			peers: [],
@@ -499,7 +514,7 @@ describe('Publication graph', () => {
 				peers: graph.peers,
 			}, preparations, 'main', 'abc', 'npm', 'https://example.test/repo');
 			const output = formatWorkspaceResult(result);
-			expect(output).toContain('Optional workspace dependencies b install transitively');
+			expect(output).toContain('Optional workspace dependencies b are attempted transitively and may be skipped by the package manager. If a required peer is missing, use the peer command below to supply it.');
 			expect(output).toContain("Optional peers c: install with npm install 'git+https://example.test/repo#npm/c'");
 		}
 	});

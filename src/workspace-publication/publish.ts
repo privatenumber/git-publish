@@ -60,7 +60,7 @@ export const publishWorkspaceClosure = async ({
 			localRef: `refs/git-publish/tips/${index}`,
 		}));
 		const { existingBranches, remoteTips } = await loadPublishBranches(
-			repository, branches, pushMode, signal,
+			repository, publishRemote, branches, pushMode, signal,
 		);
 		const preparations = new Map<string, PackagePreparation>();
 		const targetsByName = new Map(plan.nodes.map(node => [node.key, node.package]));

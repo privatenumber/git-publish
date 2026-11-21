@@ -4,7 +4,7 @@ import spawn from 'nano-spawn';
 import micromatch from 'micromatch';
 import yaml from 'js-yaml';
 import type { PackageJson } from '@npmcli/package-json';
-import { renderPackageBranch } from '../package-publication/branch.ts';
+import { renderPackageBranch, validatePublishBranch } from '../package-publication/branch.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getStdout } from '../utils/get-stdout.ts';
 import {
@@ -97,11 +97,7 @@ export const planStandalonePublication = async ({
 			packageName: name,
 		})
 		: `npm/${sourceName}${path.relative(gitRootPath, cwd) ? `-${name}` : ''}`;
-	try {
-		await getStdout(spawn('git', ['check-ref-format', '--branch', branch]));
-	} catch {
-		throw new Error(`Invalid publish branch ${JSON.stringify(branch)}.`);
-	}
+	await validatePublishBranch(branch);
 	return {
 		kind: 'standalone',
 		roots: [name],
@@ -363,11 +359,7 @@ export const planWorkspacePublication = async ({
 			gitSha: sourceCommitId,
 			packageName: node.key,
 		});
-		try {
-			await getStdout(spawn('git', ['check-ref-format', '--branch', branch]));
-		} catch {
-			throw new Error(`Invalid publish branch ${JSON.stringify(branch)}.`);
-		}
+		await validatePublishBranch(branch);
 		const otherPackage = packagesByBranch.get(branch);
 		if (otherPackage) {
 			throw new Error(`Workspace branch template ${JSON.stringify(branchTemplate)} renders ${JSON.stringify(branch)} for both ${JSON.stringify(otherPackage)} and ${JSON.stringify(node.key)}. Include {package} to publish each package to a unique branch.`);
