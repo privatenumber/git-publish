@@ -1,6 +1,6 @@
 # Branches as a prerelease channel
 
-**Decision (Sun Nov 22 2026).** git-publish publishes a prerelease channel, in the same way that an npm dist-tag such as `beta` is a channel. Published manifests reference internal workspace dependencies by their moving publish branch, such as `git+ssh://git@github.com/o/r.git#npm/core`, and never by commit. Printed install commands use the same branch references. The consumer's lockfile pins commits. git-publish refuses to publish when the remote has a tag with the same name as a publish branch.
+**Decision (Sun Nov 22 2026).** git-publish publishes a prerelease channel, in the same way that an npm dist-tag such as `beta` is a channel. Published manifests reference internal workspace dependencies by their moving publish branch, such as `git+ssh://git@github.com/o/r.git#npm/core`, and never by commit. Printed install commands use the same branch references. The consumer's lockfile pins commits. git-publish refuses to publish when a ref on the destination can conflict with a bare branch selector.
 
 This replaces the commit-pinned design in [Monorepo install sets](./monorepo-install-sets.md), where each dependent's manifest pinned its internal dependencies to the commits published with it.
 
@@ -30,9 +30,9 @@ Nested dependency `core` declared by `app` with each selector. Each cell is "no 
 | Yarn 4.18.1 | Branch → tag | Rejected | Branch → branch |
 | Bun 1.4.4 | Branch → tag | Branch → branch | Rejected |
 
-No tested selector is both accepted by all four managers and unambiguous. The bare name is accepted by all four, so git-publish uses it and checks the remote for tags with publish branch names before packing. A dry run reads local remote config without contacting the remote and does not perform this check. The check cannot stop a tag created after the lookup, so the docs tell users not to create tags with publish branch names. In the npm collision fixture, `npm ci` installed branch content that differed from the commit in the lockfile.
+No tested selector is both accepted by all four managers and unambiguous. The bare name is accepted by all four, so git-publish uses it and checks for conflicting refs before packing. A dry run reads local remote config without contacting the remote and does not perform this check. The check cannot stop a conflicting ref created after the lookup. In the npm tag collision fixture, `npm ci` installed branch content that differed from the commit in the lockfile.
 
-The tag check reads the [push destination](./remote-urls.md#push-destination-identity), even when Git reads branch history elsewhere.
+The conflict check reads the [push destination](./remote-urls.md#push-destination-identity), even when Git reads branch history elsewhere.
 
 ### Rendered branch validation
 
@@ -71,12 +71,20 @@ To reproduce the warm-cache `FETCH_HEAD` result, run `bun install --cache-dir <s
 
 Planning checks every rendered name, including in `--dry`. Allow ASCII letters, digits, and `. _ / @ -` so default branches for scoped packages still work. Do not allow `refs/`, `heads/`, `tags/`, or `remotes/` at the start (`remotes/` is another Git ref namespace). Reject bare `@`, `HEAD` in any case, top-level names made only of uppercase letters and underscores, and whole names of 7 to 64 hexadecimal digits, case-insensitively. [Git treats `@` as `HEAD`](https://github.com/git/git/blob/v2.54.0/Documentation/revisions.adoc?plain=1#L86-L87) and [looks at top-level ref files before branch names](https://github.com/git/git/blob/v2.54.0/Documentation/revisions.adoc?plain=1#L26-L47). pnpm starts interpreting hex as a commit at seven digits; npm's [Pacote hash matcher at v12.2.3](https://github.com/npm/cli/blob/v12.2.3/node_modules/pacote/lib/git.js#L13) covers 40 to 64, and Bun also interprets uppercase 40-hex names as commits. Git branch validation still applies. The allowlist deliberately omits punctuation outside common branch and package names even when a tested spelling worked.
 
-Upstream selector behavior, at the inspected versions:
+### Remote refs that can conflict
 
-- npm: a bare name takes the last advertised ref with that short name ([lines-to-revs.js at v12.2.3](https://github.com/npm/cli/blob/v12.2.3/node_modules/@npmcli/git/lib/lines-to-revs.js#L100-L135)).
-- pnpm: a bare name prefers a tag ([resolve_ref.rs at v12.21.0](https://github.com/pnpm/pnpm/blob/v12.21.0/pnpm/crates/resolving-git-resolver/src/resolve_ref.rs#L159-L177)).
-- Yarn: a bare name tries a commit, then a tag, then a branch; `head=` selects a branch ([gitUtils.ts at 4.18.1](https://github.com/yarnpkg/berry/blob/@yarnpkg/cli/4.18.1/packages/plugin-git/sources/gitUtils.ts#L182-L240)).
-- Bun: the selector goes to `git log`, so Git's ref precedence applies ([git_runner.rs at bun-v1.4.4](https://github.com/oven-sh/bun/blob/bun-v1.4.4/src/install/git_runner.rs#L1067-L1103), [gitrevisions](https://git-scm.com/docs/gitrevisions)).
+For an accepted bare `#<b>`, the resolvers use these names:
+
+| Resolver | Candidate names and order |
+| --- | --- |
+| [npm 12.2.2](https://github.com/npm/cli/blob/v12.2.2/node_modules/@npmcli/git/lib/lines-to-revs.js#L63-L134) | `refs/heads/<b>` and `refs/tags/<b>` are indexed by their short names. A ref under `refs/pull/` is indexed without `refs/` and without a trailing `/head`. When `b` is `pull/...`, `refs/<b>` contributes if it does not end in `/head`; `refs/<b>/head` contributes when `b` is `pull` or starts with `pull/`. The last matching alias wins. |
+| [pnpm 12.21.0](https://github.com/pnpm/pnpm/blob/v12.21.0/pnpm/crates/resolving-git-resolver/src/resolve_ref.rs#L159-L177) | `<b>`, `refs/<b>`, `refs/tags/<b>^{}`, `refs/tags/<b>`, `refs/heads/<b>`, in that order. |
+| [Yarn 4.18.1](https://github.com/yarnpkg/berry/blob/@yarnpkg/cli/4.18.1/packages/plugin-git/sources/gitUtils.ts#L170-L240) | A full commit hash (excluded by validation), then `refs/tags/<b>`, then `refs/heads/<b>`. |
+| [Bun 1.4.4](https://github.com/oven-sh/bun/blob/bun-v1.4.4/src/install/git_runner.rs#L1069-L1103) via [Git revision lookup](https://github.com/git/git/blob/v2.54.0/Documentation/revisions.adoc?plain=1#L26-L47) | For refs present in the clone: `<b>`, `refs/<b>`, `refs/tags/<b>`, `refs/heads/<b>`, `refs/remotes/<b>`, `refs/remotes/<b>/HEAD`, in that order. |
+
+The preflight excludes the intended branch `refs/heads/<b>` from conflicts. It also excludes top-level `<b>` because [Git's `ls-remote --refs`](https://github.com/git/git/blob/v2.54.0/Documentation/git-ls-remote.adoc#L37-L38) omits pseudorefs such as `HEAD`, and accepted selectors cannot name advertised refs directly. There is no separate lookup for `refs/tags/<b>^{}`: it is a peeled record for the same tag, and `--refs` still returns the tag itself. The remaining candidates are `refs/<b>`, `refs/tags/<b>`, `refs/remotes/<b>`, `refs/remotes/<b>/HEAD`, and npm's conditional `refs/<b>/head`. Check exact names after `ls-remote` because [Git's patterns also match at slash boundaries inside a ref](https://github.com/git/git/blob/v2.54.0/Documentation/git-ls-remote.adoc#L93-L102).
+
+With no same-named tag, npm 12.2.2 installed `refs/pull/7/head` for `#pull/7`, and pnpm 12.21.0 installed `refs/notes/preview` for `#notes/preview`. Regression tests cover both collisions and verify that nested refs matching only the lookup pattern do not block `#pull/7`.
 
 ### Install policy for packed dependencies
 

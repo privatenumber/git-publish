@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
 import { isLocalGitUrl, toPackageManagerGitUrl } from '../utils/git-url.ts';
@@ -14,15 +13,32 @@ export type PublishRemote = {
 };
 
 const getLiteralPushUrl = async (url: string, options: SpawnOptions) => {
-	const name = `git-publish-probe-${randomUUID()}`;
-	// `remote get-url` can ignore remotes defined only with `-c`; `remote -v` lists them.
-	const { stdout } = await spawn('git', ['-c', `remote.${name}.url=${url}`, 'remote', '-v'], options);
-	const fetch = new RegExp(String.raw`^${name}\t(.*) \(fetch\)$`, 'm').exec(stdout)?.[1];
-	const push = new RegExp(String.raw`^${name}\t(.*) \(push\)$`, 'm').exec(stdout)?.[1];
-	if (fetch === undefined || push === undefined) {
-		throw new Error('Could not read Git URLs for the selected remote.');
+	const { stdout } = await spawn('git', ['config', '--null', '--get-regexp', String.raw`^url\..*\.pushinsteadof$`], options).catch((error: unknown) => {
+		if (error instanceof SubprocessError && error.exitCode === 1) {
+			return { stdout: '' };
+		}
+		throw error;
+	});
+	// Git groups rules by base, then picks the longest matching prefix, keeping the first on ties.
+	const prefixesByBase = new Map<string, string[]>();
+	for (const entry of stdout.split('\0').slice(0, -1)) {
+		const separator = entry.indexOf('\n');
+		const base = entry.slice('url.'.length, separator - '.pushinsteadof'.length);
+		const prefixes = prefixesByBase.get(base) ?? [];
+		prefixes.push(entry.slice(separator + 1));
+		prefixesByBase.set(base, prefixes);
 	}
-	return push === fetch ? url : push;
+	let longest = -1;
+	let pushUrl = url;
+	for (const [base, prefixes] of prefixesByBase) {
+		for (const prefix of prefixes) {
+			if (prefix.length > longest && url.startsWith(prefix)) {
+				longest = prefix.length;
+				pushUrl = base + url.slice(longest);
+			}
+		}
+	}
+	return pushUrl;
 };
 
 export const getPublishRemote = async (
@@ -42,7 +58,7 @@ export const getPublishRemote = async (
 		throw new Error(`${label} has invalid Git remote configuration.`);
 	});
 	// Git rejects valueless keys, which git config --null cannot distinguish from empty values.
-	const expandedPush = await spawn('git', ['remote', 'get-url', '--push', '--all', '--', remote], options).then(({ stdout }) => stdout).catch((error: unknown) => {
+	const expandedPush = await spawn('git', ['remote', 'get-url', '--push', '--', remote], options).then(({ stdout }) => stdout).catch((error: unknown) => {
 		if (error instanceof SubprocessError && error.exitCode === 2) {
 			if (usesDefaultRemote) {
 				throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
@@ -60,23 +76,25 @@ export const getPublishRemote = async (
 	const configuredPushUrls = configuredName === undefined
 		? []
 		: await getAll(`remote.${remote}.pushurl`);
+	const destinations = configuredPushUrls.length > 0 ? configuredPushUrls : urls;
+	if (destinations.length !== 1) {
+		throw new Error(`${label} has ${destinations.length} push URLs. Use one remote per destination or --remote <url>.`);
+	}
 	const safeName = configuredName && /^[\w.-]+$/.test(configuredName) ? configuredName : undefined;
 	toPackageManagerGitUrl(fetchUrl, safeName);
-	let rawPushUrls = configuredPushUrls.length > 0 ? configuredPushUrls : urls;
+	let pushUrl = destinations[0]!;
 	if (expandedPush === undefined) {
-		rawPushUrls = [await getLiteralPushUrl(fetchUrl, options).catch(() => {
+		pushUrl = await getLiteralPushUrl(fetchUrl, options).catch(() => {
 			throw new Error(`${label} has invalid Git remote configuration.`);
-		})];
-	} else if (configuredPushUrls.length === 0 && urls.length === 1) {
+		});
+	} else if (configuredPushUrls.length === 0) {
 		const expandedFetch = await spawn('git', ['remote', 'get-url', '--', remote], options).then(({ stdout }) => stdout).catch(() => {
 			throw new Error(`${label} has invalid Git remote configuration.`);
 		});
-		rawPushUrls = [expandedPush === expandedFetch ? fetchUrl : expandedPush];
+		if (expandedPush !== expandedFetch) {
+			pushUrl = expandedPush;
+		}
 	}
-	if (rawPushUrls.length !== 1) {
-		throw new Error(`${label} has ${rawPushUrls.length} push URLs. Use one remote per destination or --remote <url>.`);
-	}
-	const pushUrl = rawPushUrls[0]!;
 	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')
 		? path.resolve(repositoryPath, url)
 		: url);

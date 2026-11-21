@@ -57,6 +57,34 @@ describe('Remote transport', async () => {
 		expect(result.stdout).toContain('repo%231');
 		expect(await remoteGit('rev-parse', ['npm/source'])).toMatch(/^[0-9a-f]{40}$/);
 	});
+
+	test('publishes to a local path containing a newline by name and literal URL', async () => {
+		await using destination = await createFixture({ 'repo\n': {} });
+		const remotePath = destination.getPath('repo\n');
+		const remoteGit = createGit(remotePath);
+		await remoteGit.init(['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=source']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'initial']);
+		await fixture.git('remote', ['add', 'origin', remotePath]);
+		const rewritePrefix = `${destination.path}/unrewritten\n/`;
+		await fixture.git('config', [`url.${destination.path}/.pushInsteadOf`, rewritePrefix]);
+
+		for (const [remote, branch] of [
+			[remotePath, 'literal'],
+			['origin', 'named'],
+			[`${rewritePrefix}repo\n`, 'rewritten'],
+		] as const) {
+			const result = await gitPublish(fixture.path, ['--remote', remote, '--branch', branch]);
+			expect(result.output).toContain(`git+${pathToFileURL(remotePath).href}#${branch}`);
+			expect(await remoteGit('rev-parse', [`refs/heads/${branch}`])).toMatch(/^[0-9a-f]{40}$/);
+		}
+	});
 	test('rejects an unsupported fetch URL before packing even with a local push destination', async () => {
 		await using destination = await createGitFixture(undefined, ['--bare']);
 		await using marker = await createFixture();
@@ -255,7 +283,7 @@ describe('Remote transport', async () => {
 			}
 			for (const arguments_ of [remoteArguments, [...remoteArguments, '--fresh']]) {
 				const result = await gitPublish(source, arguments_);
-				expect(result.output).toContain(`Remote tag "${tag}" conflicts with publish branch "npm/source"`);
+				expect(result.output).toContain(`Remote ref "${tag}" conflicts with publish branch "npm/source"`);
 			}
 			expect(await destination('for-each-ref', ['--format=%(refname)'])).toBe(tag);
 			await destination('update-ref', ['-d', tag]);

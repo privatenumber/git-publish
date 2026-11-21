@@ -82,7 +82,7 @@ export const createPublishRepository = async ({
 				signal,
 			});
 		}
-		// An explicit pushurl prevents Git from applying another push-only rewrite after the tag check.
+		// An explicit pushurl keeps push-only rewrites from bypassing the ref check.
 		await spawnAbortable('git', ['config', `remote.${pushRemoteName}.pushurl`, publishRemote.pushUrl], {
 			...gitOptions,
 			signal,

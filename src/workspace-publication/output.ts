@@ -76,20 +76,30 @@ export const createWorkspaceResult = (
 			(edge.kind === 'optionalPeer' || (edge.kind === 'peer' && !required.has(edge.from)))
 				&& installed.has(edge.from) && !rootTargets.has(edge.key)
 		));
-		const optionalPeerTargets = new Map(peers.map(peer => [peer.key, peer.target]));
-		const peerPolicyClosure = reachable(optionalPeerTargets.values(), edge => (
-			edge.kind !== 'optionalPeer'
-		));
-		for (const name of reachable(optionalPeerTargets.values(), isRequired)) {
-			for (const edge of edgesBySource.get(name)!) {
-				if (edge.kind === 'peer' && !rootTargets.has(edge.key)) {
-					optionalPeerTargets.set(edge.key, edge.target);
+		const note = installPolicyNote(installed);
+		const optionalDependencies = optional.filter(name => installed.has(name));
+		const notes = note ? [note] : [];
+		if (optionalDependencies.length > 0) {
+			notes.push(`Optional workspace dependencies ${optionalDependencies.join(', ')} are attempted transitively and may be skipped by the package manager.${peers.length > 0 ? ' If a required peer is missing, use the peer command below to supply it.' : ''}`);
+		}
+		if (peers.length > 0) {
+			const optionalPeerTargets = new Map(peers.map(peer => [peer.key, peer.target]));
+			const peerPolicyClosure = reachable(optionalPeerTargets.values(), edge => (
+				edge.kind !== 'optionalPeer'
+			));
+			for (const name of reachable(optionalPeerTargets.values(), isRequired)) {
+				for (const edge of edgesBySource.get(name)!) {
+					if (edge.kind === 'peer' && !rootTargets.has(edge.key)) {
+						optionalPeerTargets.set(edge.key, edge.target);
+					}
 				}
 			}
+			notes.push(`Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}: install with ${command} ${toSpecifiers(optionalPeerTargets).map(shellQuote).join(' ')}`);
+			const peerPolicy = installPolicyNote(installed, peerPolicyClosure);
+			if (peerPolicy !== note) {
+				notes.push(`For optional peers: ${peerPolicy}`);
+			}
 		}
-		const note = installPolicyNote(installed);
-		const peerPolicy = peers.length > 0 ? installPolicyNote(installed, peerPolicyClosure) : note;
-		const optionalDependencies = optional.filter(name => installed.has(name));
 		return [root, {
 			installSet: {
 				required: requiredNames,
@@ -100,16 +110,7 @@ export const createWorkspaceResult = (
 			aliases: Object.fromEntries(edges.filter(edge => (
 				all.has(edge.from) && all.has(edge.target) && edge.key !== edge.target
 			)).map(edge => [edge.key, edge.target])),
-			notes: [
-				note,
-				optionalDependencies.length > 0
-					? `Optional workspace dependencies ${optionalDependencies.join(', ')} are attempted transitively and may be skipped by the package manager.${peers.length > 0 ? ' If a required peer is missing, use the peer command below to supply it.' : ''}`
-					: '',
-				peers.length > 0
-					? `Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}: install with ${command} ${toSpecifiers(optionalPeerTargets).map(shellQuote).join(' ')}`
-					: '',
-				peerPolicy === note ? '' : `For optional peers: ${peerPolicy}`,
-			].filter(Boolean),
+			notes,
 		}] as const;
 	});
 	const installSets = Object.fromEntries(results.map(([root, result]) => (

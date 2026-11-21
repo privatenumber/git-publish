@@ -23,7 +23,7 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 | --- | --- |
 | `-r, --remote <remote>` | Git remote name or URL to push to. Default: `origin`. See [`--remote`](#--remote) |
 | `-b, --branch <template>` | Branch name or template. See [Branches](#branches) |
-| `-d, --dry` | Validate and print the publication plan. Resolves the remote from local Git config but does not contact it, check for remote tags, pack, run package hooks, commit, or push |
+| `-d, --dry` | Validate and print the publication plan. Resolves the remote from local Git config but does not contact it, check for conflicting refs, pack, run package hooks, commit, or push |
 | `-o, --fresh` | Publish a single-commit branch, replacing its history with a force-push. See [`--fresh`](#--fresh) |
 | `--version-sha` | Record the source commit in each published `package.json`. See [`--version-sha`](#--version-sha) |
 | `-f, --force` | Allow publishing a private standalone package or a private workspace root |
@@ -70,7 +70,7 @@ Every rendered name must be a valid Git branch and use only ASCII letters, digit
 
 By default, `git-publish` adds a commit to the existing branch. Lockfiles record the commit of a Git dependency, not the branch name, and a commit that becomes unreachable from the branch history may be garbage-collected, which breaks those installs. `--fresh` force-pushes a one-commit branch, so use it only when no one depends on the old commits.
 
-Publishing reads the destination remote's refs to check for tags with publish branch names, even with `--fresh`. A remote must allow Git read access as well as pushes.
+Publishing checks the destination for refs that a package manager could resolve instead of a publish branch, even with `--fresh`. A remote must allow Git read access as well as pushes.
 
 ## `--version-sha`
 

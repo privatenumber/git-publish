@@ -16,7 +16,7 @@ For Yarn, the command uses `add` and includes the package name, which modern Yar
 yarn add 'my-package@https://github.com/owner/repo.git#npm/main'
 ```
 
-Install URLs use the bare branch name (`#<branch>`). `git-publish` [validates rendered branch names](./cli.md#branches) before packing. Do not create tags with the same name as a publish branch. Package managers can resolve the tag instead of the branch. `git-publish` checks for existing tags before packing, but cannot prevent someone from adding one later.
+Install URLs use the bare branch name (`#<branch>`). Before packing, `git-publish` [validates rendered branch names](./cli.md#branches) and checks for conflicting refs, such as a same-named tag or a pull request ref that a package manager could resolve instead of the branch. Do not add conflicting refs after publication; the check cannot prevent someone from creating one later.
 
 For a monorepo package, the command includes the selected package and any required internal peers. Package managers install runtime dependencies transitively from the branch URLs in the published manifests. They also attempt optional workspace dependencies, but may skip them, for example when a required peer is missing. Use the printed peer command to supply that peer when applicable. If a package appears both in the main command and as a runtime dependency, both use the same Git specifier.
 

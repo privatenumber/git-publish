@@ -21,7 +21,7 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 | Record the source commit in each published `package.json` (`version` gets `+sha-<commit>`, `gitHead` the full commit) | `npx git-publish --version-sha` |
 | Get machine-readable results, such as for a PR comment | `npx git-publish --json result.json` |
 
-`--fresh` rewrites the published branch, and an existing lockfile pinned to an old commit can stop installing once that commit is garbage-collected. Use it only when the user asks for it. Publishing requires read access to the destination refs for the tag check, even with `--fresh`.
+`--fresh` rewrites the published branch, and an existing lockfile pinned to an old commit can stop installing once that commit is garbage-collected. Use it only when the user asks for it. Publishing requires read access to the destination to check for conflicting refs, even with `--fresh`.
 
 Choose a valid Git branch using ASCII letters, digits, and `. _ / @ -`. Do not start it with `refs/`, `heads/`, `tags/`, or `remotes/`. Avoid bare `@`, `HEAD` in any case, names made only of uppercase letters and underscores (such as `FETCH_HEAD`), and bare names of 7 to 64 hexadecimal digits. Names such as `npm/@` are valid. If the default name fails, use `--branch 'preview/{package}'` or `--branch 'preview/{gitSha}/{package}'`.
 
@@ -39,7 +39,7 @@ After a push, git-publish prints the install command for the repository's packag
 
 - Install the selected package and its required internal peers with the printed command. Runtime dependencies install transitively. The package manager may skip optional workspace dependencies. Use the printed peer command to supply a missing peer when applicable. Arguments and manifests use the same bare branch refs, such as `npm i 'owner/repo#npm/main'`.
 - Treat publish branches like a prerelease dist-tag. The lockfile pins commits. Update every channel package by its install key, including transitive dependencies. For unaliased dependencies, use commands such as `npm update app core`, `pnpm update app core`, `bun update app core`, or `yarn up -R app core`. If `app` declares `core` as `my-core`, use `npm update app my-core`, not `npm update app core`.
-- When migrating from a commit-pinned publication, use the new commands to replace direct commit pins, then update by install key (`npm update app my-core` for the alias above). Do not create tags with publish branch names. Package managers can resolve those tags instead of the branches.
+- When migrating from a commit-pinned publication, use the new commands to replace direct commit pins, then update by install key (`npm update app my-core` for the alias above). Do not add refs that a package manager could resolve instead of a publish branch, such as same-named tags.
 
 Consumer settings the installing project needs:
 

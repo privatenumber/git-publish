@@ -3,7 +3,7 @@
 `git-publish` publishes what `npm publish` would, but to a Git branch:
 
 1. Captures the source commit, plans publication from the working directory, and checks the commit out in an isolated repository.
-2. Checks the remote for tags with publish branch names and stops if it finds one. Reads the publish branches' existing history unless `--fresh` is used.
+2. Checks the destination for refs that a package manager could resolve instead of a publish branch and stops if it finds one. Reads the publish branches' existing history unless `--fresh` is used.
 3. Packs the package with your package manager (`npm pack`, `pnpm pack`, `yarn pack`, or `bun pm pack`). These commands run `prepack` and `postpack`; npm, pnpm, and Bun also run `prepare`.
 4. Removes the `prepare`, `prepack`, and `postpack` scripts and the `workspaces` and `devDependencies` fields from the packed manifest, then commits the packed files. Package managers would otherwise rerun preparation when installing the Git dependency. Install lifecycle scripts remain; `build` is removed only when no install hook remains.
 5. Pushes the branch to the Git remote.

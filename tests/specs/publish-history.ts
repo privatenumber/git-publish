@@ -13,6 +13,38 @@ describe('Publish history', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	for (const [branch, existingReferences, conflict] of [
+		['pull/7', ['refs/pull/7/head'], true],
+		['notes/preview', ['refs/notes/preview'], true],
+		['pull/7', ['refs/heads/foo/pull/7', 'refs/heads/foo/refs/pull/7/head'], false],
+	] as const) {
+		test(`${conflict ? 'rejects' : 'ignores'} ${existingReferences[0]} for bare selector ${branch}`, async () => {
+			await using destination = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+				}),
+			});
+			const { git } = fixture;
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', destination.path]);
+			await git('push', ['origin', ...existingReferences.map(ref => `HEAD:${ref}`)]);
+
+			const result = await gitPublish(fixture.path, ['--fresh', '--branch', branch]);
+			expect('exitCode' in result).toBe(conflict);
+			if (conflict) {
+				expect(result.output).toContain(`Remote ref "${existingReferences[0]}" conflicts with publish branch "${branch}"`);
+			}
+			const expectedReferences: string[] = [...existingReferences];
+			if (!conflict) {
+				expectedReferences.push(`refs/heads/${branch}`);
+			}
+			expect(await destination.git('for-each-ref', ['--format=%(refname)'])).toBe(expectedReferences.sort().join('\n'));
+		});
+	}
+
 	test('does not push a reachable annotated tag when push.followTags is enabled', async () => {
 		await using destination = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
@@ -53,7 +85,7 @@ describe('Publish history', async () => {
 			GIT_SSH_VARIANT: 'simple',
 		});
 		expect('exitCode' in result && result.exitCode).toBe(1);
-		expect(result.output).toContain(`git-publish must list refs on "${url}" to check for tags with publish branch names`);
+		expect(result.output).toContain(`git-publish must list refs on "${url}" to check for conflicting refs`);
 		expect(result.output).toContain('upload-pack-denied');
 	});
 
@@ -69,11 +101,11 @@ describe('Publish history', async () => {
 		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
 		const branch = 'npm/standalone-tag';
 		const tag = `refs/tags/${branch}`;
-		await fixture.git('update-ref', [tag, 'HEAD']);
+		await fixture.git('tag', ['-a', '--no-sign', branch, '-m', 'Conflicting tag']);
 		await fixture.git('push', ['origin', tag]);
 		const result = await gitPublish(fixture.path, ['--fresh']);
 		expect('exitCode' in result).toBe(true);
-		expect(result.output).toContain(`Remote tag "${tag}" conflicts with publish branch "${branch}"`);
+		expect(result.output).toContain(`Remote ref "${tag}" conflicts with publish branch "${branch}"`);
 		expect(await remoteGit('for-each-ref', ['--format=%(refname)', `refs/heads/${branch}`])).toBe('');
 	});
 
