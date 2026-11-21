@@ -14,7 +14,7 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 | Goal | Command |
 | --- | --- |
 | Publish the package in the current directory to `npm/<branch>` on `origin` | `npx git-publish` |
-| Preview without committing or pushing | `npx git-publish --dry` |
+| Preview the publication plan without packing, committing, or pushing | `npx git-publish --dry` |
 | Publish to another remote, such as a fork | `npx git-publish --remote fork` or `--remote git@github.com:owner/repo.git` |
 | Choose the branch | `npx git-publish --branch preview` or a template: `--branch 'preview/{package}'` (`{gitRef}`, `{gitSha}`, `{package}`) |
 | Replace the branch history with one commit | `npx git-publish --fresh` (force-pushes) |

@@ -23,7 +23,7 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 | --- | --- |
 | `-r, --remote <remote>` | Git remote name or URL to push to. Default: `origin`. See [`--remote`](#--remote) |
 | `-b, --branch <template>` | Branch name or template. See [Branches](#branches) |
-| `-d, --dry` | Simulate the run. Does not commit or push |
+| `-d, --dry` | Validate and print the publication plan. Does not pack, run package hooks, commit, or push |
 | `-o, --fresh` | Publish a single-commit branch, replacing its history with a force-push. See [`--fresh`](#--fresh) |
 | `-f, --force` | Allow publishing a private standalone package or a private workspace root |
 | `--json <path>` | Write publication details and install sets to a JSON file. See [JSON output](#json-output) |

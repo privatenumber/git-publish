@@ -1609,13 +1609,18 @@ exec '${npmPath}' "$@"
 		const second = await gitPublish(fixture.path, ['--json', output.getPath('publication.json')]);
 		expect('exitCode' in second).toBe(false);
 		expect(second.stdout).toContain('unchanged');
+		expect(second.stdout).not.toContain('Use --json');
 		const data = await output.readJson<{ packages: { name: string;
 			role: string; }[]; }>('publication.json');
 		expect(data.packages.filter(item => item.role === 'root').map(item => item.name).sort())
 			.toStrictEqual(['@test/adapter', '@test/broker', 'extra-a', 'extra-b']);
-		expect(result.stdout).toContain('Package');
-		expect(result.stdout).toContain('updated');
-		expect(result.stdout).toContain('--json');
+		const lines = result.stdout.split('\n');
+		const header = lines.find(line => line.startsWith('Package '))!;
+		const row = lines.find(line => line.startsWith('extra-a '))!;
+		expect(row).toMatch(/^extra-a +npm\/all-extra-a +[\da-f]{7} +published +root$/);
+		expect(['Branch', 'Commit', 'Status', 'Role'].map(title => header.indexOf(title)))
+			.toStrictEqual(['npm/', /[\da-f]{7} /, 'published', 'root'].map(cell => row.search(cell)));
+		expect(result.stdout).toContain('Use --json <path> for install sets');
 	});
 
 	test('publishes npm workspace closures without a lockfile', async () => {
@@ -2047,7 +2052,7 @@ exec '${npmPath}' "$@"
 		expect(('exitCode' in result) && result.exitCode).toBe(1);
 		expect(result.stderr).toContain('Publication succeeded');
 		expect(result.stderr).toContain('ENOENT');
-		expect(result.stdout).toContain('Use --json <path> for install sets');
+		expect(result.stdout).not.toContain('Use --json');
 		const jsonStart = result.stderr.lastIndexOf('\n{\n  "source"');
 		expect(jsonStart).toBeGreaterThan(-1);
 		const json = JSON.parse(result.stderr.slice(jsonStart));

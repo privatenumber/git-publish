@@ -121,12 +121,21 @@ export const formatWorkspaceResult = (
 	result: WorkspaceResult,
 	packageManager: PackageManager,
 	fetchUrl: string,
+	jsonPath?: string,
 ) => {
 	if (result.presentation.publishAll && Object.keys(result.installSets).length > 3) {
-		return `${terminalColumns([
+		const column = {
+			width: 'content-width',
+			paddingRight: 2,
+		};
+		const table = terminalColumns([
 			['Package', 'Branch', 'Commit', 'Status', 'Role'],
-			...result.packages.map(item => [item.name, item.branch, item.commit.slice(0, 7), item.reused ? 'unchanged' : 'updated', item.role]),
-		], { stdoutColumns: Number.POSITIVE_INFINITY })}\nUse --json <path> for install sets.`;
+			...result.packages.map(item => [item.name, item.branch, item.commit.slice(0, 7), item.reused ? 'unchanged' : 'published', item.role]),
+		], {
+			stdoutColumns: Number.POSITIVE_INFINITY,
+			columns: [column, column, column, column, { width: 'content-width' }],
+		}).replaceAll(/ +$/gm, '');
+		return jsonPath ? table : `${table}\nUse --json <path> for install sets.`;
 	}
 	const packages = new Map(result.packages.map(item => [item.name, item]));
 	const roots = Object.keys(result.installSets);
