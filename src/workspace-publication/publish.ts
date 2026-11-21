@@ -25,6 +25,10 @@ import type { VersionSha } from '../package-publication/version-sha.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 import { createInstallGraph } from './install-graph.ts';
 
+// These tasks write to streamPreview only on failure. The cause often comes before
+// the package manager's error summary, so a short preview would hide it
+const failureOutputOptions = { previewLines: Number.POSITIVE_INFINITY };
+
 export const publishWorkspaceClosure = async ({
 	plan,
 	packageManager,
@@ -184,6 +188,7 @@ export const publishWorkspaceClosure = async ({
 			createTask => plan.nodes.map((node, index) => createTask(
 				node.key,
 				async taskApi => processPackage(index, taskApi),
+				failureOutputOptions,
 			)),
 			{ concurrency: 1 },
 		));
@@ -227,6 +232,7 @@ export const publishWorkspaceClosure = async ({
 					throw error;
 				}
 			},
+			failureOutputOptions,
 		);
 		// Report a completed push even after a signal; the wrapper still sets the exit code
 		return {
