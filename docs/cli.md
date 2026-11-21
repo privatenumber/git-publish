@@ -97,7 +97,7 @@ The added `version` build metadata and `gitHead` together are the version SHA.
 
 ## JSON output
 
-`--json <path>` writes publication details after a successful push. At a workspace root, a default selection of more than three packages prints a summary table instead of install commands; use the JSON file to get each install set.
+`--json <path>` writes publication details after a successful push. `git-publish` prints one command per selected package whether or not you use `--json`. A default selection of more than three packages also prints a status table.
 
 ```json
 {
@@ -120,7 +120,11 @@ The added `version` build metadata and `gitHead` together are the version SHA.
             "required": [
                 "@acme/core"
             ],
-            "optional": []
+            "optional": [],
+            "installSpecifiers": [
+                "acme/repo#npm/main-@acme/core"
+            ],
+            "installCommand": "npm i 'acme/repo#npm/main-@acme/core'"
         }
     },
     "aliases": {
@@ -131,8 +135,9 @@ The added `version` build metadata and `gitHead` together are the version SHA.
 
 - `source.commit` is the full source commit ID.
 - Each package's `role` is `root`, `dependency`, or `peer`. `reused` is `true` when the existing publication commit was unchanged.
-- Each install set lists the required and optional package names for one selected package. Look up their commit-pinned specifiers in `packages`.
-- `aliases` maps each selected package to its internal runtime and peer aliases and their target package names. Install commands include required aliases as root arguments.
+- Each install set lists the `required` and `optional` package names in the selected package's dependency closure. Look up `packages[].installSpecifier` for the commit-pinned specifiers, which are suitable for reproducible installs.
+- `installSpecifiers` contains the unquoted root arguments for the detected package manager. `installCommand` is the shell-quoted command printed by the CLI, without any package manager settings. It lists only the selected package and required internal peers. Arguments use branch refs unless they overlap with a runtime pin in the published closure.
+- `aliases` maps each selected package's internal runtime and peer aliases to their target package names. The command lists required peer aliases. Runtime aliases remain in the published manifests.
 
 ## `skills`
 

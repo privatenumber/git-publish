@@ -61,7 +61,7 @@ app@ /private/tmp/work/app
 └── core@1.0.0 (git+file:///tmp/work/core#32abc94467ac5f33574461b2288b24d8136b408c)
 ```
 
-Reported as [npm/cli#10249](https://github.com/npm/cli/issues/10249), which contains the full reproducer. Within one install set every package appears at one commit, so a set is unaffected; mixing sets from different publications can keep the wrong commit. git-publish therefore warns when a multi-package install set uses a remote that is not on GitHub, GitLab, or Bitbucket. GitHub URLs are compared with their commit and behave correctly.
+Reported as [npm/cli#10249](https://github.com/npm/cli/issues/10249), which contains the full reproducer. A standalone install into a clean consumer uses the expected pin; mixing packages from different publications can keep the wrong commit. Removing runtime-only root arguments does not prevent a conflicting pin already present in the consumer. git-publish warns when a publication contains an internal Git runtime edge and uses a remote that is not on GitHub, GitLab, or Bitbucket. A peer-only set without runtime edges has no manifest pin to override. GitHub URLs are compared with their commit and behave correctly. See [the install-set experiment](./monorepo-install-sets.md#when-a-root-argument-is-also-a-runtime-target) for cases where a peer overlaps a runtime target.
 
 ## npm needs the remote's HEAD to resolve
 

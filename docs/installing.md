@@ -4,7 +4,7 @@ After a push, `git-publish` prints the install command for your package manager.
 
 ## Install commands
 
-A package with no internal workspace dependencies installs from the branch:
+Install a published package from its branch:
 
 ```sh
 npm i 'owner/repo#npm/main'
@@ -16,7 +16,7 @@ For Yarn, the command uses `add` and includes the package name, which modern Yar
 yarn add 'my-package@https://github.com/owner/repo.git#npm/main'
 ```
 
-A monorepo package prints one command that installs its whole set of packages as root dependencies, each pinned to its publish commit. Run the complete command; installing only the selected package needs broader consumer settings. Packages reachable only through optional dependencies install transitively.
+For a monorepo package, the command includes the selected package and any required internal peers. Internal runtime dependencies, including optional ones, install transitively from the commit-pinned URLs in the published manifests. If an argument also appears as a runtime dependency in that package's published closure, the command uses the same commit-pinned URL instead of the branch.
 
 Install URLs name the repository that receives the push. When a remote fetches from an upstream repository and pushes to your fork, the install URLs point at the fork.
 
@@ -26,15 +26,16 @@ Current package managers restrict Git dependencies by default. The consumer's pr
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | `--allow-git=root` on the install command, or `allow-git=root` in `.npmrc`. Optional transitive Git dependencies need `allow-git=all`. |
-| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` for an install set with more than one package. For one command: `pnpm add --config.block-exotic-subdeps=false <specifiers>` ([setting](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps)) |
+| npm 12+ | `--allow-git=all` on the install command (or `allow-git=all` in `.npmrc`) when the package has internal Git runtime dependencies. If all Git dependencies are direct, use `--allow-git=root` or `allow-git=root` instead. |
+| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when the package has internal Git runtime dependencies. For one command: `pnpm add --config.block-exotic-subdeps=false <specifiers>` ([setting](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps)) |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install |
+| Bun | No Git dependency setting required |
 
-For Git servers other than GitHub, GitLab, and Bitbucket, npm can ignore commit pins when the same package appears at different commits. `git-publish` warns when an install set contains several packages and the remote is on another host.
+For Git servers other than GitHub, GitLab, and Bitbucket, npm can ignore commit pins when the same package appears at different commits. For example, an existing direct dependency can override a different transitive pin. `git-publish` warns when the publication contains internal Git runtime dependencies and the remote is on another host.
 
 ## Updating
 
-A lockfile pins the commit, so a normal install keeps the old version. To move to a newer publish of a branch, run your package manager's update command, such as `npm update <name>`, `pnpm update <name>`, `bun update <name>`, or `yarn up -R <name>`. For a monorepo install set, run the newly printed command.
+A lockfile pins the commit, so a normal install keeps the old version. To move to a newer publish of a branch, run your package manager's update command, such as `npm update <name>`, `pnpm update <name>`, `bun update <name>`, or `yarn up -R <name>`. If the command includes any commit-pinned arguments, run the newly printed command to update those arguments too.
 
 ## Private repositories
 

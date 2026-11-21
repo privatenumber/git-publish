@@ -133,6 +133,7 @@ exec npm "$@"
 				expect('exitCode' in result).toBe(false);
 				expect(result.stdout).toContain(`${command} '${packagePrefix}owner/repository#npm/${branchName}'`);
 				expect(result.stdout.includes('npm 12+: add --allow-git=root')).toBe(packageManager === 'npm');
+				expect(result.stdout).not.toContain('--allow-git=all');
 				expect(result.stdout.includes('approvedGitRepositories')).toBe(packageManager === 'yarn');
 				expect(result.stdout).not.toContain('blockExoticSubdeps');
 			});

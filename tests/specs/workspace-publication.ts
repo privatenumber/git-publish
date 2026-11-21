@@ -437,9 +437,12 @@ exec "${npmPath}" "$@"
 			onTestFail(() => console.log(result.stdout, result.stderr));
 			expect('exitCode' in result).toBe(false);
 			const json = JSON.parse(await output.readFile('result.json', 'utf8'));
+			const specifier = `git+${pathToFileURL(remote.path).href}#npm/removed-app`;
 			expect(json.installSets.app).toStrictEqual({
 				required: ['app'],
 				optional: [],
+				installSpecifiers: [specifier],
+				installCommand: `npm i '${specifier}'`,
 			});
 			expect(json.packages.map((item: { name: string }) => item.name)).toStrictEqual(['app']);
 			const installOutput = result.stdout.slice(result.stdout.indexOf('→ Install'));
@@ -1620,7 +1623,13 @@ exec '${npmPath}' "$@"
 		expect(row).toMatch(/^extra-a +npm\/all-extra-a +[\da-f]{7} +published +root$/);
 		expect(['Branch', 'Commit', 'Status', 'Role'].map(title => header.indexOf(title)))
 			.toStrictEqual(['npm/', /[\da-f]{7} /, 'published', 'root'].map(cell => row.search(cell)));
-		expect(result.stdout).toContain('Use --json <path> for install sets');
+		expect(result.stdout).not.toContain('Use --json');
+		expect(lines.filter(line => line.startsWith('→ Install '))).toStrictEqual([
+			'→ Install @test/adapter',
+			'→ Install @test/broker',
+			'→ Install extra-a',
+			'→ Install extra-b',
+		]);
 	});
 
 	test('publishes npm workspace closures without a lockfile', async () => {
@@ -1757,6 +1766,7 @@ exec '${npmPath}' "$@"
 		expect('exitCode' in result).toBe(false);
 		expect(await rootRemote.git('rev-parse', ['npm/root-peer-member'])).toMatch(/^[0-9a-f]{40}$/);
 		expect(await rootRemote.git('rev-parse', ['npm/root-peer'])).toMatch(/^[0-9a-f]{40}$/);
+		expect(result.stderr).not.toContain('npm ignores commit pins');
 	});
 
 	test('reports unresolved peers of a public workspace root', async () => {
@@ -1829,6 +1839,12 @@ exec '${npmPath}' "$@"
 				version: '1.0.0',
 				dependencies: { core: '^1.0.0' },
 			}),
+			'packages/c/package.json': JSON.stringify({
+				name: 'c',
+				version: '1.0.0',
+				dependencies: { b: '^1.0.0' },
+				peerDependencies: { core: '^1.0.0' },
+			}),
 			'packages/core/package.json': JSON.stringify({
 				name: 'core',
 				version: '1.0.0',
@@ -1838,7 +1854,7 @@ exec '${npmPath}' "$@"
 		await fixture.git('commit', ['-m', 'Initial commit']);
 		await fixture.git('remote', ['add', 'origin', setRemote.path]);
 		await using output = await createFixture();
-		const result = await gitPublish(fixture.path, ['a', 'b', '--json', output.getPath('sets.json')]);
+		const result = await gitPublish(fixture.path, ['a', 'b', 'c', '--json', output.getPath('sets.json')]);
 		expect('exitCode' in result).toBe(false);
 		const data = await output.readJson<{
 			source: { ref: string;
@@ -1848,29 +1864,46 @@ exec '${npmPath}' "$@"
 				role: string;
 				reused: boolean; }[];
 			installSets: Record<string, { required: string[];
-				optional: string[]; }>;
+				optional: string[];
+				installSpecifiers: string[];
+				installCommand: string; }>;
 		}>('sets.json');
 		expect(data.source).toStrictEqual({
 			ref: 'sets',
 			commit: await fixture.git('rev-parse', ['HEAD']),
 		});
+		const repository = `git+${pathToFileURL(setRemote.path).href}`;
+		const aCommand = `npm install '${repository}#npm/sets-a' '${repository}#npm/sets-core'`;
+		const bCommand = `npm install '${repository}#npm/sets-b'`;
+		const core = data.packages.find(item => item.name === 'core')!;
+		const manifest = JSON.parse(await setRemote.git('show', ['npm/sets-b:package.json']));
+		expect(manifest.dependencies.core).toBe(core.installSpecifier);
+		const cCommand = `npm install '${repository}#npm/sets-c' '${core.installSpecifier}'`;
 		expect(data.installSets).toStrictEqual({
 			a: {
 				required: ['a', 'core'],
 				optional: [],
+				installSpecifiers: [`${repository}#npm/sets-a`, `${repository}#npm/sets-core`],
+				installCommand: aCommand,
 			},
 			b: {
 				required: ['b', 'core'],
 				optional: [],
+				installSpecifiers: [`${repository}#npm/sets-b`],
+				installCommand: bCommand,
+			},
+			c: {
+				required: ['c', 'core', 'b'],
+				optional: [],
+				installSpecifiers: [`${repository}#npm/sets-c`, core.installSpecifier],
+				installCommand: cCommand,
 			},
 		});
-		const core = data.packages.find(item => item.name === 'core')!;
 		expect(core.role).toBe('dependency');
 		expect(core.reused).toBe(false);
-		const manifest = JSON.parse(await setRemote.git('show', ['npm/sets-b:package.json']));
-		expect(manifest.dependencies.core).toBe(core.installSpecifier);
-		expect(result.stdout.split(core.installSpecifier)).toHaveLength(3);
-		expect(result.stdout).toContain('npm 12+: add --allow-git=root');
+		expect(result.stdout).toContain(`→ Install a\n  ${aCommand}\n  npm 12+: add --allow-git=root`);
+		expect(result.stdout).toContain(`→ Install b\n  ${bCommand}\n  npm 12+: add --allow-git=all`);
+		expect(result.stdout).toContain(`→ Install c\n  ${cCommand}\n  npm 12+: add --allow-git=all`);
 	});
 
 	test('reports internal aliases in install sets and warns about npm policy', async () => {
@@ -1898,7 +1931,8 @@ exec '${npmPath}' "$@"
 		await using output = await createFixture();
 		const result = await gitPublish(fixture.getPath('packages/app'), ['--json', output.getPath('result.json')]);
 		expect('exitCode' in result).toBe(false);
-		expect(result.stderr).not.toContain('npm 12 needs --allow-git=all for alias "alias"');
+		expect(result.stdout).not.toContain('alias@git+file://');
+		expect(result.stdout).toContain('npm 12+: add --allow-git=all');
 		const json = await output.readJson<{ aliases: Record<string, Record<string, string>> }>('result.json');
 		expect(json.aliases).toStrictEqual({ app: { alias: 'core' } });
 	});
@@ -1946,10 +1980,8 @@ exec '${npmPath}' "$@"
 			packages: { name: string;
 				installSpecifier: string; }[];
 		}>('result.json');
-		expect(json.installSets.app).toStrictEqual({
-			required: ['app', 'leaf', 'core'],
-			optional: ['optional'],
-		});
+		expect(json.installSets.app!.required).toStrictEqual(['app', 'leaf', 'core']);
+		expect(json.installSets.app!.optional).toStrictEqual(['optional']);
 		const optional = json.packages.find(item => item.name === 'optional')!;
 		expect(result.stdout).not.toContain(optional.installSpecifier);
 		expect(result.stdout).toContain('Optional workspace dependencies optional install transitively');
@@ -1983,7 +2015,8 @@ exec '${npmPath}' "$@"
 				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
 			});
 			expect('exitCode' in result).toBe(false);
-			expect(result.stdout).toContain(`${manager} add '`);
+			const specifier = `git+${pathToFileURL(managerRemote.path).href}#npm/output-${manager}-@test/adapter`;
+			expect(result.stdout.split('\n')).toContain(`  ${manager} add '${manager === 'yarn' ? '@test/adapter@' : ''}${specifier}'`);
 			if (manager === 'yarn') {
 				expect(result.stdout).toContain('@test/adapter@git+file://');
 				expect(result.stdout).toContain('approvedGitRepositories');
@@ -2056,7 +2089,7 @@ exec '${npmPath}' "$@"
 		const jsonStart = result.stderr.lastIndexOf('\n{\n  "source"');
 		expect(jsonStart).toBeGreaterThan(-1);
 		const json = JSON.parse(result.stderr.slice(jsonStart));
-		expect(json.installSets).toStrictEqual({
+		expect(json.installSets).toMatchObject({
 			'@test/adapter': {
 				required: ['@test/adapter', '@test/core', '@test/broker'],
 				optional: [],
@@ -2118,6 +2151,8 @@ exec '${npmPath}' "$@"
 				standalone: {
 					required: ['standalone'],
 					optional: [],
+					installSpecifiers: [`git+file://${standaloneRemote.path}#npm/standalone`],
+					installCommand: `npm i 'git+file://${standaloneRemote.path}#npm/standalone'`,
 				},
 			},
 			aliases: { standalone: {} },
@@ -2635,7 +2670,7 @@ exec sh -c "$*"
 		expect(adapterManifest.dependencies['@test/broker']).toBe(`${packageManagerRemoteUrl}#${shas.broker}`);
 
 		const adapterSpecifier = `${packageManagerRemoteUrl}#${shas.adapter}`;
-		expect(gitPublishProcess.stdout).toContain(`npm install '${adapterSpecifier}'`);
+		expect(gitPublishProcess.stdout).toContain(`npm install '${packageManagerRemoteUrl}#${branches.adapter}'\n`);
 
 		await using consumerFixture = await createFixture({
 			'package.json': JSON.stringify({

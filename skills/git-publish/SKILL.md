@@ -35,16 +35,18 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 
 After a push, git-publish prints the install command for the repository's package manager. Use it as printed:
 
-- A package without internal dependencies uses the moving branch, such as `npm i 'owner/repo#npm/main'`. A lockfile pins the commit; run the package manager's update command (`npm update <name>`, `pnpm update <name>`, `bun update <name>`, `yarn up -R <name>`) to move to a newer publish.
-- A package with internal dependencies prints one command that installs the whole set as root dependencies, each pinned to its publish commit. Install every listed argument together; installing only the selected package needs broader consumer settings. Upgrading means running the newly printed command.
+- The command lists the selected package and any required internal peers. Runtime dependencies install transitively from the commit-pinned URLs in the published manifests.
+- Arguments use the moving branch, such as `npm i 'owner/repo#npm/main'`. If an argument also appears as a runtime dependency in the published closure, the command uses the same commit pin as the manifest.
+- A lockfile pins the commit. To move to a newer publish, use the package manager's update command (`npm update <name>`, `pnpm update <name>`, `bun update <name>`, `yarn up -R <name>`). If the command has commit-pinned arguments, use the newly printed command to update those arguments too.
 
 Consumer settings the installing project needs:
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | `--allow-git=root` on the install command, or `allow-git=root` in `.npmrc`. Optional transitive Git dependencies need `allow-git=all`. |
-| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when the install set has more than one package |
+| npm 12+ | `--allow-git=all` on the install command (or `allow-git=all` in `.npmrc`) when the package has internal Git runtime dependencies. If all Git dependencies are direct, use `--allow-git=root` or `allow-git=root` instead. |
+| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when the package has internal Git runtime dependencies |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Yarn needs `name@url` arguments, which the printed command uses. |
+| Bun | No Git dependency setting required |
 
 For a private repository, the installing machine needs Git access to it (for GitHub: `gh auth setup-git`, or an `insteadOf` rewrite scoped to the owner). Do not put tokens in install URLs; git-publish strips credentials from every URL it writes or prints.
 

@@ -254,7 +254,12 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 		});
 		if (publication) {
 			const result = createWorkspaceResult(
-				publication.plan, publication.preparations, source.name, source.commit,
+				publication.plan,
+				publication.preparations,
+				source.name,
+				source.commit,
+				packageManager,
+				remoteUrl,
 			);
 			const { presentation: _presentation, ...jsonResult } = result;
 			const json = `${stringify(jsonResult, null, 2)}\n`;
@@ -265,12 +270,10 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 					jsonWriteError = error;
 				});
 			}
-			if (!isHostedGitRemote(remoteUrl) && Object.values(result.installSets).some(set => (
-				set.required.length + set.optional.length > 1
-			))) {
+			if (!isHostedGitRemote(remoteUrl) && result.presentation.hasRuntimeDependencies) {
 				console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
 			}
-			console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl, argv.flags.json)}`);
+			console.log(`\n${formatWorkspaceResult(result)}`);
 			if (jsonWriteError) {
 				console.error(`Publication succeeded, but could not write JSON file ${stringify(argv.flags.json)}: ${redactRemote(jsonWriteError.message)}. Publication details follow:`);
 				console.error(json.trimEnd());

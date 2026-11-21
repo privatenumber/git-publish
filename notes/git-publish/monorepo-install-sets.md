@@ -1,8 +1,10 @@
 # Monorepo install sets
 
-**Decision.** A workspace publication puts each package on its own branch, rewrites internal runtime dependencies in the packed manifests to commit-pinned Git URLs, and updates all branches in one `git push --atomic`. After the push, git-publish prints one install command per selected package that installs its whole set (the package, its internal runtime closure, and internal peer targets) as root dependencies. Every specifier in a multi-package set is commit-pinned and byte-identical to the pins inside the packed manifests.
+**Decision (2026-11-22).** A workspace publication puts each package on its own branch, rewrites internal runtime dependencies in the packed manifests to commit-pinned Git URLs, and updates all branches in one `git push --atomic`. The printed command lists only the selected package and required internal peers. Runtime dependencies install from the manifest pins. Root arguments use branch refs unless they also appear as runtime dependencies in the published closure. For those arguments, use the exact URL in the manifest, including if the selected package itself is the runtime target. JSON keeps each package's commit-pinned `installSpecifier` and adds the printed command and its arguments to each install set.
 
-Verified 2026-11-07 against npm 11.21.2 and 12.2.2, pnpm 10.34.9, 11.28.11, and 12.18.0, Yarn 1.22.22 and 4.18.1, and Bun 1.4.4. Yarn 1 results below are historical consumer measurements, not a supported publishing configuration.
+This reverses the earlier decision to require the whole set as root dependencies. That workaround only helped npm 12; it did not bypass pnpm's gate. Use the package managers' documented opt-outs instead. A root that is not also a runtime dependency has no manifest pin to match, so it can use a moving branch.
+
+The historical experiments were verified 2026-11-07 against npm 11.21.2 and 12.2.2, pnpm 10.34.9, 11.28.11, and 12.18.0, Yarn 1.22.22 and 4.18.1, and Bun 1.4.4. Yarn 1 results below are historical consumer measurements, not a supported publishing configuration.
 
 **Yarn publishing policy.** Yarn 1 is rejected before packing each package, so the check uses the Yarn version resolved in that package's pack directory. Dry runs do not perform this check. Yarn 2 and later remain accepted, with Yarn 4 recommended. Yarn 1.0.0 was released on 2017-09-05 and 1.22.22 on 2024-03-09 ([release tags](https://github.com/yarnpkg/yarn/releases)); [Yarn 2's January 2020 announcement](https://yarnpkg.com/blog/release/2.0) put Yarn 1 in maintenance mode. No release packed with Yarn 1: v2.2.1 and earlier ran npm scripts and npm-packlist without invoking Yarn, and v2.3.0 through v2.5.0 passed `--pack-destination`, which Yarn 1 ignores, so publishing failed ([#81](https://github.com/privatenumber/git-publish/issues/81)). Rejecting it is therefore not a breaking change. No revisit is expected.
 
@@ -21,18 +23,48 @@ Known limits:
 
 Removal behavior is covered by [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts).
 
-## Why the set is installed at the root
+## Why consumers need Git dependency settings
 
 Current package managers block Git dependencies that are declared by another Git dependency unless the consumer opts in:
 
 | Package manager | Default for a Git dependency of a Git dependency | Source |
 | --- | --- | --- |
-| npm 12 | Blocked. `allow-git=root` allows only Git dependencies in the consumer's own `package.json` | [npm v12.0.0 release notes](https://github.com/npm/cli/releases/tag/v12.0.0): "allow-git and allow-remote now default to "none"; set them to "all" (or "root") to install git or user-supplied tarball-URL dependencies." |
+| npm 12 | Blocked unless `allow-git=all`. `allow-git=root` allows only direct Git dependencies. | [npm v12.0.0 release notes](https://github.com/npm/cli/releases/tag/v12.0.0): "allow-git and allow-remote now default to "none"; set them to "all" (or "root") to install git or user-supplied tarball-URL dependencies." |
 | pnpm 11, 12 | Blocked by `blockExoticSubdeps`, which defaults to `true`; there is no per-repository allowlist | [`assertExoticSubdepAllowed` at v11.28.10](https://github.com/pnpm/pnpm/blob/v11.28.10/pnpm11/installing/deps-resolver/src/resolveDependency.ts#L150-L165); [setting docs](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps) (accessed 2026-11-07) |
 | Yarn 4 | Every Git repository is blocked, including direct ones, until it matches `approvedGitRepositories` (default `[]`) | [plugin-git at @yarnpkg/cli/4.18.1](https://github.com/yarnpkg/berry/blob/@yarnpkg/cli/4.18.1/packages/plugin-git/sources/index.ts#L36-L41) |
 | npm 11, pnpm 10, Yarn 1, Bun | Allowed | Observed |
 
-Observed with a fixture where branch `npm/app` depends on `@lab/core` through a commit-pinned Git URL to branch `npm/core`, served by a local `git daemon`:
+### Selected-package install experiment
+
+Verified 2026-11-22 on macOS with Node.js 26.13.0 and Git 2.54.0. A bare Git repository has branch `npm/app` with `dependencies: { "@lab/core": "<url>#<core-sha>" }`. The `npm/core` branch has moved to another commit with the same package version. The original core exports `{ marker: 'pinned' }`; the new tip exports `{ marker: 'moved' }`. The consumer installs only app. `$url` is a `git+file://` URL for npm, pnpm, and Bun. Yarn uses HTTPS mapped to the bare repo via Git `insteadOf`, with the HTTPS URL in `approvedGitRepositories` and `nodeLinker: node-modules`. The bare repository has a valid `HEAD`.
+
+| Package manager | Command | Opt-out result | Observed without the opt-out |
+| --- | --- | --- | --- |
+| npm 12.2.2 | `npm i --allow-git=all "$url#npm/app"` | One core copy at the SHA in app's manifest | Default: `EALLOWGIT`, `Fetching packages of type "git" have been disabled`. With `--allow-git=root`: `EALLOWGIT`, `Fetching non-root packages of type "git" have been disabled`. |
+| pnpm 12.21.0 | `pnpm add --config.block-exotic-subdeps=false "$url#npm/app"` | One core copy at the SHA in app's manifest | `ERR_PNPM_EXOTIC_SUBDEP`, `blockExoticSubdeps is enabled`. |
+| Yarn 4.18.1 | `yarn add "@lab/app@$url#npm/app"` | One core copy at the SHA in app's manifest | No runtime opt-out required. Repository approval still applies. |
+| Bun 1.4.4 | `bun add "$url#npm/app"` | One core copy at the SHA in app's manifest | No opt-out required. |
+
+Each successful lockfile records `<core-sha>`. `find node_modules -type f -path '*/@lab/core/package.json'` finds one copy, and `require('@lab/app').core.marker` returns `'pinned'`.
+
+A second app branch adds `peerDependencies: { "@lab/peer": "^1.0.0" }` and loads that package at runtime. App-only installs tried the registry in npm, pnpm, and Bun. Yarn completed with `YN0002` ("doesn't provide @lab/peer"), then app failed with `MODULE_NOT_FOUND`. Adding `"$url#npm/peer"` (Yarn: `"@lab/peer@$url#npm/peer"`) to the command let app load the peer on all four managers; each still installed one pinned core.
+
+### When a root argument is also a runtime target
+
+In the same fixture, app instead declares `@lab/core` both in `dependencies` (the Git pin) and in `peerDependencies` (`^1.0.0`). Use the commands above with a second root argument, first `"$url#npm/core"` and then `"$url#<core-sha>"` (Yarn: prefix both with `@lab/core@`; this run used `git+https` for both Yarn's root specifier and the pin). Compare the marker and object identity of `require('@lab/app').core` with `require('@lab/core')`:
+
+| Package manager | Root argument at the moved branch | Root argument with the exact manifest pin |
+| --- | --- | --- |
+| npm 12.2.2 | One copy at the moved commit | One copy at the pinned commit |
+| pnpm 12.21.0 | One copy at the moved commit | One copy at the pinned commit |
+| Yarn 4.18.1 | Both importers load the moved commit; the lockfile records both commits | One copy at the pinned commit |
+| Bun 1.4.4 | Two copies: app loads the pinned commit; the consumer loads the moved commit | One copy at the pinned commit |
+
+The exact-pin run returned `{ app: 'pinned', consumer: 'pinned', same: true }` in all four managers even after the branch moved. A branch ref also produced one pinned copy when it still pointed at `<core-sha>`. Omitting the root peer argument for this overlap was not tested. Keep the exact pin when both edges exist, even if the peer can currently be resolved from the runtime copy.
+
+### Historical rationale for installing the whole set
+
+The earlier fixture used a local `git daemon` with `npm/app` depending on `@lab/core` through a commit pin:
 
 ```text
 npm 12.2.2 --allow-git=root, installing app only:
@@ -48,14 +80,14 @@ Installing app and core together as root dependencies, with core's specifier ide
 
 | Install shape | One instance of each internal package | Consumer settings beyond any Git install |
 | --- | --- | --- |
-| **Whole set as root dependencies** (chosen) | yes, in every tested manager | only pnpm 11/12 `blockExoticSubdeps: false` |
+| **Whole set as root dependencies** (historical choice) | yes, in every tested manager | only pnpm 11/12 `blockExoticSubdeps: false` |
 | Selected package only | yes | npm 12 `allow-git=all`, pnpm 11/12 `blockExoticSubdeps: false` |
 | Root `overrides` / `resolutions` | yes | npm 12 `allow-git=all`, pnpm 11/12 `blockExoticSubdeps: false`, plus config edits |
 | Dependents declare plain versions instead of Git pins | — | fails in pnpm, Yarn, and Bun: `@lab/core@npm:1.0.0: Package not found` (registry 404) |
 
-"One instance" was checked at runtime: app and the consumer import core and compare an exported object by identity. The pnpm gate fires for the subdependency edge even when the identical URL is also a root dependency, so pnpm 11/12 consumers always need `blockExoticSubdeps: false` for a multi-package set.
+"One instance" was checked at runtime: app and the consumer import core and compare an exported object by identity. The pnpm gate fires for the subdependency edge even when the identical URL is also a root dependency, so pnpm 11/12 consumers need `blockExoticSubdeps: false` when the install includes an internal Git runtime edge.
 
-Root specifiers are commit-pinned because a branch reference at the root would not match the commit pin inside a dependent's manifest. Each publication therefore prints an immutable set; upgrading means running the newly printed command. A package with no internal dependencies keeps the moving branch reference (`owner/repo#npm/main`), because a locked install never moves to a new branch commit on its own (`npm update`, `pnpm update`, and `bun update` move it; Yarn 4 needs `yarn up -R`).
+The old command pinned every argument because it added every required runtime target at the root. The compact command only needs to preserve that exact match for arguments that still overlap runtime pins. A locked install does not move to a new branch commit on its own (`npm update`, `pnpm update`, and `bun update` move it; Yarn 4 needs `yarn up -R`).
 
 Project behavior: [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts) ("reports separate install sets for shared runtime and peer packages", "keeps optional-only packages out of root install arguments"), [`tests/specs/publish-graph.ts`](../../tests/specs/publish-graph.ts) ("installs the required closure of an optional peer").
 

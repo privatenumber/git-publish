@@ -11,10 +11,30 @@ export const createWorkspaceResult = (
 	preparations: ReadonlyMap<string, PackagePreparation>,
 	ref: string,
 	commit: string,
+	packageManager: PackageManager,
+	fetchUrl: string,
 ) => {
 	const { edges, edgesBySource, reachable } = createInstallGraph(plan);
-	const isRequired = (edge: (typeof edges)[number]) => edge.kind === 'dependency' || edge.kind === 'peer';
+	type Edge = (typeof edges)[number];
+	const isRequired = (edge: Edge) => edge.kind === 'dependency' || edge.kind === 'peer';
+	const runtimeEdges = edges.filter(edge => edge.kind === 'dependency' || edge.kind === 'optional');
 	const orderedNames = plan.nodes.map(node => node.key);
+	const branchSpecifiers = new Map(plan.nodes.map(({ key, branch }) => [
+		key,
+		getGitHubInstallSpecifier(fetchUrl, branch) ?? toInstallSpecifier(fetchUrl, branch),
+	]));
+	const gitPolicyNote = (hasRuntimeDependencies: boolean) => {
+		if (packageManager === 'yarn') {
+			return 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml';
+		}
+		if (packageManager === 'npm') {
+			return `npm 12+: add --allow-git=${hasRuntimeDependencies ? 'all' : 'root'}`;
+		}
+		if (packageManager === 'pnpm' && hasRuntimeDependencies) {
+			return 'pnpm 11+: set blockExoticSubdeps: false in pnpm-workspace.yaml';
+		}
+		return '';
+	};
 	const results = plan.roots.map((root) => {
 		const required = reachable([root], isRequired);
 		const all = reachable([root], () => true);
@@ -26,69 +46,76 @@ export const createWorkspaceResult = (
 			...orderedNames.filter(name => name !== root && required.has(name)),
 		];
 		const optional = orderedNames.filter(name => all.has(name) && !required.has(name));
-		const names = new Map(requiredNames.map(name => [name, new Set<string>()]));
-		names.get(root)!.add(root);
+		const rootTargets = new Map([[root, root]]);
 		for (const edge of edges) {
-			if (isRequired(edge) && required.has(edge.from) && required.has(edge.target)) {
-				names.get(edge.target)!.add(edge.key);
+			if (edge.kind === 'peer' && required.has(edge.from)) {
+				rootTargets.set(edge.key, edge.target);
 			}
 		}
+		// An argument that also occurs transitively must resolve to the manifest's exact pin.
+		const runtimeTargets = new Set(
+			runtimeEdges.filter(edge => all.has(edge.from)).map(edge => edge.target),
+		);
+		const toSpecifiers = (targets: ReadonlyMap<string, string>) => (
+			[...targets].map(([name, target]) => {
+				const specifier = runtimeTargets.has(target)
+					? preparations.get(target)!.publication.installSpecifier
+					: branchSpecifiers.get(target)!;
+				return packageManager === 'yarn' || name !== target ? `${name}@${specifier}` : specifier;
+			})
+		);
+		const command = all.size === 1 && packageManager !== 'yarn'
+			? `${packageManager} i`
+			: (packageManager === 'npm' ? 'npm install' : `${packageManager} add`);
+		const installSpecifiers = toSpecifiers(rootTargets);
+		const installCommand = `${command} ${installSpecifiers.map(shellQuote).join(' ')}`;
+		const hasRuntimeDependencies = runtimeEdges.some(edge => installed.has(edge.from));
 		const peers = edges.filter(edge => (
 			(edge.kind === 'optionalPeer' || (edge.kind === 'peer' && !required.has(edge.from)))
-				&& installed.has(edge.from) && !installed.has(edge.target)
+				&& installed.has(edge.from) && !rootTargets.has(edge.key)
 		));
-		const peerClosure = reachable(peers.map(peer => peer.target), edge => (
-			isRequired(edge) && !installed.has(edge.target)
+		const optionalPeerTargets = new Map(peers.map(peer => [peer.key, peer.target]));
+		const peerClosure = reachable(optionalPeerTargets.values(), edge => (
+			edge.kind !== 'optionalPeer'
 		));
-		const peerNames = new Map<string, Set<string>>();
-		for (const peer of peers) {
-			const entries = peerNames.get(peer.target) ?? new Set<string>();
-			entries.add(peer.key);
-			peerNames.set(peer.target, entries);
-		}
 		for (const name of peerClosure) {
 			for (const edge of edgesBySource.get(name)!) {
-				if (isRequired(edge) && !installed.has(edge.target)) {
-					const entries = peerNames.get(edge.target) ?? new Set<string>();
-					entries.add(edge.key);
-					peerNames.set(edge.target, entries);
+				if (edge.kind === 'peer' && !rootTargets.has(edge.key)) {
+					optionalPeerTargets.set(edge.key, edge.target);
 				}
 			}
 		}
+		const note = gitPolicyNote(hasRuntimeDependencies);
+		const peerPolicy = gitPolicyNote(
+			hasRuntimeDependencies || runtimeEdges.some(edge => peerClosure.has(edge.from)),
+		);
+		const optionalDependencies = optional.filter(name => installed.has(name));
 		return [root, {
 			installSet: {
 				required: requiredNames,
 				optional,
+				installSpecifiers,
+				installCommand,
 			},
 			aliases: Object.fromEntries(edges.filter(edge => (
 				all.has(edge.from) && all.has(edge.target) && edge.key !== edge.target
 			)).map(edge => [edge.key, edge.target])),
-			installNames: Object.fromEntries([...names].map(([name, entries]) => (
-				[name, [...entries]]
-			))),
-			optionalInstall: {
-				dependencies: optional.filter(name => installed.has(name)),
-				peers: peers.map(peer => ({
-					name: peer.key,
-					target: peer.target,
-				})),
-				peerNames: Object.fromEntries([...peerNames].map(([name, entries]) => (
-					[name, [...entries]]
-				))),
-			},
+			notes: [
+				note,
+				optionalDependencies.length > 0
+					? `Optional workspace dependencies ${optionalDependencies.join(', ')} install transitively`
+					: '',
+				peers.length > 0
+					? `Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}: install with ${command} ${toSpecifiers(optionalPeerTargets).map(shellQuote).join(' ')}`
+					: '',
+				peerPolicy === note ? '' : `For optional peers: ${peerPolicy}`,
+			].filter(Boolean),
 		}] as const;
 	});
 	const installSets = Object.fromEntries(results.map(([root, result]) => (
 		[root, result.installSet]
 	)));
 	const aliases = Object.fromEntries(results.map(([root, result]) => [root, result.aliases]));
-	const installNames = Object.fromEntries(results.map(([root, result]) => (
-		[root, result.installNames]
-	)));
-	const optionalInstall = Object.fromEntries(results.map(([root, result]) => (
-		[root, result.optionalInstall]
-	)));
-
 	return {
 		source: {
 			ref,
@@ -109,21 +136,18 @@ export const createWorkspaceResult = (
 		aliases,
 		presentation: {
 			publishAll: plan.kind === 'workspace' && plan.selection === 'default-roots',
-			installNames,
-			optionalInstall,
+			hasRuntimeDependencies: runtimeEdges.length > 0,
+			notes: Object.fromEntries(results.map(([root, result]) => [root, result.notes])),
 		},
 	};
 };
 
 export type WorkspaceResult = ReturnType<typeof createWorkspaceResult>;
 
-export const formatWorkspaceResult = (
-	result: WorkspaceResult,
-	packageManager: PackageManager,
-	fetchUrl: string,
-	jsonPath?: string,
-) => {
-	if (result.presentation.publishAll && Object.keys(result.installSets).length > 3) {
+export const formatWorkspaceResult = (result: WorkspaceResult) => {
+	const sections = [];
+	const roots = Object.entries(result.installSets);
+	if (result.presentation.publishAll && roots.length > 3) {
 		const column = {
 			width: 'content-width',
 			paddingRight: 2,
@@ -135,50 +159,11 @@ export const formatWorkspaceResult = (
 			stdoutColumns: Number.POSITIVE_INFINITY,
 			columns: [column, column, column, column, { width: 'content-width' }],
 		}).replaceAll(/ +$/gm, '');
-		return jsonPath ? table : `${table}\nUse --json <path> for install sets.`;
+		sections.push(table);
 	}
-	const packages = new Map(result.packages.map(item => [item.name, item]));
-	const roots = Object.keys(result.installSets);
-	return roots.map((root) => {
-		const { required: names, optional } = result.installSets[root]!;
-		const packageCount = names.length + optional.length;
-		const installNames = result.presentation.installNames[root]!;
-		const argumentsList = names.flatMap((name) => {
-			const item = packages.get(name)!;
-			const specifier = packageCount === 1
-				? (getGitHubInstallSpecifier(fetchUrl, item.branch)
-					?? toInstallSpecifier(fetchUrl, item.branch))
-				: item.installSpecifier;
-			return installNames[name]!.map(installName => shellQuote(
-				packageManager === 'yarn' || installName !== name ? `${installName}@${specifier}` : specifier,
-			));
-		});
-		const command = packageCount === 1 && packageManager !== 'yarn'
-			? `${packageManager} i`
-			: (packageManager === 'npm' ? 'npm install' : `${packageManager} add`);
-		let notes = '';
-		if (packageManager === 'yarn') {
-			notes = 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml';
-		} else if (packageManager === 'npm') {
-			notes = 'npm 12+: add --allow-git=root';
-		} else if (packageCount > 1 && packageManager === 'pnpm') {
-			notes = 'pnpm 11+: set blockExoticSubdeps: false in pnpm-workspace.yaml';
-		}
-		const title = roots.length === 1 && packageCount === 1 ? 'command' : root;
-		const { peers: optionalPeers, dependencies: optionalDependencies, peerNames } = (
-			result.presentation.optionalInstall[root]!
-		);
-		const optionalNote = optionalDependencies.length > 0
-			? `\n  Optional workspace dependencies ${optionalDependencies.join(', ')} install transitively (npm 12 needs --allow-git=all for them)`
-			: '';
-		const peerArguments = Object.entries(peerNames).flatMap(([target, aliases]) => (
-			aliases.map(name => shellQuote(packageManager === 'yarn' || name !== target
-				? `${name}@${packages.get(target)!.installSpecifier}`
-				: packages.get(target)!.installSpecifier))
-		));
-		const peerNote = optionalPeers.length > 0
-			? `\n  Optional peers ${optionalPeers.map(peer => peer.name).join(', ')}: install with ${command} ${peerArguments.join(' ')}`
-			: '';
-		return `→ Install ${title}\n  ${command} ${argumentsList.join(' ')}${notes ? `\n  ${notes}` : ''}${optionalNote}${peerNote}`;
-	}).join('\n\n');
+	for (const [root, set] of roots) {
+		const title = roots.length === 1 && set.required.length === 1 && set.optional.length === 0 ? 'command' : root;
+		sections.push([`→ Install ${title}`, set.installCommand, ...result.presentation.notes[root]!].join('\n  '));
+	}
+	return sections.join('\n\n');
 };
