@@ -18,6 +18,7 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 | Publish to another remote, such as a fork | `npx git-publish --remote fork` or `--remote git@github.com:owner/repo.git` |
 | Choose the branch | `npx git-publish --branch preview` or a template: `--branch 'preview/{package}'` (`{gitRef}`, `{gitSha}`, `{package}`) |
 | Replace the branch history with one commit | `npx git-publish --fresh` (force-pushes) |
+| Record the source commit in each published `package.json` (`version` gets `+sha-<commit>`, `gitHead` the full commit) | `npx git-publish --version-sha` |
 | Get machine-readable results, such as for a PR comment | `npx git-publish --json result.json` |
 
 `--fresh` rewrites the published branch, and an existing lockfile pinned to an old commit can stop installing once that commit is garbage-collected. Use it only when the user asks for it.
@@ -56,6 +57,8 @@ For a private repository, the installing machine needs Git access to it (for Git
 | `Cannot publish packages with workspace dependencies` | A standalone package outside a workspace declares `workspace:` dependencies. Run from the workspace, or bundle them. |
 | `requires peer` or `in workspace range` | A packed peer range or explicit `workspace:` range does not match the target's version. Fix the range in the source manifest. |
 | `changed during packing` or `has unresolved` | A lifecycle hook rewrote an internal dependency, or the packed manifest still contains a `workspace:` value. Hooks may remove internal dependencies but not change or add them. |
+| `not valid semver` or `already has build metadata` | With `--version-sha`, the source version is not valid semver, already has `+...` build metadata, or would exceed node-semver's 256-character limit with the version SHA added. Fix the source `version`. |
+| `changed the version` | With `--version-sha`, the packed version differs from the version with its SHA. Either a lifecycle script rewrote `version`, or the package manager's pack configuration packs a different manifest, such as pnpm `publishConfig.directory`. Stop the script from changing `version`, or publish without `--version-sha`. |
 | `push URLs` | Every publication needs one push destination. Use separate remotes or `--remote <url>`, and run once per destination. |
 | `"files" lists paths that were not published` (warning) | The build did not run or the entry is wrong. Build before publishing or fix `files`. |
 

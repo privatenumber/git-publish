@@ -7,7 +7,12 @@ import task from '../utils/task.ts';
 import { createPublishRepository } from '../publish-repository/create.ts';
 import { loadPublishBranches } from '../publish-repository/prepare-branch.ts';
 import type { PublishRemote } from '../publish-repository/remote.ts';
-import { preparePackagePublication, type PackagePreparation, type PackagePublication } from '../package-publication/prepare.ts';
+import {
+	formatPublicationMessage,
+	preparePackagePublication,
+	type PackagePreparation,
+	type PackagePublication,
+} from '../package-publication/prepare.ts';
 import { readPackagePublicationPushTips, pushPackagePublications, type PackagePublicationPushMode } from '../package-publication/push.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
@@ -16,6 +21,7 @@ import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import { assertSourceUnchanged, type Source } from '../utils/git.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 import { validatePeerRanges } from '../package-publication/validate.ts';
+import type { VersionSha } from '../package-publication/version-sha.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 import { createInstallGraph } from './install-graph.ts';
 
@@ -27,6 +33,7 @@ export const publishWorkspaceClosure = async ({
 	pushMode,
 	source,
 	fresh,
+	versionShas,
 }: {
 	plan: WorkspacePublicationPlan;
 	packageManager: PackageManager;
@@ -35,6 +42,7 @@ export const publishWorkspaceClosure = async ({
 	pushMode: PackagePublicationPushMode;
 	source: Source;
 	fresh: boolean | undefined;
+	versionShas: ReadonlyMap<string, VersionSha>;
 }, signal: AbortSignal): Promise<{ plan: WorkspacePublicationPlan;
 	preparations: ReadonlyMap<string, PackagePreparation>; }> => {
 	const repository = await createPublishRepository({
@@ -66,6 +74,7 @@ export const publishWorkspaceClosure = async ({
 			startTime,
 		}: TaskInnerAPI) => {
 			const node = plan.nodes[index]!;
+			const versionSha = versionShas.get(node.key);
 			signal.throwIfAborted();
 			startTime();
 			try {
@@ -86,6 +95,7 @@ export const publishWorkspaceClosure = async ({
 					node.package.dir,
 					repositoryPath,
 					path.relative(repositoryPath, node.package.dir),
+					versionSha,
 					signal,
 				);
 				setStatus('Preparing publication commit');
@@ -111,7 +121,11 @@ export const publishWorkspaceClosure = async ({
 					parent: existingBranches.has(node.branch) ? branches[index]!.localRef : undefined,
 					branch: node.branch,
 					fetchUrl: publishRemote.installUrl,
-					commitMessage: `Published ${plan.kind === 'standalone' ? '' : `${JSON.stringify(node.key)} `}from ${JSON.stringify(source.name)} (${source.shortCommit})`,
+					commitMessage: formatPublicationMessage(
+						plan.kind === 'standalone' ? undefined : node.key,
+						source.name,
+						source.shortCommit,
+					),
 					dependencyEdges: node.dependencies,
 					dependencyPublications,
 					validationContext: {
@@ -121,6 +135,7 @@ export const publishWorkspaceClosure = async ({
 						targets,
 					},
 					peers: plan.peers.filter(peer => peer.from === node.key),
+					versionSha,
 					gitOptions: repository.gitOptions,
 					signal,
 				});
