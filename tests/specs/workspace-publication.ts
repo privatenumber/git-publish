@@ -2037,6 +2037,41 @@ exec '${npmPath}' "$@"
 		expect(json.aliases).toStrictEqual({ app: { alias: 'core' } });
 	});
 
+	test('omits an optional peer already supplied by a required runtime dependency', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': '{"private":true,"workspaces":["packages/*"]}',
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+				peerDependencies: { core: '^1.0.0' },
+				peerDependenciesMeta: { core: { optional: true } },
+			}),
+			'packages/app/index.js': 'module.exports = require("core");',
+			'packages/core/package.json': '{"name":"core","version":"1.0.0"}',
+			'packages/core/index.js': 'module.exports = 42;',
+		}, ['--initial-branch=overlap']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.path, ['app']);
+		onTestFail(() => console.log(result));
+		expect('exitCode' in result).toBe(false);
+		const specifier = `git+${pathToFileURL(remote.path).href}#npm/overlap-app`;
+		expect(result.stdout).toContain(`npm install '${specifier}'\n  npm 12+: add --allow-git=all`);
+		expect(result.stdout).not.toContain('Optional peers');
+
+		await using consumer = await createFixture({ 'package.json': '{}' });
+		await remote.git('symbolic-ref', ['HEAD', 'refs/heads/npm/overlap-app']);
+		await spawn(npmPath, ['install', '--allow-git=all', '--no-audit', '--no-fund', specifier], {
+			cwd: consumer.path,
+		});
+		const { stdout } = await spawn(process.execPath, ['-p', 'require("app")'], { cwd: consumer.path });
+		expect(stdout).toBe('42');
+	});
+
 	test('keeps optional-only packages out of root install arguments', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({

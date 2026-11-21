@@ -17,6 +17,11 @@ export const createWorkspaceResult = (
 	const { edges, edgesBySource, reachable } = createInstallGraph(plan);
 	type Edge = (typeof edges)[number];
 	const isRequired = (edge: Edge) => edge.kind === 'dependency' || edge.kind === 'peer';
+	const followUpPeers = edges.filter(edge => (
+		edge.kind === 'peer' || (edge.kind === 'optionalPeer' && !edgesBySource.get(edge.from)!.some(runtime => (
+			runtime.kind === 'dependency' && runtime.key === edge.key && runtime.target === edge.target
+		)))
+	));
 	const orderedNames = plan.nodes.map(node => node.key);
 	const singlePackage = plan.nodes.length === 1 && edges.length === 0 ? plan.nodes[0] : undefined;
 	// Yarn expands GitHub shorthand to HTTPS, even for an SSH remote.
@@ -84,7 +89,7 @@ export const createWorkspaceResult = (
 			: (packageManager === 'npm' ? 'npm install' : `${packageManager} add`);
 		const { args: installSpecifiers, directSpecifiers } = getInstallArguments(rootTargets);
 		const installCommand = `${command} ${installSpecifiers.map(shellQuote).join(' ')}`;
-		const peers = edges.filter(edge => (
+		const peers = followUpPeers.filter(edge => (
 			(edge.kind === 'optionalPeer' || (edge.kind === 'peer' && !required.has(edge.from)))
 				&& installed.has(edge.from) && !rootTargets.has(edge.key)
 		));

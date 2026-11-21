@@ -1,7 +1,7 @@
 import path from 'node:path';
 import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
-import { isLocalGitUrl, toPackageManagerGitUrl } from '../utils/git-url.ts';
+import { isLocalGitUrl, parseGitUrl, toPackageManagerGitUrl } from '../utils/git-url.ts';
 import { getPublicationUrls } from './destination.ts';
 
 export type PublishRemote = {
@@ -105,9 +105,16 @@ export const getPublishRemote = async (
 		: url);
 	toPackageManagerGitUrl(installPushUrl, safeName);
 	const publicationUrls = getPublicationUrls(fetchUrl, installPushUrl, repositoryPath);
+	// Turning a filesystem alias into a file URL can invalidate its rewrite prefix.
+	const installUrl = parseGitUrl(publicationUrls.installUrl).kind === 'local'
+		? pushUrl
+		: publicationUrls.installUrl;
+	if (installUrl !== installPushUrl) {
+		toPackageManagerGitUrl(installUrl, safeName);
+	}
 	return {
 		pushUrl: normalizeLocal(pushUrl),
-		installUrl: normalizeLocal(publicationUrls.installUrl),
+		installUrl: normalizeLocal(installUrl),
 		historyUrl: normalizeLocal(publicationUrls.useFetchForHistory ? expandedFetch : pushUrl),
 		configuredName,
 	};

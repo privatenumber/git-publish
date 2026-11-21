@@ -57,15 +57,16 @@ export const serializeGitConfig = ({ key, value }: GitConfigEntry) => {
 	return `[${section}${subsection}]\n\t${variable} = "${escapedValue}"\n`;
 };
 
-const isPortableGitConfig = ({ key }: GitConfigEntry) => key !== 'core.bare'
+const isUrlRewrite = (key: string) => /^url\..*\.(?:push)?insteadof$/s.test(key);
+
+const isTransportConfig = (key: string) => key !== 'core.bare'
 	&& key !== 'core.worktree'
 	&& key !== 'core.repositoryformatversion'
 	&& !key.startsWith('extensions.')
 	&& key !== 'include.path'
-	&& !key.startsWith('includeif.');
-
-const isUrlRewrite = (key: string) => /^url\..*\.(?:push)?insteadof$/s.test(key);
-const isInclude = (key: string) => key === 'include.path' || key.startsWith('includeif.');
+	&& !key.startsWith('includeif.')
+	&& !key.startsWith('remote.')
+	&& !isUrlRewrite(key);
 
 export const getTransportConfigParameters = async (options: SpawnOptions) => {
 	if (!process.env.GIT_CONFIG_COUNT && !process.env.GIT_CONFIG_PARAMETERS) {
@@ -82,7 +83,7 @@ export const getTransportConfigParameters = async (options: SpawnOptions) => {
 		const entry = fields[index + 1]!;
 		const separator = entry.indexOf('\n');
 		const key = separator === -1 ? entry : entry.slice(0, separator);
-		if (!isUrlRewrite(key) && !isInclude(key)) {
+		if (isTransportConfig(key)) {
 			parameters.push(separator === -1
 				? `${shellQuote(key)}=`
 				: `${shellQuote(key)}=${shellQuote(entry.slice(separator + 1))}`);
@@ -113,9 +114,7 @@ export const materializePublishGitConfig = async ({
 	const remoteConfig = remoteConfigPrefix
 		? sourceConfig.filter(({ key }) => key.startsWith(remoteConfigPrefix) && key !== `${remoteConfigPrefix}url` && key !== `${remoteConfigPrefix}pushurl`)
 		: [];
-	const publishConfig = sourceConfig.filter(entry => (
-		!entry.key.startsWith('remote.') && isPortableGitConfig(entry) && !isUrlRewrite(entry.key)
-	));
+	const publishConfig = sourceConfig.filter(({ key }) => isTransportConfig(key));
 	const writes = await Promise.allSettled([
 		fs.writeFile(systemConfigPath, publishConfig.filter(({ scope }) => scope === 'system').map(serializeGitConfig).join('')),
 		fs.writeFile(globalConfigPath, publishConfig.filter(({ scope }) => scope === 'global').map(serializeGitConfig).join('')),

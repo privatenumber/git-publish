@@ -543,6 +543,64 @@ describe('Remote transport', async () => {
 		expect(await upstream.git('for-each-ref')).toBe('');
 	});
 
+	test('does not inherit command-scope URLs for generated publication remotes', async () => {
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using other = await createGitFixture(undefined, ['--bare']);
+		await using source = await createGitFixture({
+			'package.json': '{"name":"app","version":"1.0.0"}',
+		}, ['--initial-branch=source']);
+		await source.git('add', ['.']);
+		await source.git('commit', ['-m', 'Initial commit']);
+		await source.git('remote', ['add', 'origin', destination.path]);
+		// Use different URLs for history and push, both pointing at the intended repo.
+		await source.git('config', ['remote.origin.pushurl', pathToFileURL(destination.path).href]);
+
+		const environment = {
+			GIT_CONFIG_COUNT: '3',
+			GIT_CONFIG_KEY_0: 'remote.publish.pushurl',
+			GIT_CONFIG_VALUE_0: other.path,
+			// Reset the history URL before appending, so Git would read from other.
+			GIT_CONFIG_KEY_1: 'remote.publish-source.url',
+			GIT_CONFIG_VALUE_1: '',
+			GIT_CONFIG_KEY_2: 'remote.publish-source.url',
+			GIT_CONFIG_VALUE_2: other.path,
+		};
+		const result = await gitPublish(source.path, [], environment);
+		onTestFail(() => console.log(result));
+		expect('exitCode' in result).toBe(false);
+		expect(await destination.git('for-each-ref', ['--format=%(refname)'])).toBe('refs/heads/npm/source');
+		expect(await other.git('for-each-ref')).toBe('');
+		const repeat = await gitPublish(source.path, [], environment);
+		expect('exitCode' in repeat).toBe(false);
+		expect(repeat.stdout).toContain('Unchanged; reusing existing commit');
+	});
+
+	for (const kind of ['relative', 'absolute']) {
+		test(`prints an installable URL for a rewritten ${kind} filesystem path`, async () => {
+			await using destination = await createGitFixture(undefined, ['--bare']);
+			await using source = await createGitFixture({
+				'package.json': '{"name":"app","version":"1.0.0"}',
+			}, ['--initial-branch=source']);
+			await using consumer = await createFixture({ 'package.json': '{}' });
+			await source.git('add', ['.']);
+			await source.git('commit', ['-m', 'Initial commit']);
+			const alias = kind === 'relative' ? '../alias.git' : source.getPath('alias.git');
+			await source.git('remote', ['add', 'origin', alias]);
+			const globalConfig = consumer.getPath('gitconfig');
+			await spawn('git', ['config', '--file', globalConfig, `url.${destination.path}.insteadOf`, alias]);
+			const result = await gitPublish(source.path, [], { GIT_CONFIG_GLOBAL: globalConfig });
+			onTestFail(() => console.log(result));
+			expect('exitCode' in result).toBe(false);
+			const specifier = `git+${pathToFileURL(destination.path).href}#npm/source`;
+			expect(result.stdout).toContain(`npm i '${specifier}'`);
+			await destination.git('symbolic-ref', ['HEAD', 'refs/heads/npm/source']);
+			await spawn('npm', ['install', '--allow-git=root', '--no-audit', '--no-fund', specifier], {
+				cwd: consumer.path,
+			});
+			expect(await consumer.exists('node_modules/app/package.json')).toBe(true);
+		});
+	}
+
 	for (const kind of ['named', 'literal']) {
 		test(`ignores an empty push-only rewrite for a ${kind} remote`, async () => {
 			await using destination = await createGitFixture(undefined, ['--bare']);
