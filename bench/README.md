@@ -7,7 +7,7 @@ pnpm bench
 pnpm bench --packages 40 --runs 5 --package-manager npm
 ```
 
-`pnpm bench` builds `dist/` first. To skip the build, run `node bench/index.ts` instead.
+`pnpm bench` builds `dist/` first. To skip the build, run `node bench/index.ts` instead. Run `node bench/index.ts --help` to list the options.
 
 ## Workspace
 

@@ -1,57 +1,66 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
-import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import spawn from 'nano-spawn';
 import { createFixture, type FileTree } from 'fs-fixture';
+import { cli } from 'cleye';
+import { Integer, OneOf } from 'cleye/formats';
 
-const { values: options } = parseArgs({
-	options: {
+const scenarioNames = ['plan', 'publish', 'republish', 'select'] as const;
+
+const IntegerAtLeast = (minimum: number) => (value: string) => {
+	const number = Integer(value);
+	if (number < minimum) {
+		throw new Error(`Expected an integer of at least ${minimum} (got: ${number})`);
+	}
+	return number;
+};
+
+const { flags } = cli({
+	name: 'bench',
+	strictFlags: true,
+	flags: {
 		packages: {
-			type: 'string',
-			default: '20',
+			// select publishes app-1, which needs at least one library and two apps
+			type: IntegerAtLeast(3),
+			placeholder: '<count>',
+			description: 'Number of packages in the generated workspace',
+			default: 20,
 		},
 		runs: {
-			type: 'string',
-			default: '3',
+			type: IntegerAtLeast(1),
+			placeholder: '<count>',
+			description: 'Timed runs per scenario, after one warmup run',
+			default: 3,
 		},
-		'package-manager': {
-			type: 'string',
+		packageManager: {
+			type: OneOf(['pnpm', 'npm']),
+			description: 'Package manager that installs the workspace',
 			default: 'pnpm',
 		},
 		scenario: {
-			type: 'string',
-			multiple: true,
+			type: [OneOf(scenarioNames)],
+			description: 'Scenario to run; repeat to run several (default: all)',
 		},
 		cli: {
-			type: 'string',
-			multiple: true,
-			default: [path.join(import.meta.dirname, '../dist/index.js')],
+			type: [String],
+			placeholder: '<path>',
+			description: 'Built CLI to time; repeat to compare builds (default: dist/index.js)',
 		},
-		json: { type: 'string' },
+		json: {
+			type: String,
+			placeholder: '<path>',
+			description: 'Write the results as JSON',
+		},
 	},
 });
 
-const scenarioNames = ['plan', 'publish', 'republish', 'select'];
-const packageCount = Number(options.packages);
-const runs = Number(options.runs);
-const packageManager = options['package-manager'];
-const cliPaths = options.cli.map(cliPath => path.resolve(cliPath));
-const selectedNames = options.scenario ?? scenarioNames;
-if (!Number.isInteger(packageCount) || packageCount < 3) {
-	throw new Error('--packages must be an integer of at least 3');
-}
-if (!Number.isInteger(runs) || runs < 1) {
-	throw new Error('--runs must be a positive integer');
-}
-if (packageManager !== 'pnpm' && packageManager !== 'npm') {
-	throw new Error('--package-manager must be pnpm or npm');
-}
-const unknownScenario = selectedNames.find(name => !scenarioNames.includes(name));
-if (unknownScenario) {
-	throw new Error(`Unknown scenario ${JSON.stringify(unknownScenario)}. Choose from: ${scenarioNames.join(', ')}`);
-}
+const packageCount = flags.packages;
+const { runs, packageManager } = flags;
+const cliPaths = (flags.cli.length > 0 ? flags.cli : [path.join(import.meta.dirname, '../dist/index.js')])
+	.map(cliPath => path.resolve(cliPath));
+const selectedNames: readonly string[] = flags.scenario.length > 0 ? flags.scenario : scenarioNames;
 if (new Set(cliPaths).size !== cliPaths.length) {
 	throw new Error('Each --cli path must be different');
 }
@@ -256,18 +265,18 @@ const median = (values: number[]) => {
 
 const seconds = (milliseconds: number) => `${(milliseconds / 1000).toFixed(2)}s`;
 
-const clis: Cli[] = [];
+const builds: Cli[] = [];
 for (const cliPath of cliPaths) {
-	const cli: Cli = { cliPath };
+	const build: Cli = { cliPath };
 	// A remote per CLI keeps republish a no-change run even if builds pack differently
 	if (selectedNames.includes('republish')) {
-		cli.populatedRemote = await createRemote();
-		await runCli(cliPath, ['--remote', cli.populatedRemote], {
+		build.populatedRemote = await createRemote();
+		await runCli(cliPath, ['--remote', build.populatedRemote], {
 			names: allPackages,
 			check: 'published',
 		});
 	}
-	clis.push(cli);
+	builds.push(build);
 }
 
 const [loadAverage] = os.loadavg();
@@ -277,37 +286,37 @@ console.log(`Node.js ${process.version}, ${os.availableParallelism()} CPUs, load
 const results = [];
 for (const scenario of scenarios.filter(({ name }) => selectedNames.includes(name))) {
 	console.log(`\n${scenario.name}: ${scenario.description}`);
-	const samples = new Map(clis.map(cli => [cli, [] as Awaited<ReturnType<typeof runCli>>[]]));
+	const samples = new Map(builds.map(build => [build, [] as Awaited<ReturnType<typeof runCli>>[]]));
 	for (let round = 0; round <= runs; round += 1) {
 		// Rotate the order every round so no build always runs first
-		for (let offset = 0; offset < clis.length; offset += 1) {
-			const cli = clis[(round + offset) % clis.length]!;
-			const sample = await runCli(cli.cliPath, await scenario.getArguments(cli), scenario);
+		for (let offset = 0; offset < builds.length; offset += 1) {
+			const build = builds[(round + offset) % builds.length]!;
+			const sample = await runCli(build.cliPath, await scenario.getArguments(build), scenario);
 			if (round > 0) {
-				samples.get(cli)!.push(sample);
+				samples.get(build)!.push(sample);
 			}
 		}
 	}
-	for (const cli of clis) {
-		const cliSamples = samples.get(cli)!;
-		const wall = cliSamples.map(sample => sample.wall);
+	for (const build of builds) {
+		const buildSamples = samples.get(build)!;
+		const wall = buildSamples.map(sample => sample.wall);
 		const result = {
 			scenario: scenario.name,
-			cli: cli.cliPath,
+			cli: build.cliPath,
 			published: scenario.check === 'planned' ? 0 : scenario.names.length,
 			wallMedian: median(wall),
 			wallMin: Math.min(...wall),
 			wallMax: Math.max(...wall),
-			cpuMedian: median(cliSamples.map(sample => sample.cpu)),
+			cpuMedian: median(buildSamples.map(sample => sample.cpu)),
 		};
 		results.push(result);
 		const perPackage = result.published > 0 ? `  ${seconds(result.wallMedian / result.published)} per package` : '';
-		console.log(`  ${seconds(result.wallMedian).padStart(7)} median (${seconds(result.wallMin)} to ${seconds(result.wallMax)})  CLI CPU ${seconds(result.cpuMedian)}${perPackage}  ${cli.cliPath}`);
+		console.log(`  ${seconds(result.wallMedian).padStart(7)} median (${seconds(result.wallMin)} to ${seconds(result.wallMax)})  CLI CPU ${seconds(result.cpuMedian)}${perPackage}  ${build.cliPath}`);
 	}
 }
 
-if (options.json) {
-	await fs.writeFile(options.json, `${JSON.stringify({
+if (flags.json) {
+	await fs.writeFile(flags.json, `${JSON.stringify({
 		packages: packageCount,
 		libraries: libraryCount,
 		packageManager,
