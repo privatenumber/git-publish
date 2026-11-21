@@ -50,6 +50,12 @@ These fixtures installed `app`, whose manifest used the selector below for `core
 | `heads/core`, `refs/heads/core` | Branch | Other branch | Branch | Other branch |
 | `HEAD` | Default branch | Default branch | Default branch | Default branch |
 | `head`, `HeAd` | Branch | Branch | Branch | Default branch |
+| `@` | Branch | Branch | Not tested | Default branch |
+| `FETCH_HEAD` | Branch | Branch | Not tested | Cold cache: branch. Warm cache, no lockfile: default branch. |
+| `ORIG_HEAD`, `MERGE_HEAD`, `AUTO_MERGE`, `ABC`, `_` | Not tested | Not tested | Not tested | Branch |
+| `npm/@`, `@/npm`, `npm/@/core`, `npm/-main`, `a.b`, `a@b`, `ABC1`, `fetch_head`, `HEAD/foo` | Not tested | Not tested | Not tested | Branch |
+| `-main`, `--all` | Not tested | Not tested | Not tested | Branch if manually pushed; Git rejects these as branch names |
+| `a..b`, `npm/.a` | Not tested | Not tested | Not tested | Error; Git rejects the ref |
 | 3 to 6 lowercase hex digits | Branch | Branch | Branch | Branch |
 | 7, 8, 12, 32, or 39 lowercase hex digits | Branch | Error | Branch | Branch |
 | 40 lowercase hex digits, no object with that ID | Error | Error | Error | Error |
@@ -59,14 +65,32 @@ These fixtures installed `app`, whose manifest used the selector below for `core
 
 In a separate fixture, Bun accepted a 40-hex branch named after an existing Git object, recorded the branch name instead of its resolved tip in the lockfile, then advanced the dependency on a cold frozen install. The all-hex errors above used names that were not object IDs.
 
-Planning now checks every rendered name, including in `--dry`. Allow ASCII letters, digits, and `. _ / @ -` so default branches for scoped packages still work. Do not allow `refs/`, `heads/`, `tags/`, or `remotes/` at the start (`remotes/` is another Git ref namespace). Reject `HEAD` in any case and whole names of 7 to 64 hexadecimal digits, case-insensitively. pnpm starts interpreting hex as a commit at seven digits; npm's [Pacote hash matcher at v12.2.3](https://github.com/npm/cli/blob/v12.2.3/node_modules/pacote/lib/git.js#L13) covers 40 to 64, and Bun also interprets uppercase 40-hex names as commits. Git branch validation still applies. The allowlist deliberately omits punctuation outside common branch and package names even when a tested spelling worked.
+To reproduce the warm-cache `FETCH_HEAD` result, run `bun install --cache-dir <shared-cache>` in two fresh consumer directories with no lockfiles. Both depend on `app` at `#npm/app`; `app` depends on `core` at `#FETCH_HEAD` in the same repository. Set the default branch to `main` and put different `core` content on each branch. The first install created no top-level `FETCH_HEAD` in the cache. The second fetched into that cache, wrote `FETCH_HEAD` with the remote default commit first, then installed and locked that commit instead of `refs/heads/FETCH_HEAD`.
+
+Planning checks every rendered name, including in `--dry`. Allow ASCII letters, digits, and `. _ / @ -` so default branches for scoped packages still work. Do not allow `refs/`, `heads/`, `tags/`, or `remotes/` at the start (`remotes/` is another Git ref namespace). Reject bare `@`, `HEAD` in any case, top-level names made only of uppercase letters and underscores, and whole names of 7 to 64 hexadecimal digits, case-insensitively. [Git treats `@` as `HEAD`](https://github.com/git/git/blob/v2.54.0/Documentation/revisions.adoc?plain=1#L86-L87) and [looks at top-level ref files before branch names](https://github.com/git/git/blob/v2.54.0/Documentation/revisions.adoc?plain=1#L26-L47). pnpm starts interpreting hex as a commit at seven digits; npm's [Pacote hash matcher at v12.2.3](https://github.com/npm/cli/blob/v12.2.3/node_modules/pacote/lib/git.js#L13) covers 40 to 64, and Bun also interprets uppercase 40-hex names as commits. Git branch validation still applies. The allowlist deliberately omits punctuation outside common branch and package names even when a tested spelling worked.
 
 Upstream selector behavior, at the inspected versions:
 
 - npm: a bare name takes the last advertised ref with that short name ([lines-to-revs.js at v12.2.3](https://github.com/npm/cli/blob/v12.2.3/node_modules/@npmcli/git/lib/lines-to-revs.js#L100-L135)).
 - pnpm: a bare name prefers a tag ([resolve_ref.rs at v12.21.0](https://github.com/pnpm/pnpm/blob/v12.21.0/pnpm/crates/resolving-git-resolver/src/resolve_ref.rs#L159-L177)).
 - Yarn: a bare name tries a commit, then a tag, then a branch; `head=` selects a branch ([gitUtils.ts at 4.18.1](https://github.com/yarnpkg/berry/blob/@yarnpkg/cli/4.18.1/packages/plugin-git/sources/gitUtils.ts#L182-L240)).
-- Bun: the selector goes to `git log`, so Git's ref precedence applies ([git_runner.rs at bun-v1.4.5](https://github.com/oven-sh/bun/blob/bun-v1.4.5/src/install/git_runner.rs#L1067-L1103), [gitrevisions](https://git-scm.com/docs/gitrevisions)).
+- Bun: the selector goes to `git log`, so Git's ref precedence applies ([git_runner.rs at bun-v1.4.4](https://github.com/oven-sh/bun/blob/bun-v1.4.4/src/install/git_runner.rs#L1067-L1103), [gitrevisions](https://git-scm.com/docs/gitrevisions)).
+
+### Install policy for packed dependencies
+
+Use the packed `dependencies` and `optionalDependencies` for install guidance. An optional dependency overrides a dependency with the same key. npm's `--allow-git=all` is needed when `npm-package-arg@14.0.0` returns `type: 'git'` from `resolve(name, specifier)`. pnpm's `blockExoticSubdeps` also blocks direct HTTP(S) tarball URLs as subdependencies, and does not block local `file:` sources ([pnpm 12.21.0 setting](https://github.com/pnpm/pnpm/blob/v12.21.0/pnpm/docs/settings/dependency-resolution.md?plain=1#L479-L490), [allowed resolver sources](https://github.com/pnpm/pnpm/blob/v12.21.0/pnpm/crates/resolving-deps-resolver/src/resolve_dependency_tree/manifest.rs#L455-L470)). For guidance, both Git and remote URLs from the npm parser count toward pnpm's setting. pnpm also accepts plain `ssh:` as Git ([Git resolver at 12.21.0](https://github.com/pnpm/pnpm/blob/v12.21.0/pnpm/crates/resolving-git-resolver/src/parse_bare_specifier.rs#L61-L77)).
+
+The npm column is the parser result. For pnpm, `app` was installed over `git+file:` and declared each example as a runtime dependency. Hosted Git URLs and the generic `.git` URL were rewritten to a local repository with Git `insteadOf`; a loopback HTTP server served the tarball. Each row used a fresh consumer and store, with `pnpm install --config.block-exotic-subdeps=true` and again with `false`.
+
+| `core` specifier in `app` | npm parser type | pnpm 12.21.0 with blocking enabled | With blocking disabled |
+| --- | --- | --- | --- |
+| `git+file:///path/to/repo#core` | `git` | `ERR_PNPM_EXOTIC_SUBDEP` | Installed |
+| `git@github.com:example/core.git#core` | `git` | `ERR_PNPM_EXOTIC_SUBDEP` | Installed |
+| `https://gitlab.com/example/core.git#core` | `git` | `ERR_PNPM_EXOTIC_SUBDEP` | Installed |
+| Generic `http://host/core.git#core` or `https://host/core.git#core` | `remote` | `ERR_PNPM_EXOTIC_SUBDEP` | Installed |
+| `ssh://git@host/core.git#core` | `EUNSUPPORTEDPROTOCOL` | `ERR_PNPM_EXOTIC_SUBDEP` | Installed |
+| Direct `http://host/core.tgz` | `remote` | `ERR_PNPM_EXOTIC_SUBDEP` | Installed |
+| `file:./core.tgz` (tarball available in consumer) | `file` | Installed | Installed |
 
 ## Experiment
 

@@ -59,7 +59,7 @@ export const publishWorkspaceClosure = async ({
 			publishBranch: node.branch,
 			localRef: `refs/git-publish/tips/${index}`,
 		}));
-		const { existingBranches, remoteTips } = await loadPublishBranches(
+		const remoteTips = await loadPublishBranches(
 			repository, publishRemote, branches, pushMode, signal,
 		);
 		const preparations = new Map<string, PackagePreparation>();
@@ -117,7 +117,9 @@ export const publishWorkspaceClosure = async ({
 					sourceManifest: node.package.packageJson,
 					packedTarball: tarball,
 					importRef: `refs/git-publish/${index}`,
-					parent: existingBranches.has(node.branch) ? branches[index]!.localRef : undefined,
+					parent: pushMode === 'normal' && remoteTips.has(node.branch)
+						? branches[index]!.localRef
+						: undefined,
 					branch: node.branch,
 					commitMessage: formatPublicationMessage(
 						plan.kind === 'standalone' ? undefined : node.key,

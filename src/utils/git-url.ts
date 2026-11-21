@@ -142,18 +142,6 @@ export const getGitHubInstallSpecifier = (remoteUrl: string, revision: string) =
 	return repositoryName ? `${repositoryName}#${revision}` : undefined;
 };
 
-export const isGitDependencySpecifier = (specifier: string) => {
-	if (/^(?:git(?:\+[a-z]+)?|ssh|github|gitlab|bitbucket|gist):/i.test(specifier)) {
-		return true;
-	}
-	if (/^https?:\/\//i.test(specifier)) {
-		const { host, path: pathname } = parseGitUrl(specifier);
-		return pathname.endsWith('.git') || ((hostedGitHosts.has(host ?? '') || host === 'gist.github.com')
-			&& /^\/[\w.-]+(?:\/[\w.-]+)?\/?$/.test(pathname));
-	}
-	return /^(?!\.{1,2}\/|node_modules\/)[\w.-]+\/[\w.-]+(?:#.*)?$/.test(specifier);
-};
-
 export const redactRemote = (value: string) => value
 	.replaceAll(/(?<=^|\s)([a-z][a-z\d+.-]*::)[^\r\n]*/gi, '$1[redacted]')
 	.replaceAll(/(\b(?:git\+)?([a-z][a-z\d+.-]*):\/\/)(\S+)/gi, (match, prefix: string, scheme: string, rest: string) => {

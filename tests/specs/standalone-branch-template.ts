@@ -14,8 +14,27 @@ describe('Standalone branch templates', () => {
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial commit']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
-		for (const branch of ["preview/it's", 'preview/a#b', 'refs/tags/test-package', 'heads/core', 'tags/core', 'remotes/core', 'HeAd', 'abcdef0', 'A'.repeat(40), 'a'.repeat(64)]) {
-			const result = await gitPublish(fixture.path, ['--dry', '--branch', branch]);
+		for (const branch of [
+			"preview/it's",
+			'preview/a#b',
+			'refs/tags/test-package',
+			'heads/core',
+			'tags/core',
+			'remotes/core',
+			'@',
+			'HeAd',
+			'FETCH_HEAD',
+			'ORIG_HEAD',
+			'ABC',
+			'_',
+			'abcdef0',
+			'A'.repeat(40),
+			'a'.repeat(64),
+			'-main',
+			'a..b',
+			'npm/.a',
+		]) {
+			const result = await gitPublish(fixture.path, ['--dry', `--branch=${branch}`]);
 			expect('exitCode' in result && result.exitCode).toBe(1);
 			expect(result.output).toContain(`Invalid publish branch "${branch}"`);
 			expect(result.output).toContain("--branch 'preview/{package}'");

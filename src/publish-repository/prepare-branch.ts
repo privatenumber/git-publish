@@ -38,7 +38,6 @@ export const loadPublishBranches = async (
 			references.set(ref, sha!);
 		}
 	}
-	const existingBranches = new Set<string>();
 	const remoteTips = new Map<string, string>();
 	const refspecs: string[] = [];
 	for (const { publishBranch, localRef } of branches) {
@@ -47,11 +46,11 @@ export const loadPublishBranches = async (
 			throw new Error(`Remote tag ${JSON.stringify(tag)} conflicts with publish branch ${JSON.stringify(publishBranch)}. Package managers can resolve the tag instead of the branch.`);
 		}
 		const tip = references.get(`refs/heads/${publishBranch}`);
-		if (tip && mode === 'lease') {
+		if (tip) {
 			remoteTips.set(publishBranch, tip);
-		} else if (tip && mode === 'normal') {
-			existingBranches.add(publishBranch);
-			refspecs.push(`refs/heads/${publishBranch}:${localRef}`);
+			if (mode === 'normal') {
+				refspecs.push(`refs/heads/${publishBranch}:${localRef}`);
+			}
 		}
 	}
 	if (refspecs.length > 0) {
@@ -60,8 +59,5 @@ export const loadPublishBranches = async (
 			signal,
 		});
 	}
-	return {
-		existingBranches,
-		remoteTips,
-	};
+	return remoteTips;
 };

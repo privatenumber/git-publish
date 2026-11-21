@@ -29,7 +29,7 @@ Current package managers restrict Git dependencies by default. The consumer's pr
 | Package manager | Setting |
 | --- | --- |
 | npm 12+ | `--allow-git=all` on the install command (or `allow-git=all` in `.npmrc`) when the package has Git runtime or optional dependencies. If all Git dependencies are direct, use `--allow-git=root` or `allow-git=root` instead. |
-| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when the package has Git runtime or optional dependencies. For one command: `pnpm add --config.block-exotic-subdeps=false <specifiers>` ([setting](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps)) |
+| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when runtime or optional dependencies use Git or direct tarball URLs. Local `file:` dependencies do not require this setting. For one command: `pnpm add --config.block-exotic-subdeps=false <specifiers>` ([setting](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps)) |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install |
 | Bun | No Git dependency setting required |
 

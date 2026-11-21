@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import spawn from 'nano-spawn';
 import yaml from 'js-yaml';
 import { createFixture } from 'fs-fixture';
@@ -15,30 +16,78 @@ describe('Package managers', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
-	test('reports Git policy for external dependencies in a packed standalone manifest', async () => {
-		await using fixture = await createGitFixture({
-			'package.json': JSON.stringify({
-				name: 'test-pkg',
-				version: '1.0.0',
-				optionalDependencies: { external: 'git+https://example.test/external.git#main' },
-			}),
-		}, ['--initial-branch=external-git']);
-		await fixture.git('add', ['.']);
-		await fixture.git('commit', ['-m', 'Initial commit']);
-		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
-		const npm = await gitPublish(fixture.path);
-		expect('exitCode' in npm).toBe(false);
-		expect(npm.stdout).toContain('npm 12+: add --allow-git=all');
+	for (const [label, specifier, npmGit, pnpmExotic] of [
+		['explicit-git', 'git+https://example.test/external.git#main', true, true],
+		['hosted-scp', 'git@github.com:owner/external.git#main', true, true],
+		['gitlab-https', 'https://gitlab.com/owner/subgroup/external.git#main', true, true],
+		['generic-https-git', 'https://example.test/external.git#main', false, true],
+		['tarball-url', 'https://example.test/external.tgz', false, true],
+		['plain-ssh', 'ssh://git@example.test/owner/external.git#main', false, true],
+		['local-file', 'file:./vendor/external.tgz', false, false],
+	] as const) {
+		test(`reports npm and pnpm install policy for ${label} in the packed manifest`, async () => {
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'test-pkg',
+					version: '1.0.0',
+					optionalDependencies: { external: specifier },
+				}),
+			}, [`--initial-branch=policy-${label}`]);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial commit']);
+			await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+			const npm = await gitPublish(fixture.path);
+			expect('exitCode' in npm).toBe(false);
+			expect(npm.stdout).toContain(`npm 12+: add --allow-git=${npmGit ? 'all' : 'root'}`);
 
-		await fixture.writeFile('pnpm-lock.yaml', '');
-		await fixture.git('add', ['pnpm-lock.yaml']);
-		await fixture.git('commit', ['-m', 'Use pnpm']);
-		const pnpm = await gitPublish(fixture.path);
-		expect('exitCode' in pnpm).toBe(false);
-		expect(pnpm.stdout).toContain('pnpm 11+: set blockExoticSubdeps: false');
-	});
+			await fixture.writeFile('pnpm-lock.yaml', '');
+			await fixture.git('add', ['pnpm-lock.yaml']);
+			await fixture.git('commit', ['-m', 'Use pnpm']);
+			const pnpm = await gitPublish(fixture.path);
+			expect('exitCode' in pnpm).toBe(false);
+			expect(pnpm.stdout.includes('pnpm 11+: set blockExoticSubdeps: false')).toBe(pnpmExotic);
+		});
+	}
 
 	describe('bun', () => {
+		test('installs and locks a transitive publish branch containing an @ segment', async () => {
+			await using remote = await createGitFixture(undefined, ['--bare', '--initial-branch=main']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'core',
+					version: '1.0.0',
+				}),
+				'marker.txt': 'default',
+			}, ['--initial-branch=main']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Default branch']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+			await fixture.git('push', ['origin', 'main']);
+			await fixture.writeFile('marker.txt', 'published');
+			await fixture.git('add', ['marker.txt']);
+			await fixture.git('commit', ['-m', 'Publish different content']);
+
+			const result = await gitPublish(fixture.path, ['--branch', 'npm/@']);
+			expect('exitCode' in result).toBe(false);
+			const publishedTip = await remote.git('rev-parse', ['refs/heads/npm/@']);
+			const gitUrl = `git+${pathToFileURL(remote.path).href}`;
+			await fixture.writeFile('package.json', JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: `${gitUrl}#npm/@` },
+			}));
+			await fixture.git('add', ['package.json']);
+			await fixture.git('commit', ['-m', 'Depend on the published branch']);
+			await fixture.git('push', ['origin', 'HEAD:refs/heads/npm/app']);
+
+			await using consumer = await createFixture({
+				'package.json': JSON.stringify({ dependencies: { app: `${gitUrl}#npm/app` } }),
+			});
+			await spawn('bun', ['install', '--cache-dir', consumer.getPath('cache')], { cwd: consumer.path });
+			expect(await fs.readFile(consumer.getPath('node_modules/core/marker.txt'), 'utf8')).toBe('published');
+			expect(await fs.readFile(consumer.getPath('bun.lock'), 'utf8')).toContain(publishedTip);
+		});
+
 		test('catalog protocol is resolved', async () => {
 			const branchName = 'test-bun-catalog';
 			const msVersion = '2.1.3';

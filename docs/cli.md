@@ -64,7 +64,7 @@ git-publish --branch 'preview/{package}'
 
 For one package, a literal branch stays exact: `git-publish --branch preview` publishes to `preview`. A multi-package publication must render a unique branch for every package, so include `{package}` when a literal name would collide.
 
-Every rendered name must be a valid Git branch and use only ASCII letters, digits, and `. _ / @ -`. It must not start with `refs/`, `heads/`, `tags/`, or `remotes/`, be `HEAD` in any case, or consist entirely of 7 to 64 hexadecimal digits. These restrictions keep package managers from reading a branch name as another kind of selector. If the default name fails, use a template such as `--branch 'preview/{package}'` or `--branch 'preview/{gitSha}/{package}'`.
+Every rendered name must be a valid Git branch and use only ASCII letters, digits, and `. _ / @ -`. It must not start with `refs/`, `heads/`, `tags/`, or `remotes/`. Bare `@`, `HEAD` in any case, names made only of uppercase letters and underscores (such as `FETCH_HEAD`), and bare names of 7 to 64 hexadecimal digits are not allowed. These restrictions keep package managers from reading a branch name as another kind of selector. `@` is allowed inside a name, such as `npm/@`. If the default name fails, use a template such as `--branch 'preview/{package}'` or `--branch 'preview/{gitSha}/{package}'`.
 
 ## `--fresh`
 

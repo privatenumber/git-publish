@@ -23,7 +23,7 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 
 `--fresh` rewrites the published branch, and an existing lockfile pinned to an old commit can stop installing once that commit is garbage-collected. Use it only when the user asks for it. Publishing requires read access to the destination refs for the tag check, even with `--fresh`.
 
-Choose a rendered Git branch using ASCII letters, digits, and `. _ / @ -`. Do not start it with `refs/`, `heads/`, `tags/`, or `remotes/`, use `HEAD` in any case, or use a bare name of 7 to 64 hexadecimal digits. If the default name fails, use `--branch 'preview/{package}'` or `--branch 'preview/{gitSha}/{package}'`.
+Choose a valid Git branch using ASCII letters, digits, and `. _ / @ -`. Do not start it with `refs/`, `heads/`, `tags/`, or `remotes/`. Avoid bare `@`, `HEAD` in any case, names made only of uppercase letters and underscores (such as `FETCH_HEAD`), and bare names of 7 to 64 hexadecimal digits. Names such as `npm/@` are valid. If the default name fails, use `--branch 'preview/{package}'` or `--branch 'preview/{gitSha}/{package}'`.
 
 ## Monorepos
 
@@ -46,7 +46,7 @@ Consumer settings the installing project needs:
 | Package manager | Setting |
 | --- | --- |
 | npm 12+ | `--allow-git=all` on the install command (or `allow-git=all` in `.npmrc`) when the package has Git runtime or optional dependencies. If all Git dependencies are direct, use `--allow-git=root` or `allow-git=root` instead. |
-| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when the package has Git runtime or optional dependencies |
+| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when runtime or optional dependencies use Git or direct tarball URLs, not local `file:` dependencies |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Yarn needs `name@url` arguments, which the printed command uses. |
 | Bun | No Git dependency setting required |
 

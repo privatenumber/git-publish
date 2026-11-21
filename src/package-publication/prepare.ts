@@ -3,10 +3,11 @@ import type { PackageJson } from '@npmcli/package-json';
 import { getStdout } from '../utils/get-stdout.ts';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import { findUnpublishedFilesFieldEntries } from '../utils/unpublished-files-field.ts';
-import { isGitDependencySpecifier, toPackageManagerGitUrl } from '../utils/git-url.ts';
+import { toPackageManagerGitUrl } from '../utils/git-url.ts';
 import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/graph.ts';
 import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { importTarball, type File } from './import-tarball.ts';
+import { hasPolicyRestrictedSubdependencies } from './install-policy.ts';
 import { validatePackedManifest, type PackedManifestValidationContext } from './validate.ts';
 import { getVersionShaCommit, type VersionSha } from './version-sha.ts';
 
@@ -25,7 +26,7 @@ export type PackagePreparation = {
 	unpublishedFilesFieldEntries: string[];
 	reusedExistingCommit: boolean;
 	version: string | undefined;
-	hasGitSubdependencies: boolean;
+	hasPolicyRestrictedSubdependencies: boolean;
 	peerDependencies: Partial<Record<string, string>>;
 	dependencies: PublishGraphEdge[];
 	peers: WorkspacePeer[];
@@ -275,10 +276,10 @@ export const preparePackagePublication = async ({
 		),
 		reusedExistingCommit,
 		version: packedManifest.version,
-		hasGitSubdependencies: Object.values({
-			...packedManifest.dependencies,
-			...packedManifest.optionalDependencies,
-		}).some(specifier => typeof specifier === 'string' && isGitDependencySpecifier(specifier)),
+		hasPolicyRestrictedSubdependencies: hasPolicyRestrictedSubdependencies(
+			packedManifest,
+			validationContext.packageManager,
+		),
 		peerDependencies: peerDependencies ?? {},
 		dependencies: dependencyEdges.filter(edge => (
 			Object.hasOwn(packedManifest[edge.field] ?? {}, edge.key)
