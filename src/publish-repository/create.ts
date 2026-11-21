@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +10,7 @@ import {
 } from './remote.ts';
 
 export type PublishRepository = {
+	sourceRepositoryPath: string;
 	packWorktreePath: string;
 	packTemporaryDirectory: string;
 	gitOptions: SpawnOptions;
@@ -29,7 +31,8 @@ export const createPublishRepository = async ({
 	signal: AbortSignal;
 }): Promise<PublishRepository> => {
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
-	const fetchRemoteName = 'publish-source';
+	const remoteId = randomUUID();
+	const fetchRemoteName = `git-publish-source-${remoteId}`;
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');
 	const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
@@ -42,7 +45,7 @@ export const createPublishRepository = async ({
 		cwd: publishRepositoryPath,
 		env: gitEnvironment,
 	};
-	const pushRemoteName = 'publish';
+	const pushRemoteName = `git-publish-${remoteId}`;
 	let packWorktreeCreated = false;
 
 	let disposal: Promise<void> | undefined;
@@ -78,6 +81,13 @@ export const createPublishRepository = async ({
 			...gitOptions,
 			signal,
 		});
+		if (publishRemote.hasExplicitPushUrl) {
+			// Git applies insteadOf, but not pushInsteadOf, to an explicit pushurl.
+			await spawnAbortable('git', ['remote', 'set-url', '--push', pushRemoteName, publishRemote.pushUrl], {
+				...gitOptions,
+				signal,
+			});
+		}
 		await materializePublishGitConfig({
 			sourceRepositoryOptions,
 			destinationRepositoryPath: publishRepositoryPath,
@@ -109,6 +119,7 @@ export const createPublishRepository = async ({
 	}
 
 	return {
+		sourceRepositoryPath,
 		packWorktreePath,
 		packTemporaryDirectory,
 		gitOptions,
