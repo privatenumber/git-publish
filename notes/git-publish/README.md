@@ -8,3 +8,4 @@ Project decisions for publishing packages, including monorepo packages, to Git b
 - [Reading workspace dependencies from an install](./read-install-experiment.md): why installed targets can't replace the publication graph (stale installs, peers, Yarn PnP), measured across npm, pnpm, Yarn, and Bun.
 - [Remote URLs](./remote-urls.md): which repository install URLs name, how credentials are kept out of output, and the npm commit-pin and `HEAD` limitations for non-hosted servers.
 - [Publication commits](./publication-commits.md): why packed entries are streamed directly into Git commits, and which alternatives were rejected.
+- [Signal tests](./signal-tests.md): why signal tests run before concurrent fixture setup, and how to distinguish startup failures from signal handling failures.
