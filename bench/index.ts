@@ -159,11 +159,17 @@ await spawn(packageManager, ['install'], workspaceOptions);
 await spawn('git', ['add', '.'], workspaceOptions);
 await spawn('git', ['commit', '-q', '-m', 'Initial commit'], workspaceOptions);
 
+// Outside any repository, so the caller's local Git configuration cannot apply
+const gitOptions = {
+	cwd: scratch.path,
+	env: environment,
+};
+
 let remoteCount = 0;
 const createRemote = async () => {
 	remoteCount += 1;
 	const remotePath = scratch.getPath(`remote-${remoteCount}.git`);
-	await spawn('git', ['init', '-q', '--bare', remotePath], { env: environment });
+	await spawn('git', ['init', '-q', '--bare', remotePath], gitOptions);
 	return pathToFileURL(remotePath).href;
 };
 
@@ -176,6 +182,41 @@ type Result = {
 	}[];
 };
 
+const getRemoteHeads = async (remote: string) => {
+	const { stdout } = await spawn('git', ['ls-remote', '--heads', remote], gitOptions);
+	return new Map(stdout.split('\n').filter(Boolean).map((line) => {
+		const [commit, ref] = line.split('\t');
+		return [ref!.slice('refs/heads/'.length), commit!];
+	}));
+};
+
+// Untimed: each package must have its own branch on the remote, pointing at the reported
+// commit. A republish must also leave every branch at the tip it had before the run.
+const checkRemote = async (
+	cliPath: string,
+	remote: string,
+	result: Result,
+	previousHeads?: Map<string, string>,
+) => {
+	const branches = new Set(result.packages.map(item => item.branch));
+	if (branches.size !== result.packages.length) {
+		throw new Error(`${cliPath} reported the same branch for more than one package`);
+	}
+	const heads = await getRemoteHeads(remote);
+	const unpushed = result.packages
+		.filter(item => !item.commit || heads.get(item.branch) !== item.commit)
+		.map(item => item.name);
+	if (unpushed.length > 0) {
+		throw new Error(`${cliPath} reported commits that the remote does not have for ${unpushed.join(', ')}`);
+	}
+	const moved = result.packages
+		.filter(item => previousHeads && previousHeads.get(item.branch) !== item.commit)
+		.map(item => item.name);
+	if (moved.length > 0) {
+		throw new Error(`${cliPath} moved the branches of ${moved.join(', ')} on an unchanged republish`);
+	}
+};
+
 // Runs the CLI once and checks that it planned or published exactly the expected packages
 const runCli = async (
 	cliPath: string,
@@ -185,6 +226,7 @@ const runCli = async (
 		names: string[];
 		check: 'planned' | 'published' | 'reused';
 	},
+	previousHeads?: Map<string, string>,
 ) => {
 	await fs.rm(resultFile, { force: true });
 	const start = performance.now();
@@ -223,19 +265,8 @@ const runCli = async (
 	if (mismatched.length > 0) {
 		throw new Error(`${cliPath} has the wrong reused flag for ${mismatched.join(', ')}, expected ${expected.check}`);
 	}
-	// Untimed: the reported commits must be what the remote's branches point at
 	if (result) {
-		const { stdout: heads } = await spawn('git', ['ls-remote', '--heads', remote], { env: environment });
-		const remoteCommits = new Map(heads.split('\n').filter(Boolean).map((line) => {
-			const [commit, ref] = line.split('\t');
-			return [ref!.slice('refs/heads/'.length), commit!];
-		}));
-		const unpushed = result.packages
-			.filter(item => remoteCommits.get(item.branch) !== item.commit)
-			.map(item => item.name);
-		if (unpushed.length > 0) {
-			throw new Error(`${cliPath} reported commits that the remote does not have for ${unpushed.join(', ')}`);
-		}
+		await checkRemote(cliPath, remote, result, previousHeads);
 	}
 	return {
 		wall,
@@ -246,6 +277,7 @@ const runCli = async (
 type Cli = {
 	cliPath: string;
 	populatedRemote?: string;
+	populatedHeads?: Map<string, string>;
 };
 
 const allPackages = [...libraries, ...apps.keys()];
@@ -311,6 +343,7 @@ for (const cliPath of cliPaths) {
 			names: allPackages,
 			check: 'published',
 		});
+		build.populatedHeads = await getRemoteHeads(build.populatedRemote);
 	}
 	builds.push(build);
 }
@@ -328,7 +361,8 @@ for (const scenario of scenarios.filter(({ name }) => selectedNames.includes(nam
 		for (let offset = 0; offset < builds.length; offset += 1) {
 			const build = builds[(round + offset) % builds.length]!;
 			const remote = await scenario.getRemote(build);
-			const sample = await runCli(build.cliPath, remote, scenario.args, scenario);
+			const previousHeads = scenario.check === 'reused' ? build.populatedHeads : undefined;
+			const sample = await runCli(build.cliPath, remote, scenario.args, scenario, previousHeads);
 			if (round > 0) {
 				samples.get(build)!.push(sample);
 			}
