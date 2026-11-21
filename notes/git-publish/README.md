@@ -9,3 +9,4 @@ Project decisions for publishing packages, including monorepo packages, to Git b
 - [Remote URLs](./remote-urls.md): which repository install URLs name, how credentials are kept out of output, and the npm commit-pin and `HEAD` limitations for non-hosted servers.
 - [Version SHA](./version-sha.md): why `--version-sha` writes `+sha-<commit>` build metadata and `gitHead`, why it names the source commit rather than the package directory's last change, and how reuse ignores the version SHA, measured across npm, pnpm, Yarn, and Bun.
 - [Publication commits](./publication-commits.md): why packed entries are streamed directly into Git commits, and which alternatives were rejected.
+- [Signal tests](./signal-tests.md): why signal tests run before concurrent fixture setup, and how to distinguish startup failures from signal handling failures.
