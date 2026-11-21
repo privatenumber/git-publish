@@ -17,7 +17,15 @@ const IntegerAtLeast = (minimum: number) => (value: string) => {
 	return number;
 };
 
-const { flags } = cli({
+// cleye parses a flag with no value as an empty string
+const Path = (value: string) => {
+	if (value === '') {
+		throw new Error('Expected a path');
+	}
+	return value;
+};
+
+const argv = cli({
 	name: 'bench',
 	strictFlags: true,
 	flags: {
@@ -44,18 +52,22 @@ const { flags } = cli({
 			description: 'Scenario to run; repeat to run several (default: all)',
 		},
 		cli: {
-			type: [String],
+			type: [Path],
 			placeholder: '<path>',
 			description: 'Built CLI to time; repeat to compare builds (default: dist/index.js)',
 		},
 		json: {
-			type: String,
+			type: Path,
 			placeholder: '<path>',
 			description: 'Write the results as JSON',
 		},
 	},
 });
 
+if (argv._.length > 0) {
+	throw new Error(`Unexpected arguments: ${argv._.join(' ')}. Repeat the flag for each value, as in --scenario plan --scenario publish`);
+}
+const { flags } = argv;
 const packageCount = flags.packages;
 const { runs, packageManager } = flags;
 const cliPaths = (flags.cli.length > 0 ? flags.cli : [path.join(import.meta.dirname, '../dist/index.js')])
