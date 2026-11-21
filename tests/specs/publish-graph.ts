@@ -324,7 +324,10 @@ describe('Publication graph', () => {
 			unpublishedFilesFieldEntries: [],
 			reusedExistingCommit: false,
 			version: '1.0.0',
-			hasPolicyRestrictedSubdependencies: false,
+			installPolicy: {
+				git: false,
+				remote: false,
+			},
 			peerDependencies: {},
 			dependencies: [],
 			peers: [],
@@ -439,7 +442,10 @@ describe('Publication graph', () => {
 			unpublishedFilesFieldEntries: [],
 			reusedExistingCommit: false,
 			version: '1.0.0',
-			hasPolicyRestrictedSubdependencies: node.key === 'adapter',
+			installPolicy: {
+				git: node.key === 'adapter',
+				remote: node.key === 'adapter',
+			},
 			peerDependencies: {},
 			dependencies: [],
 			peers: [],
@@ -455,7 +461,7 @@ describe('Publication graph', () => {
 		const output = formatWorkspaceResult(result);
 		expect(output).toContain("Optional peers adapter: install with npm install 'git+https://example.test/repo#npm/adapter' 'git+https://example.test/repo#npm/core'");
 		expect(output).not.toContain('#npm/platform');
-		expect(output).toContain('For optional peers: npm 12+: add --allow-git=all');
+		expect(output).toContain('For optional peers: npm 12+: add --allow-git=all and --allow-remote=all');
 		expect(output).not.toContain('Optional workspace dependencies core install transitively');
 	});
 
@@ -498,7 +504,10 @@ describe('Publication graph', () => {
 			unpublishedFilesFieldEntries: [],
 			reusedExistingCommit: false,
 			version: '1.0.0',
-			hasPolicyRestrictedSubdependencies: node.key === 'app',
+			installPolicy: {
+				git: node.key === 'app',
+				remote: false,
+			},
 			peerDependencies: {},
 			dependencies: [],
 			peers: [],

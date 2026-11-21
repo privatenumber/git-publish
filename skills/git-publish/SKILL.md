@@ -38,15 +38,15 @@ Choose a valid Git branch using ASCII letters, digits, and `. _ / @ -`. Do not s
 After a push, git-publish prints the install command for the repository's package manager. Use it as printed:
 
 - Install the selected package and its required internal peers with the printed command. Runtime dependencies install transitively. The package manager may skip optional workspace dependencies. Use the printed peer command to supply a missing peer when applicable. Arguments and manifests use the same bare branch refs, such as `npm i 'owner/repo#npm/main'`.
-- Treat publish branches like a prerelease dist-tag. The lockfile pins commits. To move the whole channel forward, update every channel package by name, including transitive ones (`npm update app core`, `pnpm update app core`, `bun update app core`, or `yarn up -R app core`). Updating only the selected package can leave dependencies behind.
-- When migrating from a commit-pinned publication, use the new commands to replace direct commit pins before updating. Do not create tags with publish branch names. Package managers can resolve those tags instead of the branches.
+- Treat publish branches like a prerelease dist-tag. The lockfile pins commits. Update every channel package by its install key, including transitive dependencies. For unaliased dependencies, use commands such as `npm update app core`, `pnpm update app core`, `bun update app core`, or `yarn up -R app core`. If `app` declares `core` as `my-core`, use `npm update app my-core`, not `npm update app core`.
+- When migrating from a commit-pinned publication, use the new commands to replace direct commit pins, then update by install key (`npm update app my-core` for the alias above). Do not create tags with publish branch names. Package managers can resolve those tags instead of the branches.
 
 Consumer settings the installing project needs:
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | `--allow-git=all` on the install command (or `allow-git=all` in `.npmrc`) when the package has Git runtime or optional dependencies. If all Git dependencies are direct, use `--allow-git=root` or `allow-git=root` instead. |
-| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when runtime or optional dependencies use Git or direct tarball URLs, not local `file:` dependencies |
+| npm 12+ | Use `--allow-git=root` for direct Git installs and `--allow-git=all` if npm also installs Git runtime dependencies, optional dependencies, or required peers. Add `--allow-remote=all` if npm also installs dependencies or required peers from direct HTTP(S) tarball URLs. In `.npmrc`, omit `--`. |
+| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when runtime or optional dependencies use Git or direct tarball URLs. Local `file:` dependencies do not need it. pnpm 12.21.0 also allows auto-installed required peers with Git or tarball URLs without changing the setting. |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Yarn needs `name@url` arguments, which the printed command uses. |
 | Bun | No Git dependency setting required |
 

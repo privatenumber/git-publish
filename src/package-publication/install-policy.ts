@@ -2,19 +2,29 @@ import npmPackageArg from 'npm-package-arg';
 import type { PackageJson } from '@npmcli/package-json';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 
-export const hasPolicyRestrictedSubdependencies = (
+export const getInstallPolicy = (
 	manifest: PackageJson,
 	packageManager: PackageManager,
 ) => {
-	if (packageManager !== 'npm' && packageManager !== 'pnpm') {
-		return false;
-	}
-	return Object.entries({
+	const dependencies = {
+		...(packageManager === 'npm' && Object.fromEntries(
+			Object.entries(manifest.peerDependencies ?? {}).filter(([name]) => (
+				!manifest.peerDependenciesMeta?.[name]?.optional
+			)),
+		)),
 		...manifest.dependencies,
 		...manifest.optionalDependencies,
-	}).some(([name, specifier]) => {
+	};
+	const policy = {
+		git: false,
+		remote: false,
+	};
+	if (packageManager !== 'npm' && packageManager !== 'pnpm') {
+		return policy;
+	}
+	for (const [name, specifier] of Object.entries(dependencies)) {
 		if (typeof specifier !== 'string') {
-			return false;
+			continue;
 		}
 		// pnpm's Git resolver also accepts plain ssh: URLs.
 		const spec = packageManager === 'pnpm' && /^ssh:/i.test(specifier)
@@ -22,11 +32,12 @@ export const hasPolicyRestrictedSubdependencies = (
 			: specifier;
 		try {
 			const { type } = npmPackageArg.resolve(name, spec);
-			// pnpm blocks both Git and HTTP tarball resolutions, but not local files.
-			return type === 'git' || (packageManager === 'pnpm' && type === 'remote');
+			if (type === 'git' || type === 'remote') {
+				policy[type] = true;
+			}
 		} catch {
 			// This is install guidance, not validation of consumer dependency specs.
-			return false;
 		}
-	});
+	}
+	return policy;
 };

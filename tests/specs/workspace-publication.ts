@@ -7,7 +7,7 @@ import {
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
 import which from 'which';
-import { createGit, createGitFixture } from '../utils/create-git.ts';
+import { createGit, createGitFixture, mockGitSshTransport } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
 import { createYarnEnvironment } from '../utils/yarn-environment.ts';
@@ -782,9 +782,13 @@ exec "${npmPath}" "$@"
 		return fixture;
 	};
 
-	test('batches remote branch lookups and fetches for a workspace closure', async () => {
+	test('batches remote branch and tag lookups when history follows the effective push destination', async () => {
 		await using batchRemote = await createGitFixture(undefined, ['--bare']);
-		await using fixture = await createChainWorkspace('batch', batchRemote.path);
+		await using mirror = await createGitFixture(undefined, ['--bare']);
+		const fetchUrl = pathToFileURL(batchRemote.path).href;
+		await using fixture = await createChainWorkspace('batch', fetchUrl);
+		await fixture.git('config', ['remote.origin.pushurl', batchRemote.path]);
+		await fixture.git('config', [`url.${mirror.path}.insteadOf`, fetchUrl]);
 		const packagePath = fixture.getPath('packages/adapter');
 		const first = await gitPublish(packagePath);
 		expect('exitCode' in first).toBe(false);
@@ -900,11 +904,13 @@ exec "${npmPath}" "$@"
 		}
 	});
 
-	test('publishes and reloads a workspace closure from the push destination', async () => {
+	test('publishes and reloads a workspace closure from the effective push destination', async () => {
 		await using upstream = await createGitFixture(undefined, ['--bare']);
 		await using destination = await createGitFixture(undefined, ['--bare']);
-		await using fixture = await createChainWorkspace('triangular', upstream.path);
+		const fetchUrl = pathToFileURL(destination.path).href;
+		await using fixture = await createChainWorkspace('triangular', fetchUrl);
 		await fixture.git('config', ['remote.origin.pushurl', destination.path]);
+		await fixture.git('config', [`url.${upstream.path}.insteadOf`, fetchUrl]);
 		await using output = await createFixture();
 		const args = ['--json', output.getPath('result.json')];
 		const first = await gitPublish(fixture.getPath('packages/adapter'), args);
@@ -2031,7 +2037,7 @@ exec '${npmPath}' "$@"
 			await using managerRemote = await createGitFixture(undefined, ['--bare']);
 			const remoteUrl = 'git@github.com:owner/repo.git';
 			await using fixture = await createChainWorkspace(`output-${manager}`, remoteUrl);
-			await fixture.git('config', [`url.${managerRemote.path}.insteadOf`, remoteUrl]);
+			await mockGitSshTransport(fixture, managerRemote.path);
 			await fixture.rm('package-lock.json');
 			if (manager === 'pnpm') {
 				await fixture.writeFile('pnpm-workspace.yaml', 'packages:\n  - packages/*\n');

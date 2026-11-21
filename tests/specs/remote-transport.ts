@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import {
 	describe, test, expect, onFinish,
 } from 'manten';
@@ -202,6 +203,62 @@ describe('Remote transport', async () => {
 		const remote = await getPublishRemote(fixture.path, 'origin', true);
 		expect(remote.installUrl).toBe('https://example.test/fork/repo.git');
 		expect(remote.historyUrl).toBe('https://example.test/fork/repo.git');
+		const direct = await getPublishRemote(fixture.path, 'https://example.test/upstream/repo.git', false);
+		expect(direct.pushUrl).toBe(remote.pushUrl);
+	});
+
+	test('checks tags and loads history from the destination after insteadOf splits equivalent raw URLs', async () => {
+		await using mirror = await createGitFixture(undefined, ['--bare']);
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=source']);
+		const destinationUrl = pathToFileURL(destination.path).href;
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		const tag = 'refs/tags/npm/source';
+		await fixture.git('update-ref', [tag, 'HEAD']);
+		await fixture.git('push', [destination.path, tag]);
+		await fixture.git('remote', ['add', 'origin', destinationUrl]);
+		await fixture.git('config', ['remote.origin.pushurl', destination.path]);
+		await fixture.git('config', [`url.${mirror.path}.insteadOf`, destinationUrl]);
+
+		const remote = await getPublishRemote(fixture.path, 'origin', true);
+		expect(remote.historyUrl).toBe(destination.path);
+		for (const arguments_ of [[], ['--fresh']]) {
+			const result = await gitPublish(fixture.path, arguments_);
+			expect(result.output).toContain(`Remote tag "${tag}" conflicts with publish branch "npm/source"`);
+		}
+		expect(await destination.git('for-each-ref', ['--format=%(refname)'])).toBe(tag);
+		expect(await mirror.git('for-each-ref')).toBe('');
+	});
+
+	test('does not reapply Git URL rewrites to effective endpoints in the isolated repository', async () => {
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using other = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=source']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		const url = 'https://example.test/a.git';
+		await fixture.git('remote', ['add', 'origin', url]);
+		await fixture.git('config', [`url.${destination.path}.insteadOf`, url]);
+		const result = await gitPublish(fixture.path, [], {
+			GIT_CONFIG_COUNT: '1',
+			GIT_CONFIG_KEY_0: `url.${other.path}.insteadOf`,
+			GIT_CONFIG_VALUE_0: destination.path,
+		});
+		expect('exitCode' in result).toBe(false);
+		expect(result.stdout).toContain(`git+file://${destination.path}#npm/source`);
+		expect(await destination.git('rev-parse', ['refs/heads/npm/source'])).toMatch(/^[0-9a-f]{40}$/);
+		expect(await other.git('for-each-ref')).toBe('');
 	});
 
 	test('publishes to an option-like configured remote name', async () => {
@@ -442,7 +499,7 @@ describe('Remote transport', async () => {
 		expect(await upstream.git('for-each-ref')).toBe('');
 	});
 
-	test('prints the fork with the fetch transport for a hosted triangular remote', async () => {
+	test('prints the effective push URL when both hosted URLs are rewritten to local repositories', async () => {
 		await using upstream = await createGitFixture(undefined, ['--bare']);
 		await using destination = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
@@ -460,8 +517,9 @@ describe('Remote transport', async () => {
 		await using output = await createFixture();
 		const result = await gitPublish(fixture.path, ['--json', output.getPath('result.json')]);
 		expect('exitCode' in result).toBe(false);
-		expect(result.stdout).toContain("npm i 'fork/repo#npm/hosted'");
-		expect(await output.readFile('result.json', 'utf8')).toContain('git+https://github.com/fork/repo.git#');
+		const specifier = `git+file://${destination.path}#npm/hosted`;
+		expect(result.stdout).toContain(`npm i '${specifier}'`);
+		expect(await output.readFile('result.json', 'utf8')).toContain(specifier);
 		expect(await upstream.git('for-each-ref')).toBe('');
 		expect(await destination.git('rev-parse', ['npm/hosted'])).toMatch(/^[0-9a-f]{40}$/);
 	});

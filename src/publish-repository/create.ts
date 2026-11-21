@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
-import { materializePublishGitConfig } from './git-config.ts';
+import { materializePublishGitConfig, withoutCommandUrlRewrites } from './git-config.ts';
 import {
 	configurePublishTransport, type PublishRemote,
 } from './remote.ts';
@@ -29,12 +29,14 @@ export const createPublishRepository = async ({
 	signal: AbortSignal;
 }): Promise<PublishRepository> => {
 	const sourceRepositoryOptions = { cwd: sourceRepositoryPath };
+	const commandConfig = await withoutCommandUrlRewrites(sourceRepositoryOptions);
 	const fetchRemoteName = 'publish-source';
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');
 	const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
 	const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
 	const gitEnvironment = {
+		...commandConfig,
 		GIT_CONFIG_SYSTEM: path.join(temporaryDirectory, 'system-config'),
 		GIT_CONFIG_GLOBAL: path.join(temporaryDirectory, 'global-config'),
 	};

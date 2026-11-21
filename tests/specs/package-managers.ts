@@ -7,7 +7,7 @@ import { createFixture } from 'fs-fixture';
 import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
-import { createGitFixture } from '../utils/create-git.ts';
+import { createGitFixture, mockGitSshTransport } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createYarnEnvironment } from '../utils/yarn-environment.ts';
 
@@ -16,21 +16,33 @@ describe('Package managers', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
-	for (const [label, specifier, npmGit, pnpmExotic] of [
-		['explicit-git', 'git+https://example.test/external.git#main', true, true],
-		['hosted-scp', 'git@github.com:owner/external.git#main', true, true],
-		['gitlab-https', 'https://gitlab.com/owner/subgroup/external.git#main', true, true],
-		['generic-https-git', 'https://example.test/external.git#main', false, true],
-		['tarball-url', 'https://example.test/external.tgz', false, true],
-		['plain-ssh', 'ssh://git@example.test/owner/external.git#main', false, true],
-		['local-file', 'file:./vendor/external.tgz', false, false],
+	const gitDependency = 'git+https://example.test/external.git#main';
+	const tarballDependency = 'https://example.test/external.tgz';
+	for (const [label, fields, npmGit, npmRemote, pnpmExotic] of [
+		['explicit-git', { optionalDependencies: { external: gitDependency } }, true, false, true],
+		['hosted-scp', { optionalDependencies: { external: 'git@github.com:owner/external.git#main' } }, true, false, true],
+		['gitlab-https', { optionalDependencies: { external: 'https://gitlab.com/owner/subgroup/external.git#main' } }, true, false, true],
+		['generic-https-git', { optionalDependencies: { external: 'https://example.test/external.git#main' } }, false, true, true],
+		['tarball-url', { dependencies: { external: tarballDependency } }, false, true, true],
+		['plain-ssh', { optionalDependencies: { external: 'ssh://git@example.test/owner/external.git#main' } }, false, false, true],
+		['local-file', { optionalDependencies: { external: 'file:./vendor/external.tgz' } }, false, false, false],
+		['required-git-peer', { peerDependencies: { external: gitDependency } }, true, false, false],
+		['required-remote-peer', { peerDependencies: { external: tarballDependency } }, false, true, false],
+		['optional-git-peer', {
+			peerDependencies: { external: gitDependency },
+			peerDependenciesMeta: { external: { optional: true } },
+		}, false, false, false],
+		['git-peer-with-tarball', {
+			peerDependencies: { peer: gitDependency },
+			dependencies: { external: tarballDependency },
+		}, true, true, true],
 	] as const) {
 		test(`reports npm and pnpm install policy for ${label} in the packed manifest`, async () => {
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
 					name: 'test-pkg',
 					version: '1.0.0',
-					optionalDependencies: { external: specifier },
+					...fields,
 				}),
 			}, [`--initial-branch=policy-${label}`]);
 			await fixture.git('add', ['.']);
@@ -39,6 +51,7 @@ describe('Package managers', async () => {
 			const npm = await gitPublish(fixture.path);
 			expect('exitCode' in npm).toBe(false);
 			expect(npm.stdout).toContain(`npm 12+: add --allow-git=${npmGit ? 'all' : 'root'}`);
+			expect(npm.stdout.includes('--allow-remote=all')).toBe(npmRemote);
 
 			await fixture.writeFile('pnpm-lock.yaml', '');
 			await fixture.git('add', ['pnpm-lock.yaml']);
@@ -161,17 +174,16 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 	});
 
 	describe('Install command', () => {
-		for (const [packageManager, lockfile, command, specifierPrefix, ssh = false] of [
+		for (const [packageManager, lockfile, command, specifierPrefix] of [
 			['npm', 'package-lock.json', 'npm i', 'owner/repository#'],
 			['pnpm', 'pnpm-lock.yaml', 'pnpm i', 'owner/repository#'],
 			['bun', 'bun.lock', 'bun i', 'owner/repository#'],
-			['yarn', 'yarn.lock', 'yarn add', '@org/test-pkg@owner/repository#'],
-			['yarn', 'yarn.lock', 'yarn add', '@org/test-pkg@git+ssh://git@github.com/owner/repository.git#', true],
+			['yarn', 'yarn.lock', 'yarn add', '@org/test-pkg@git+ssh://git@github.com/owner/repository.git#'],
 		] as const) {
-			test(`prints the ${packageManager} install command${ssh ? ' over SSH' : ''}`, async () => {
-				const branchName = `test-${packageManager}-install-command${ssh ? '-ssh/preview_1.0' : ''}`;
+			test(`prints the ${packageManager} install command for an SSH remote`, async () => {
+				const branchName = `test-${packageManager}-install-command/preview_1.0`;
 				const specifier = `${specifierPrefix}npm/${branchName}`;
-				const remoteUrl = ssh ? 'git@github.com:owner/repository.git' : 'https://github.com/owner/repository.git';
+				const remoteUrl = 'git@github.com:owner/repository.git';
 				await using fixture = await createGitFixture({
 					'package.json': JSON.stringify({
 						name: '@org/test-pkg',
@@ -200,7 +212,7 @@ exec npm "$@"
 				await git('add', ['package.json', lockfile]);
 				await git('commit', ['-m', 'Initial commit']);
 				await git('remote', ['add', 'origin', remoteUrl]);
-				await git('config', [`url.${remoteFixture.path}.insteadOf`, remoteUrl]);
+				await mockGitSshTransport(fixture, remoteFixture.path);
 
 				const result = await gitPublish(fixture.path, ['--fresh'], environment);
 				onTestFail(() => console.log(result));

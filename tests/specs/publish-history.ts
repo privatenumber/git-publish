@@ -5,7 +5,7 @@ import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
-import { createGit, createGitFixture } from '../utils/create-git.ts';
+import { createGit, createGitFixture, mockGitSshTransport } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Publish history', async () => {
@@ -309,23 +309,19 @@ describe('Publish history', async () => {
 
 	test('prints one branch-based GitHub install command after standalone publication', async () => {
 		const branchName = 'test-standalone-install-command';
-		const githubUrl = 'https://github.com/test/repository.git';
+		const githubUrl = 'git@github.com:test/repository.git';
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
 		}, [`--initial-branch=${branchName}`]);
-		await using configFixture = await createFixture();
 		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
-		const globalConfig = configFixture.getPath('gitconfig');
-		await spawn('git', ['config', '--file', globalConfig, `url.file://${remoteFixture.path}.insteadOf`, githubUrl]);
+		await mockGitSshTransport(fixture, remoteFixture.path);
 
 		const gitPublishProcess = await gitPublish(fixture.path, ['--remote', githubUrl], {
-			GIT_CONFIG_GLOBAL: globalConfig,
-			GIT_CONFIG_SYSTEM: configFixture.getPath('system-config'),
 			FORCE_HYPERLINK: '1',
 		});
 

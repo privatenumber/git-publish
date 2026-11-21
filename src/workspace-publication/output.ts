@@ -17,25 +17,29 @@ export const createWorkspaceResult = (
 	const { edges, edgesBySource, reachable } = createInstallGraph(plan);
 	type Edge = (typeof edges)[number];
 	const isRequired = (edge: Edge) => edge.kind === 'dependency' || edge.kind === 'peer';
-	const hasRestrictedSubdependencies = (names: ReadonlySet<string>) => (
-		[...names].some(name => preparations.get(name)!.hasPolicyRestrictedSubdependencies)
-	);
 	const orderedNames = plan.nodes.map(node => node.key);
-	const branchSpecifiers = new Map(plan.nodes.map(({ key, branch }) => {
-		const { installSpecifier } = preparations.get(key)!.publication;
-		// Yarn expands GitHub shorthand to HTTPS, even for an SSH remote.
-		const useShorthand = plan.nodes.length === 1 && edges.length === 0
-			&& !(packageManager === 'yarn' && installSpecifier.startsWith('git+ssh://'));
-		return [key, (useShorthand && getGitHubInstallSpecifier(fetchUrl, branch)) || installSpecifier];
-	}));
-	const installPolicyNote = (hasRestrictedDependencies: boolean) => {
+	const singlePackage = plan.nodes.length === 1 && edges.length === 0 ? plan.nodes[0] : undefined;
+	// Yarn expands GitHub shorthand to HTTPS, even for an SSH remote.
+	const shorthand = singlePackage && !(packageManager === 'yarn' && preparations.get(singlePackage.key)!.publication.installSpecifier.startsWith('git+ssh://'))
+		? getGitHubInstallSpecifier(fetchUrl, singlePackage.branch)
+		: undefined;
+	const installPolicyNote = (...sets: ReadonlySet<string>[]) => {
 		if (packageManager === 'yarn') {
 			return 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml';
 		}
-		if (packageManager === 'npm') {
-			return `npm 12+: add --allow-git=${hasRestrictedDependencies ? 'all' : 'root'}`;
+		let git = false;
+		let remote = false;
+		for (const names of sets) {
+			for (const name of names) {
+				const { installPolicy } = preparations.get(name)!;
+				git ||= installPolicy.git;
+				remote ||= installPolicy.remote;
+			}
 		}
-		if (packageManager === 'pnpm' && hasRestrictedDependencies) {
+		if (packageManager === 'npm') {
+			return `npm 12+: add --allow-git=${git ? 'all' : 'root'}${remote ? ' and --allow-remote=all' : ''}`;
+		}
+		if (packageManager === 'pnpm' && (git || remote)) {
 			return 'pnpm 11+: set blockExoticSubdeps: false in pnpm-workspace.yaml';
 		}
 		return '';
@@ -59,7 +63,7 @@ export const createWorkspaceResult = (
 		}
 		const toSpecifiers = (targets: ReadonlyMap<string, string>) => (
 			[...targets].map(([name, target]) => {
-				const specifier = branchSpecifiers.get(target)!;
+				const specifier = shorthand ?? preparations.get(target)!.publication.installSpecifier;
 				return packageManager === 'yarn' || name !== target ? `${name}@${specifier}` : specifier;
 			})
 		);
@@ -68,7 +72,6 @@ export const createWorkspaceResult = (
 			: (packageManager === 'npm' ? 'npm install' : `${packageManager} add`);
 		const installSpecifiers = toSpecifiers(rootTargets);
 		const installCommand = `${command} ${installSpecifiers.map(shellQuote).join(' ')}`;
-		const hasRestrictedDependencies = hasRestrictedSubdependencies(installed);
 		const peers = edges.filter(edge => (
 			(edge.kind === 'optionalPeer' || (edge.kind === 'peer' && !required.has(edge.from)))
 				&& installed.has(edge.from) && !rootTargets.has(edge.key)
@@ -84,10 +87,8 @@ export const createWorkspaceResult = (
 				}
 			}
 		}
-		const note = installPolicyNote(hasRestrictedDependencies);
-		const peerPolicy = installPolicyNote(
-			hasRestrictedDependencies || hasRestrictedSubdependencies(peerPolicyClosure),
-		);
+		const note = installPolicyNote(installed);
+		const peerPolicy = installPolicyNote(installed, peerPolicyClosure);
 		const optionalDependencies = optional.filter(name => installed.has(name));
 		return [root, {
 			installSet: {
