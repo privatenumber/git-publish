@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
-import { getTransportConfigParameters, materializePublishGitConfig } from './git-config.ts';
+import { getCommandGitConfig, getTransportConfigParameters, materializePublishGitConfig } from './git-config.ts';
 import {
 	configurePublishTransport, type PublishRemote,
 } from './remote.ts';
@@ -44,7 +44,8 @@ export const createPublishRepository = async ({
 			name: 'publish-source',
 			url: publishRemote.historyUrl,
 		};
-	const transportConfigParameters = await getTransportConfigParameters(sourceRepositoryOptions);
+	const endpoints = history === push ? [push] : [history, push];
+	const commandConfig = await getCommandGitConfig(sourceRepositoryOptions);
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');
 	const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
@@ -53,7 +54,7 @@ export const createPublishRepository = async ({
 		GIT_CONFIG_SYSTEM: path.join(temporaryDirectory, 'system-config'),
 		GIT_CONFIG_GLOBAL: path.join(temporaryDirectory, 'global-config'),
 		GIT_CONFIG_COUNT: undefined,
-		GIT_CONFIG_PARAMETERS: transportConfigParameters,
+		GIT_CONFIG_PARAMETERS: getTransportConfigParameters(commandConfig),
 	};
 	const gitOptions = {
 		cwd: publishRepositoryPath,
@@ -103,17 +104,16 @@ export const createPublishRepository = async ({
 		const packRewriteConfig = await materializePublishGitConfig({
 			sourceRepositoryOptions,
 			destinationRepositoryPath: publishRepositoryPath,
-			remote: publishRemote,
-			fetchRemoteName: history.name,
-			pushRemoteName: push.name,
+			configuredName: publishRemote.configuredName,
+			endpoints,
+			commandConfig,
 			systemConfigPath: gitEnvironment.GIT_CONFIG_SYSTEM,
 			globalConfigPath: gitEnvironment.GIT_CONFIG_GLOBAL,
 		});
 		await configurePublishTransport({
 			gitOptions,
-			publishRemote,
-			fetchRemoteName: history.name,
-			pushRemoteName: push.name,
+			endpoints,
+			push,
 		});
 		await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], {
 			...gitOptions,

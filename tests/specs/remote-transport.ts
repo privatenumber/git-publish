@@ -86,6 +86,39 @@ describe('Remote transport', async () => {
 			expect(await remoteGit('rev-parse', [`refs/heads/${branch}`])).toMatch(/^[0-9a-f]{40}$/);
 		}
 	});
+
+	test('preserves a trailing carriage return in resolved local URLs', async () => {
+		await using destination = await createFixture({
+			repo: {},
+			'repo\r': {},
+		});
+		const remotePath = destination.getPath('repo\r');
+		const remoteGit = createGit(remotePath);
+		const siblingGit = createGit(destination.getPath('repo'));
+		await remoteGit.init(['--bare']);
+		await siblingGit.init(['--bare']);
+		await using source = await createGitFixture({
+			'package.json': '{"name":"app","version":"1.0.0"}',
+		});
+		await source.git('add', ['.']);
+		await source.git('commit', ['-m', 'initial']);
+		await source.git('remote', ['add', 'origin', remotePath]);
+		const alias = destination.getPath('alias');
+		await source.git('config', [`url.${remotePath}.insteadOf`, alias]);
+
+		for (const [remote, branch] of [
+			['origin', 'named'],
+			[alias, 'literal'],
+		] as const) {
+			const result = await gitPublish(source.path, ['--remote', remote, '--branch', branch]);
+			onTestFail(() => console.log(result));
+			expect('exitCode' in result).toBe(false);
+			expect(result.stdout).toContain(`git+${pathToFileURL(remotePath).href}#${branch}`);
+		}
+		expect(await remoteGit('for-each-ref', ['--format=%(refname)'])).toBe('refs/heads/literal\nrefs/heads/named');
+		expect(await siblingGit('for-each-ref')).toBe('');
+	});
+
 	test('rejects an unsupported fetch URL before packing even with a local push destination', async () => {
 		await using destination = await createGitFixture(undefined, ['--bare']);
 		await using marker = await createFixture();
@@ -791,6 +824,37 @@ describe('Remote transport', async () => {
 
 		expect(await commandsFixture.exists('blocked')).toBe(false);
 		expect(await remoteGit('rev-parse', [`npm/${branchName}`])).toBeTruthy();
+	});
+
+	test('honors command-scope receive-pack for the selected configured remote', async () => {
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using source = await createGitFixture({
+			'package.json': '{"name":"app","version":"1.0.0"}',
+		}, ['--initial-branch=source']);
+		await source.git('add', ['.']);
+		await source.git('commit', ['-m', 'initial']);
+
+		for (const [remote, command] of [
+			['publish', '/usr/bin/false'],
+			['fixture', '/usr/bin/false'],
+			['fixture', 'git-receive-pack'],
+		] as const) {
+			if (command === 'git-receive-pack') {
+				// Git keeps the first receive-pack, even when command config sets another.
+				await source.git('config', [`remote.${remote}.receivepack`, '/usr/bin/false']);
+			} else {
+				await source.git('remote', ['add', remote, destination.path]);
+			}
+			const result = await gitPublish(source.path, ['--remote', remote], {
+				GIT_CONFIG_COUNT: '1',
+				GIT_CONFIG_KEY_0: `remote.${remote}.receivepack`,
+				GIT_CONFIG_VALUE_0: command,
+			});
+			onTestFail(() => console.log(result));
+			expect('exitCode' in result && result.exitCode).toBe(1);
+			expect(result.output).toContain('Could not read from remote repository');
+			expect(await destination.git('for-each-ref')).toBe('');
+		}
 	});
 
 	test('keeps SSH receive-pack commands unsanitized', async () => {
