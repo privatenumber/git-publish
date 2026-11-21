@@ -103,6 +103,7 @@ export const packPackage = async (
 	cwd: string,
 	gitRootPath: string,
 	gitSubdirectory: string,
+	manifestFields: Readonly<Record<string, string>> | undefined,
 	signal: AbortSignal,
 ): Promise<string> => {
 	const isMonorepo = gitSubdirectory.length > 0;
@@ -132,6 +133,26 @@ export const packPackage = async (
 	const candidates = await listCandidates(cwd);
 	signal.throwIfAborted();
 	await copyContained(cwd, packWorktreePackageRoot, candidates, signal);
+
+	// Write after copying, which supplies an untracked package.json, so pack hooks see the fields
+	signal.throwIfAborted();
+	const packageJson = manifestFields && await PackageJson.load(packWorktreePackageRoot);
+	// save() skips the write when nothing changed, which would leave a removed symlink missing
+	if (packageJson && Object.entries(manifestFields).some(
+		([key, value]) => packageJson.content[key] !== value,
+	)) {
+		const manifestPath = path.join(packWorktreePackageRoot, 'package.json');
+		// update() also normalizes dependency fields, so set the fields directly
+		Object.assign(packageJson.content, manifestFields);
+		// Replace a tracked symlink so the write can't leave the checkout.
+		// Writing a regular file in place keeps its mode.
+		const manifestStat = await fs.lstat(manifestPath);
+		signal.throwIfAborted();
+		if (manifestStat.isSymbolicLink()) {
+			await fs.rm(manifestPath);
+		}
+		await packageJson.save();
+	}
 
 	// Symlink node_modules so hooks have access to dependencies
 	// Note: Remove any existing node_modules directory in worktree first

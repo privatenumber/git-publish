@@ -84,3 +84,20 @@ app@ /private/tmp/work/app
 ```
 
 Reported as [npm/cli#10249](https://github.com/npm/cli/issues/10249), which contains the full reproducer. Within one install set every package appears at one commit, so a set is unaffected; mixing sets from different publications can keep the wrong commit. git-publish therefore warns when a multi-package install set uses a remote that is not on GitHub, GitLab, or Bitbucket. GitHub URLs are compared with their commit and behave correctly.
+
+## npm needs the remote's HEAD to resolve
+
+npm cannot install any Git dependency from a non-hosted remote whose `HEAD` names a missing branch. A bare repository that only receives git-publish pushes has this state: `git init --bare` points `HEAD` at the default branch, and git-publish pushes only `npm/*` branches. [`clone.js` in @npmcli/git v8.0.0](https://github.com/npm/git/blob/v8.0.0/lib/clone.js#L56), which npm 12.2.2 bundles, reads the `HEAD` ref without a check:
+
+```text
+if (revDoc.sha === revs.refs.HEAD.sha) {
+```
+
+Observed on Fri Nov 20 2026 with npm 12.2.2, pnpm 12.21.0, and Git 2.54.0. Create a bare remote, push one branch named `npm/a`, and install its commit:
+
+```text
+$ npm i --allow-git=root 'git+file:///tmp/gp-head-repro/remote.git#<commit>'
+npm error Cannot read properties of undefined (reading 'sha')
+```
+
+After `git symbolic-ref HEAD refs/heads/npm/a` in the bare repository, the same command succeeds. `pnpm add` succeeds in both states. The bug is reported as [npm/git#116](https://github.com/npm/git/issues/116). GitHub, GitLab, and Bitbucket repositories always have a resolvable default branch, so hosted remotes are unaffected. A self-hosted remote used only for publication needs a `HEAD` that names an existing branch. git-publish does not check this.
