@@ -1,5 +1,5 @@
 import { terminalColumns } from 'terminal-columns';
-import { toInstallSpecifier, type PackagePreparation } from '../package-publication/prepare.ts';
+import type { PackagePreparation } from '../package-publication/prepare.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getGitHubInstallSpecifier } from '../utils/git-url.ts';
 import { shellQuote } from '../utils/shell-quote.ts';
@@ -19,10 +19,13 @@ export const createWorkspaceResult = (
 	const isRequired = (edge: Edge) => edge.kind === 'dependency' || edge.kind === 'peer';
 	const runtimeEdges = edges.filter(edge => edge.kind === 'dependency' || edge.kind === 'optional');
 	const orderedNames = plan.nodes.map(node => node.key);
-	const branchSpecifiers = new Map(plan.nodes.map(({ key, branch }) => [
-		key,
-		getGitHubInstallSpecifier(fetchUrl, branch) ?? toInstallSpecifier(fetchUrl, branch),
-	]));
+	const branchSpecifiers = new Map(plan.nodes.map(({ key, branch }) => {
+		const { installSpecifier } = preparations.get(key)!.publication;
+		// Yarn expands GitHub shorthand to HTTPS, even for an SSH remote.
+		const useShorthand = plan.nodes.length === 1 && edges.length === 0
+			&& !(packageManager === 'yarn' && installSpecifier.startsWith('git+ssh://'));
+		return [key, (useShorthand && getGitHubInstallSpecifier(fetchUrl, branch)) || installSpecifier];
+	}));
 	const gitPolicyNote = (hasRuntimeDependencies: boolean) => {
 		if (packageManager === 'yarn') {
 			return 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml';
@@ -52,15 +55,9 @@ export const createWorkspaceResult = (
 				rootTargets.set(edge.key, edge.target);
 			}
 		}
-		// An argument that also occurs transitively must resolve to the manifest's exact pin.
-		const runtimeTargets = new Set(
-			runtimeEdges.filter(edge => all.has(edge.from)).map(edge => edge.target),
-		);
 		const toSpecifiers = (targets: ReadonlyMap<string, string>) => (
 			[...targets].map(([name, target]) => {
-				const specifier = runtimeTargets.has(target)
-					? preparations.get(target)!.publication.installSpecifier
-					: branchSpecifiers.get(target)!;
+				const specifier = branchSpecifiers.get(target)!;
 				return packageManager === 'yarn' || name !== target ? `${name}@${specifier}` : specifier;
 			})
 		);
@@ -136,7 +133,6 @@ export const createWorkspaceResult = (
 		aliases,
 		presentation: {
 			publishAll: plan.kind === 'workspace' && plan.selection === 'default-roots',
-			hasRuntimeDependencies: runtimeEdges.length > 0,
 			notes: Object.fromEntries(results.map(([root, result]) => [root, result.notes])),
 		},
 	};

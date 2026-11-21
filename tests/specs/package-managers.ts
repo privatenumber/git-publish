@@ -89,15 +89,17 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 	});
 
 	describe('Install command', () => {
-		for (const [packageManager, lockfile, command, packagePrefix] of [
-			['npm', 'package-lock.json', 'npm i', ''],
-			['pnpm', 'pnpm-lock.yaml', 'pnpm i', ''],
-			['bun', 'bun.lock', 'bun i', ''],
-			['yarn', 'yarn.lock', 'yarn add', '@org/test-pkg@'],
+		for (const [packageManager, lockfile, command, specifierPrefix, ssh = false] of [
+			['npm', 'package-lock.json', 'npm i', 'owner/repository#'],
+			['pnpm', 'pnpm-lock.yaml', 'pnpm i', 'owner/repository#'],
+			['bun', 'bun.lock', 'bun i', 'owner/repository#'],
+			['yarn', 'yarn.lock', 'yarn add', '@org/test-pkg@owner/repository#'],
+			['yarn', 'yarn.lock', 'yarn add', '@org/test-pkg@git+ssh://git@github.com/owner/repository.git#', true],
 		] as const) {
-			test(`prints the ${packageManager} install command`, async () => {
-				const branchName = `test-${packageManager}-install-command`;
-				const remoteUrl = 'https://github.com/owner/repository.git';
+			test(`prints the ${packageManager} install command${ssh ? ' over SSH' : ''}`, async () => {
+				const branchName = `test-${packageManager}-install-command${ssh ? '+&=%' : ''}`;
+				const specifier = `${specifierPrefix}npm/${branchName}`;
+				const remoteUrl = ssh ? 'git@github.com:owner/repository.git' : 'https://github.com/owner/repository.git';
 				await using fixture = await createGitFixture({
 					'package.json': JSON.stringify({
 						name: '@org/test-pkg',
@@ -131,7 +133,7 @@ exec npm "$@"
 				const result = await gitPublish(fixture.path, ['--fresh'], environment);
 				onTestFail(() => console.log(result));
 				expect('exitCode' in result).toBe(false);
-				expect(result.stdout).toContain(`${command} '${packagePrefix}owner/repository#npm/${branchName}'`);
+				expect(result.stdout).toContain(`${command} '${specifier}'`);
 				expect(result.stdout.includes('npm 12+: add --allow-git=root')).toBe(packageManager === 'npm');
 				expect(result.stdout).not.toContain('--allow-git=all');
 				expect(result.stdout.includes('approvedGitRepositories')).toBe(packageManager === 'yarn');

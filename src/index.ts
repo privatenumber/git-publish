@@ -13,7 +13,7 @@ import {
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
 import {
-	getGitHubRepositoryName, isHostedGitRemote, redactRemote,
+	getGitHubRepositoryName, redactRemote,
 } from './utils/git-url.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { planPackagePublicationPush } from './package-publication/push.ts';
@@ -235,7 +235,6 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 					publishRemote,
 					pushMode,
 					source,
-					fresh,
 					versionShas,
 				}, signal);
 				const repositoryName = plan.kind === 'standalone' && getGitHubRepositoryName(remoteUrl);
@@ -269,9 +268,6 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 				await fs.writeFile(argv.flags.json, json).catch((error: Error) => {
 					jsonWriteError = error;
 				});
-			}
-			if (!isHostedGitRemote(remoteUrl) && result.presentation.hasRuntimeDependencies) {
-				console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
 			}
 			console.log(`\n${formatWorkspaceResult(result)}`);
 			if (jsonWriteError) {

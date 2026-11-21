@@ -35,9 +35,9 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 
 After a push, git-publish prints the install command for the repository's package manager. Use it as printed:
 
-- The command lists the selected package and any required internal peers. Runtime dependencies install transitively from the commit-pinned URLs in the published manifests.
-- Arguments use the moving branch, such as `npm i 'owner/repo#npm/main'`. If an argument also appears as a runtime dependency in the published closure, the command uses the same commit pin as the manifest.
-- A lockfile pins the commit. To move to a newer publish, use the package manager's update command (`npm update <name>`, `pnpm update <name>`, `bun update <name>`, `yarn up -R <name>`). If the command has commit-pinned arguments, use the newly printed command to update those arguments too.
+- Install the selected package and its required internal peers with the printed command. Runtime dependencies install transitively. Arguments and manifests use the same bare branch refs, such as `npm i 'owner/repo#npm/main'`.
+- Treat publish branches like a prerelease dist-tag. The lockfile pins commits. To move the whole channel forward, update every channel package by name, including transitive ones (`npm update app core`, `pnpm update app core`, `bun update app core`, or `yarn up -R app core`). Updating only the selected package can leave dependencies behind.
+- When migrating from a commit-pinned publication, use the new commands to replace direct commit pins before updating. Do not create tags with publish branch names. Package managers can resolve those tags instead of the branches.
 
 Consumer settings the installing project needs:
 

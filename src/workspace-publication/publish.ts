@@ -11,9 +11,9 @@ import {
 	formatPublicationMessage,
 	preparePackagePublication,
 	type PackagePreparation,
-	type PackagePublication,
+	toInstallSpecifier,
 } from '../package-publication/prepare.ts';
-import { readPackagePublicationPushTips, pushPackagePublications, type PackagePublicationPushMode } from '../package-publication/push.ts';
+import { pushPackagePublications, type PackagePublicationPushMode } from '../package-publication/push.ts';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { packPackage } from '../utils/pack-package.ts';
@@ -36,7 +36,6 @@ export const publishWorkspaceClosure = async ({
 	publishRemote,
 	pushMode,
 	source,
-	fresh,
 	versionShas,
 }: {
 	plan: WorkspacePublicationPlan;
@@ -45,7 +44,6 @@ export const publishWorkspaceClosure = async ({
 	publishRemote: PublishRemote;
 	pushMode: PackagePublicationPushMode;
 	source: Source;
-	fresh: boolean | undefined;
 	versionShas: ReadonlyMap<string, VersionSha>;
 }, signal: AbortSignal): Promise<{ plan: WorkspacePublicationPlan;
 	preparations: ReadonlyMap<string, PackagePreparation>; }> => {
@@ -57,19 +55,18 @@ export const publishWorkspaceClosure = async ({
 	});
 	try {
 		signal.throwIfAborted();
-		const remoteTips = await readPackagePublicationPushTips(
-			repository,
-			pushMode,
-			plan.nodes.map(node => node.branch),
-			signal,
-		);
 		const branches = plan.nodes.map((node, index) => ({
 			publishBranch: node.branch,
 			localRef: `refs/git-publish/tips/${index}`,
 		}));
-		const existingBranches = await loadPublishBranches(repository, branches, fresh, signal);
+		const { existingBranches, remoteTips } = await loadPublishBranches(
+			repository, branches, pushMode, signal,
+		);
 		const preparations = new Map<string, PackagePreparation>();
 		const targetsByName = new Map(plan.nodes.map(node => [node.key, node.package]));
+		const installSpecifiers = new Map(plan.nodes.map(node => [
+			node.key, toInstallSpecifier(publishRemote.installUrl, node.branch),
+		]));
 		const versionlessFallback = packageManager === 'yarn' ? '0.0.0' : undefined;
 		const processPackage = async (index: number, {
 			streamPreview,
@@ -103,14 +100,12 @@ export const publishWorkspaceClosure = async ({
 					signal,
 				);
 				setStatus('Preparing publication commit');
-				const dependencyPublications = new Map<string, PackagePublication>();
 				const targets = new Map<string, { dir: string;
 					version?: string;
 					sourceVersion?: string; }>();
 				for (const edge of node.dependencies) {
 					const dependency = preparations.get(edge.target)!;
 					const target = targetsByName.get(edge.target)!;
-					dependencyPublications.set(edge.target, dependency.publication);
 					targets.set(edge.target, {
 						dir: target.dir,
 						version: dependency.version ?? versionlessFallback,
@@ -124,14 +119,13 @@ export const publishWorkspaceClosure = async ({
 					importRef: `refs/git-publish/${index}`,
 					parent: existingBranches.has(node.branch) ? branches[index]!.localRef : undefined,
 					branch: node.branch,
-					fetchUrl: publishRemote.installUrl,
 					commitMessage: formatPublicationMessage(
 						plan.kind === 'standalone' ? undefined : node.key,
 						source.name,
 						source.shortCommit,
 					),
 					dependencyEdges: node.dependencies,
-					dependencyPublications,
+					installSpecifiers,
 					validationContext: {
 						from: node.package.dir,
 						root: plan.kind === 'workspace' ? plan.rootDirectory : repositoryPath,

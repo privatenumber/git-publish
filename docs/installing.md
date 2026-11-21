@@ -16,9 +16,11 @@ For Yarn, the command uses `add` and includes the package name, which modern Yar
 yarn add 'my-package@https://github.com/owner/repo.git#npm/main'
 ```
 
-For a monorepo package, the command includes the selected package and any required internal peers. Internal runtime dependencies, including optional ones, install transitively from the commit-pinned URLs in the published manifests. If an argument also appears as a runtime dependency in that package's published closure, the command uses the same commit-pinned URL instead of the branch.
+Install URLs use the bare branch name (`#<branch>`). Avoid `&` and `#` in custom publish branch names: Git accepts them, but some package managers fail to resolve them. Do not create tags with the same name as a publish branch. Package managers can resolve the tag instead of the branch. `git-publish` checks for existing tags before packing, but cannot prevent someone from adding one later.
 
-Install URLs name the repository that receives the push. When a remote fetches from an upstream repository and pushes to your fork, the install URLs point at the fork.
+For a monorepo package, the command includes the selected package and any required internal peers. Internal runtime dependencies, including optional ones, install transitively from the branch URLs in the published manifests. If a package appears both in the command and as a runtime dependency, both use the same Git specifier.
+
+Install URLs name the repository that receives the push. When a remote fetches from an upstream repository and pushes to your fork, the install URLs point at the fork. For publications with internal dependencies, the command uses the same Git URL form as the manifest. Yarn also keeps explicit GitHub SSH URLs for single packages because it expands GitHub shorthand to HTTPS.
 
 ## Package manager settings
 
@@ -31,11 +33,15 @@ Current package managers restrict Git dependencies by default. The consumer's pr
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install |
 | Bun | No Git dependency setting required |
 
-For Git servers other than GitHub, GitLab, and Bitbucket, npm can ignore commit pins when the same package appears at different commits. For example, an existing direct dependency can override a different transitive pin. `git-publish` warns when the publication contains internal Git runtime dependencies and the remote is on another host.
-
 ## Updating
 
-A lockfile pins the commit, so a normal install keeps the old version. To move to a newer publish of a branch, run your package manager's update command, such as `npm update <name>`, `pnpm update <name>`, `bun update <name>`, or `yarn up -R <name>`. If the command includes any commit-pinned arguments, run the newly printed command to update those arguments too.
+Publish branches work like a prerelease dist-tag such as `beta`: a fresh install selects the current branch tips, while your lockfile pins the commits it resolved. A normal locked reinstall does not advance them.
+
+To refresh the whole channel, update every channel package by name, including transitive dependencies. For example, run `npm update app core`, `pnpm update app core`, `bun update app core`, or `yarn up -R app core`. Updating `app` alone can leave `core` at its old commit. Installing without a lockfile also resolves the current tips, but can update unrelated dependencies.
+
+If you are migrating from a commit-pinned publication, replace any direct commit pins with the newly printed branch commands, then update the channel packages by name.
+
+A saved command is not a snapshot. If an internal peer was published on its own with an incompatible version, the package manager can report a peer mismatch. Publish versions that satisfy the peer range before updating the consumer.
 
 ## Private repositories
 

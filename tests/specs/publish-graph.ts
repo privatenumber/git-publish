@@ -318,7 +318,7 @@ describe('Publication graph', () => {
 				packageName: node.key,
 				branch: node.branch,
 				commit: 'abc',
-				installSpecifier: 'git+https://example.test/repo#abc',
+				installSpecifier: `git+https://example.test/repo#${node.branch}`,
 			},
 			files: [],
 			unpublishedFilesFieldEntries: [],
@@ -363,11 +363,16 @@ describe('Publication graph', () => {
 				alias: 'core',
 			},
 		});
-		for (const manager of ['npm', 'pnpm', 'yarn', 'bun'] as const) {
+		for (const [manager, specifier] of [
+			['npm', 'git+https://example.test/repo#npm/app'],
+			['pnpm', 'git+https://example.test/repo#npm/app'],
+			['yarn', 'app@git+https://example.test/repo#npm/app'],
+			['bun', 'git+https://example.test/repo#npm/app'],
+		] as const) {
 			const mixedResult = createWorkspaceResult(plan, preparations, 'main', 'abc', manager, remote);
 			expect(mixedResult.installSets.app!.installSpecifiers).toStrictEqual([
-				`${manager === 'yarn' ? 'app@' : ''}git+https://example.test/repo#npm/app`,
-				'alias@git+https://example.test/repo#abc',
+				specifier,
+				'alias@git+https://example.test/repo#npm/core',
 			]);
 		}
 		app.dependencies.pop();
@@ -379,7 +384,7 @@ describe('Publication graph', () => {
 		});
 		const cycleResult = createWorkspaceResult(plan, preparations, 'main', 'abc', 'npm', remote);
 		expect(cycleResult.installSets.app!.installSpecifiers).toStrictEqual([
-			'git+https://example.test/repo#abc',
+			'git+https://example.test/repo#npm/app',
 			'alias@git+https://example.test/repo#npm/core',
 		]);
 	});
@@ -417,7 +422,7 @@ describe('Publication graph', () => {
 				packageName: node.key,
 				branch: node.branch,
 				commit: node.key,
-				installSpecifier: `git+https://example.test/repo#${node.key}`,
+				installSpecifier: `git+https://example.test/repo#${node.branch}`,
 			},
 			files: [],
 			unpublishedFilesFieldEntries: [],
@@ -473,7 +478,7 @@ describe('Publication graph', () => {
 				packageName: node.key,
 				branch: node.branch,
 				commit: node.key,
-				installSpecifier: `git+https://example.test/repo#${node.key}`,
+				installSpecifier: `git+https://example.test/repo#${node.branch}`,
 			},
 			files: [],
 			unpublishedFilesFieldEntries: [],

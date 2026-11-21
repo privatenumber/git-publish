@@ -25,7 +25,9 @@ A selection publishes the selected packages plus every workspace package they ne
 - pnpm, Bun, and Yarn `catalog:` references, using the same rules as the range in the catalog.
 - Plain semver runtime ranges whose range the workspace package's version satisfies: for npm and Bun always, for Yarn unless transparent workspaces are disabled, and for pnpm when `linkWorkspacePackages` is enabled (`true` or `deep`). Plain peer ranges are considered for every package manager.
 
-In each published package, internal runtime dependencies are rewritten to commit-pinned Git URLs of the published packages. Internal peers keep their packed ranges.
+In each published package, internal runtime dependencies are rewritten to Git URLs with the dependency's bare publish branch. Internal peers keep their packed ranges. These branches form a prerelease channel, like an npm dist-tag. The consumer lockfile pins commits, but an unlocked install can resolve branch tips from different publications even when each push was atomic.
+
+Publication fails before packing if the remote has a tag with the same name as any branch in the plan. Do not create tags with publish branch names: package managers can resolve the tag instead of the branch.
 
 Publication fails before pushing if:
 
@@ -38,7 +40,7 @@ See [`--remote`](./cli.md#--remote) for the push URL requirement.
 
 ## Installing
 
-After the push, `git-publish` prints one install command per selected package, even when the workspace publishes a large selection. The command lists the selected package and its required internal peers. Runtime dependencies install transitively from the commit pins in the published manifests. If a command argument also appears as a runtime dependency in the published closure, it uses the same commit pin rather than the moving branch. See [Installing](./installing.md) for the settings consumers need.
+After the push, `git-publish` prints one install command per selected package, even when the workspace publishes a large selection. The command lists the selected package and its required internal peers. Runtime dependencies install transitively from the branch URLs in the published manifests. When a package appears in both places, it uses the same Git specifier. See [Installing](./installing.md) for consumer settings and [Updating](./installing.md#updating) to refresh the channel or migrate from commit pins.
 
 ## Preparing packages
 

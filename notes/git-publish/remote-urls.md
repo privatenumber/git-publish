@@ -1,10 +1,10 @@
 # Remote URLs
 
-**Decision.** Install URLs, manifest pins, and branch-history lookups name the repository that receives the push. The transport comes from the fetch URL when possible. git-publish does not include credentials in published manifests, `--json`, or the remote URLs it prints. Verified 2026-11-07.
+**Decision.** Install URLs, manifest branch references, and branch-history lookups name the repository that receives the push. The transport comes from the fetch URL when possible. git-publish does not include credentials in published manifests, `--json`, or the remote URLs it prints. Verified 2026-11-07.
 
 ## Push destination identity
 
-A commit-pinned URL is only valid if it names a repository that contains the commit, and after a push only the push destination is guaranteed to. So when a remote fetches from one repository and pushes to another (for example `origin` fetches upstream and `remote.origin.pushurl` points at a fork), git-publish uses the push destination.
+A branch URL must name the repository that receives the updated branch. So when a remote fetches from one repository and pushes to another (for example `origin` fetches upstream and `remote.origin.pushurl` points at a fork), git-publish uses the push destination.
 
 - **Same repository, different transports** (HTTPS fetch, SSH push): the fetch URL is used, because it is usually the consumer-friendly transport.
 - **Different repositories on the same hosted provider** (github.com, gitlab.com, bitbucket.org): the fetch URL's transport with the push destination's owner and repository, for example fetch `https://github.com/upstream/r.git` plus push `git@github.com:me/r.git` gives `https://github.com/me/r.git`.
@@ -61,7 +61,7 @@ app@ /private/tmp/work/app
 └── core@1.0.0 (git+file:///tmp/work/core#32abc94467ac5f33574461b2288b24d8136b408c)
 ```
 
-Reported as [npm/cli#10249](https://github.com/npm/cli/issues/10249), which contains the full reproducer. A standalone install into a clean consumer uses the expected pin; mixing packages from different publications can keep the wrong commit. Removing runtime-only root arguments does not prevent a conflicting pin already present in the consumer. git-publish warns when a publication contains an internal Git runtime edge and uses a remote that is not on GitHub, GitLab, or Bitbucket. A peer-only set without runtime edges has no manifest pin to override. GitHub URLs are compared with their commit and behave correctly. See [the install-set experiment](./monorepo-install-sets.md#when-a-root-argument-is-also-a-runtime-target) for cases where a peer overlaps a runtime target.
+Reported as [npm/cli#10249](https://github.com/npm/cli/issues/10249), which contains the full reproducer. The current [branch-channel design](./branch-channel.md) no longer emits conflicting pins: the command and the runtime manifest use the same branch specifier for a given package, so the non-hosted comparison cannot conflate two different selectors emitted for that package in the same publication. The generic publish warning was removed. npm can still keep an old commit if the consumer retains a direct SHA pin or mixes in a different selector for the same package and URL. Replace old direct pins with the printed branch commands when migrating.
 
 ## npm needs the remote's HEAD to resolve
 

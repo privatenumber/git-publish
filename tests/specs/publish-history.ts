@@ -13,6 +13,26 @@ describe('Publish history', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
+	test('rejects a same-named remote tag on a fresh standalone publication', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=standalone-tag']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		const branch = 'npm/standalone-tag';
+		const tag = `refs/tags/${branch}`;
+		await fixture.git('update-ref', [tag, 'HEAD']);
+		await fixture.git('push', ['origin', tag]);
+		const result = await gitPublish(fixture.path, ['--fresh']);
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain(`Remote tag "${tag}" conflicts with publish branch "${branch}"`);
+		expect(await remoteGit('for-each-ref', ['--format=%(refname)', `refs/heads/${branch}`])).toBe('');
+	});
+
 	test('preserves configured committer identity in publication commits', async () => {
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({

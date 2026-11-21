@@ -6,7 +6,7 @@ Measure changes with [`bench/`](../../bench/README.md), which compares builds in
 
 ## Where the time goes
 
-[`publishWorkspaceClosure`](../../src/workspace-publication/publish.ts) processes packages with `concurrency: 1`. All packages share one pack checkout, and each package's publication commit uses the commits of the dependencies prepared before it. For each package, it resets and cleans the checkout, copies the package's untracked files, runs the package manager's `pack` with hooks, and imports the tarball into a commit.
+[`publishWorkspaceClosure`](../../src/workspace-publication/publish.ts) processes packages with `concurrency: 1`. All packages share one pack checkout. For each package, it resets and cleans the checkout, copies the package's untracked files, runs the package manager's `pack` with hooks, and imports the tarball into a commit. The measured design used dependency commits. Now that manifests use [branch references](./branch-channel.md), commit content no longer depends on preparation order. Runtime dependency validation still needs the targets' packed versions first. Peer range validation runs after packing.
 
 ### Generated workspace
 
@@ -48,4 +48,4 @@ A republish with no changes costs almost as much as a first publish. git-publish
 ## Consequences for workspaces
 
 - Before `prepack` runs, git-publish copies the package's files that npm would pack, as listed by `npm-packlist`, from the source checkout into the isolated checkout ([`pack-package.ts`](../../src/utils/pack-package.ts)). These are the `files` list, including existing build output, and entries npm always packs, such as `main` and `bin`. Other untracked files are not copied. When a `prepack` hook rebuilds all of the output that the package publishes, a workspace build before publishing does the same work again. When a hook relies on output that the workspace build created, the workspace build is required.
-- Packing in parallel is not implemented. It would need one isolated checkout for each concurrent package, and lifecycle hooks would run at the same time against the shared, symlinked `node_modules`. Commit preparation would still run in dependency order after packing. No measurement exists yet for this design.
+- Packing in parallel is not implemented. It would need one isolated checkout for each concurrent package, and lifecycle hooks would run at the same time against the shared, symlinked `node_modules`. Only packed-version validation still depends on dependency order, not commit content. No measurement exists yet for parallel packing.

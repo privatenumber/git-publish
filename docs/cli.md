@@ -23,7 +23,7 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 | --- | --- |
 | `-r, --remote <remote>` | Git remote name or URL to push to. Default: `origin`. See [`--remote`](#--remote) |
 | `-b, --branch <template>` | Branch name or template. See [Branches](#branches) |
-| `-d, --dry` | Validate and print the publication plan. Does not pack, run package hooks, commit, or push |
+| `-d, --dry` | Validate and print the publication plan. Resolves the remote from local Git config but does not contact it, check for remote tags, pack, run package hooks, commit, or push |
 | `-o, --fresh` | Publish a single-commit branch, replacing its history with a force-push. See [`--fresh`](#--fresh) |
 | `--version-sha` | Record the source commit in each published `package.json`. See [`--version-sha`](#--version-sha) |
 | `-f, --force` | Allow publishing a private standalone package or a private workspace root |
@@ -110,7 +110,7 @@ The added `version` build metadata and `gitHead` together are the version SHA.
             "name": "@acme/core",
             "branch": "npm/main-@acme/core",
             "commit": "<publish commit>",
-            "installSpecifier": "git+https://github.com/acme/repo.git#<publish commit>",
+            "installSpecifier": "git+https://github.com/acme/repo.git#npm/main-@acme/core",
             "role": "root",
             "reused": false
         }
@@ -135,8 +135,8 @@ The added `version` build metadata and `gitHead` together are the version SHA.
 
 - `source.commit` is the full source commit ID.
 - Each package's `role` is `root`, `dependency`, or `peer`. `reused` is `true` when the existing publication commit was unchanged.
-- Each install set lists the `required` and `optional` package names in the selected package's dependency closure. Look up `packages[].installSpecifier` for the commit-pinned specifiers, which are suitable for reproducible installs.
-- `installSpecifiers` contains the unquoted root arguments for the detected package manager. `installCommand` is the shell-quoted command printed by the CLI, without any package manager settings. It lists only the selected package and required internal peers. Arguments use branch refs unless they overlap with a runtime pin in the published closure.
+- Each package's `installSpecifier` is its moving bare-branch Git URL, as used in published manifests. Its `commit` records what this run published. The consumer lockfile, not the install specifier, pins the resolved commit.
+- Each install set lists the `required` and `optional` package names in the selected package's dependency closure. `installSpecifiers` contains the unquoted root arguments for the detected package manager. `installCommand` is the shell-quoted command printed by the CLI, without package manager settings. It lists only the selected package and required internal peers, all by branch.
 - `aliases` maps each selected package's internal runtime and peer aliases to their target package names. The command lists required peer aliases. Runtime aliases remain in the published manifests.
 
 ## `skills`
