@@ -8,6 +8,7 @@ import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/g
 import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { importTarball, type File } from './import-tarball.ts';
 import { validatePackedManifest, type PackedManifestValidationContext } from './validate.ts';
+import { getVersionShaCommit, type VersionSha } from './version-sha.ts';
 
 const { stringify } = JSON;
 
@@ -31,6 +32,81 @@ export type PackagePreparation = {
 
 export type PackagePublicationDependency = PublishGraphEdge;
 
+export const formatPublicationMessage = (
+	packageName: string | undefined,
+	sourceName: string,
+	shortCommit: string,
+) => `Published ${packageName === undefined ? '' : `${stringify(packageName)} `}from ${stringify(sourceName)} (${shortCommit})`;
+
+const namesSourceCommit = (subject: string, shortCommit: string) => (
+	subject.startsWith('Published ') && subject.endsWith(` (${shortCommit})`)
+);
+
+/**
+ * The short commit named by the parent's version SHA when the new tree equals
+ * the parent tree except for that version SHA.
+ */
+const getVersionShaOnlyChange = async (
+	parentTree: string,
+	newTree: string,
+	manifest: PackageJson,
+	versionSha: VersionSha,
+	gitOptions: SpawnOptions,
+) => {
+	// Only the top-level package.json blob may change; an added file or a mode change shows here
+	// -z keeps the path exact; trimming text output would match a file named "package.json "
+	const { stdout: changed } = await spawnAbortable('git', ['diff-tree', '--raw', '-z', parentTree, newTree], gitOptions);
+	const entry = /^:(\d+) (\d+) [\da-f]+ [\da-f]+ M\0package\.json\0$/.exec(changed);
+	if (!entry || entry[1] !== entry[2]) {
+		return undefined;
+	}
+	const parentContent = await getStdout(spawnAbortable('git', ['cat-file', 'blob', `${parentTree}:package.json`], gitOptions));
+	let parentManifest: unknown;
+	try {
+		parentManifest = JSON.parse(parentContent);
+	} catch {
+		// An unparseable parent manifest has no version SHA to compare
+		return undefined;
+	}
+	if (typeof parentManifest !== 'object' || parentManifest === null || Array.isArray(parentManifest)) {
+		return undefined;
+	}
+	const { version, gitHead } = parentManifest as PackageJson;
+	const substituted = stringify({
+		...manifest,
+		version,
+		gitHead,
+	});
+	return substituted === stringify(parentManifest)
+		? getVersionShaCommit(versionSha, version, gitHead)
+		: undefined;
+};
+
+/**
+ * Whether the parent publication can stand in for the new tree. With a version
+ * SHA, the parent's version SHA must name the source commit its own message names.
+ */
+const canReuseParent = async (
+	parentCommit: string,
+	parentTree: string,
+	newTree: string,
+	manifest: PackageJson,
+	versionSha: VersionSha | undefined,
+	gitOptions: SpawnOptions,
+) => {
+	if (!versionSha) {
+		return newTree === parentTree;
+	}
+	const namedCommit = newTree === parentTree
+		? getVersionShaCommit(versionSha, versionSha.version, versionSha.gitHead)
+		: await getVersionShaOnlyChange(parentTree, newTree, manifest, versionSha, gitOptions);
+	if (!namedCommit) {
+		return false;
+	}
+	const subject = await getStdout(spawnAbortable('git', ['log', '-1', '--no-show-signature', '--encoding=UTF-8', '--format=%s', parentCommit], gitOptions));
+	return namesSourceCommit(subject, namedCommit);
+};
+
 export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPackageManagerGitUrl(fetchUrl)}#${commit}`;
 
 export const preparePackagePublication = async ({
@@ -46,6 +122,7 @@ export const preparePackagePublication = async ({
 	dependencyPublications,
 	validationContext,
 	peers = [],
+	versionSha,
 	gitOptions,
 	signal,
 }: {
@@ -61,6 +138,7 @@ export const preparePackagePublication = async ({
 	dependencyPublications: ReadonlyMap<string, PackagePublication>;
 	validationContext: PackedManifestValidationContext;
 	peers?: WorkspacePeer[];
+	versionSha?: VersionSha;
 	gitOptions: SpawnOptions;
 	signal?: AbortSignal;
 }): Promise<PackagePreparation> => {
@@ -68,6 +146,15 @@ export const preparePackagePublication = async ({
 	const rewriteManifest = (content: Buffer) => {
 		manifest = JSON.parse(content.toString('utf8')) as PackageJson;
 		const original = stringify(manifest);
+		if (versionSha) {
+			// pnpm pack drops build metadata from the packed version
+			if (manifest.version !== versionSha.version
+				&& !(validationContext.packageManager === 'pnpm' && manifest.version === versionSha.version.split('+')[0])) {
+				throw new Error(`Package ${stringify(packageName)} has packed version ${stringify(manifest.version)}, but --version-sha set ${stringify(versionSha.version)}. A lifecycle script or the package manager's pack configuration changed the version.`);
+			}
+			manifest.version = versionSha.version;
+			manifest.gitHead = versionSha.gitHead;
+		}
 		for (const { key, field } of [
 			...dependencyEdges,
 			...peers.map(peer => ({
@@ -137,7 +224,11 @@ export const preparePackagePublication = async ({
 		? await getStdout(spawn('git', ['rev-parse', parent, `${parent}^{tree}`], gitOptions))
 		: '';
 	const [parentCommit, parentTree] = parentRevisions ? parentRevisions.split('\n') : [];
-	const reusedExistingCommit = parentCommit !== undefined && newTree === parentTree;
+	const reusedExistingCommit = parentCommit !== undefined && parentTree !== undefined
+		&& await canReuseParent(parentCommit, parentTree, newTree, packedManifest, versionSha, {
+			...gitOptions,
+			signal,
+		});
 	let commit: string;
 	if (parentCommit && reusedExistingCommit) {
 		commit = parentCommit;

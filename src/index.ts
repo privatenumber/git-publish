@@ -19,6 +19,7 @@ import { getPublishRemote } from './publish-repository/remote.ts';
 import { planPackagePublicationPush } from './package-publication/push.ts';
 import { planStandalonePublication, planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
+import { createVersionSha } from './package-publication/version-sha.ts';
 import {
 	createWorkspaceResult, formatWorkspaceResult,
 } from './workspace-publication/output.ts';
@@ -119,6 +120,10 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 				alias: 'f',
 				description: 'Allow publishing a private standalone package or a private workspace root.',
 			},
+			versionSha: {
+				type: Boolean,
+				description: 'Record the source commit in each published package.json: version gets +sha-<commit> build metadata and gitHead the full SHA.',
+			},
 			json: {
 				type: String,
 				placeholder: '<path>',
@@ -189,6 +194,15 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
 	const remoteUrl = publishRemote.installUrl;
 	const pushMode = planPackagePublicationPush(plan, fresh);
+	// Built before the dry-run return so a dry run rejects invalid versions too
+	const versionShas = new Map(argv.flags.versionSha
+		? plan.nodes.map(node => [node.key, createVersionSha(
+			node.key,
+			node.package.packageJson.version,
+			source.commit,
+			source.shortCommit,
+		)])
+		: []);
 	if (dry && plan.kind === 'workspace') {
 		console.log(formatWorkspacePublicationPlan(plan, source.name));
 	}
@@ -222,6 +236,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 					pushMode,
 					source,
 					fresh,
+					versionShas,
 				}, signal);
 				const repositoryName = plan.kind === 'standalone' && getGitHubRepositoryName(remoteUrl);
 				if (repositoryName) {
