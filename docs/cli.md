@@ -25,7 +25,7 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 | `-b, --branch <template>` | Branch name or template. See [Branches](#branches) |
 | `-d, --dry` | Validate and print the publication plan. Does not pack, run package hooks, commit, or push |
 | `-o, --fresh` | Publish a single-commit branch, replacing its history with a force-push. See [`--fresh`](#--fresh) |
-| `--stamp-commit` | Record the source commit in each published `package.json`. See [`--stamp-commit`](#--stamp-commit) |
+| `--version-sha` | Record the source commit in each published `package.json`. See [`--version-sha`](#--version-sha) |
 | `-f, --force` | Allow publishing a private standalone package or a private workspace root |
 | `--json <path>` | Write publication details and install sets to a JSON file. See [JSON output](#json-output) |
 | `-h, --help` | Show help |
@@ -68,9 +68,9 @@ For one package, a literal branch stays exact: `git-publish --branch preview` pu
 
 By default, `git-publish` adds a commit to the existing branch. Lockfiles record the commit of a Git dependency, not the branch name, and a commit that becomes unreachable from the branch history may be garbage-collected, which breaks those installs. `--fresh` force-pushes a one-commit branch, so use it only when no one depends on the old commits.
 
-## `--stamp-commit`
+## `--version-sha`
 
-`--stamp-commit` records the source commit in each published `package.json`, so consumers can tell which source commit they installed:
+`--version-sha` records the source commit in each published `package.json`, so consumers can tell which source commit they installed:
 
 ```json
 {
@@ -80,18 +80,20 @@ By default, `git-publish` adds a commit to the existing branch. Lockfiles record
 }
 ```
 
+The added `version` build metadata and `gitHead` together are the version SHA.
+
 - `version` gets `+sha-<short commit>` semver build metadata. The short commit is the one the publication commit message names. A package without a `version` gets `0.0.0+sha-<short commit>`.
 - `gitHead`, the field npm uses for the commit a package was built from, gets the full source commit ID.
-- The stamp, both `version` and `gitHead`, is written to `package.json` in the isolated checkout before packing. Lifecycle hooks and build scripts that run during packing can read it from `package.json` and `npm_package_version`. Files built before `git-publish` runs are not rewritten.
-- A hook must not change the version. With npm, Yarn, and Bun, `git-publish` rejects a packed version that differs from the stamp. pnpm drops build metadata when it packs, so with pnpm `git-publish` can't detect a script that removes the stamp.
-- Package managers ignore build metadata when they compare versions, so the stamped version satisfies every range that the source version satisfies. A prerelease such as `1.2.3-a1b2c3d` would not: npm rejects it against a `^1.2.0` peer range.
-- When only the stamp would change, `git-publish` reuses the existing publication commit, and its stamp keeps naming the source commit it was published from. Reuse requires that:
+- The version SHA, both `version` and `gitHead`, is written to `package.json` in the isolated checkout before packing. Lifecycle hooks and build scripts that run during packing can read it from `package.json` and `npm_package_version`. Files built before `git-publish` runs are not rewritten.
+- A hook must not change the version. With npm, Yarn, and Bun, `git-publish` rejects a packed version that differs from the version with its SHA. pnpm drops build metadata when it packs, so with pnpm `git-publish` can't detect a script that removes the version SHA.
+- Package managers ignore build metadata when they compare versions, so the version with its SHA satisfies every range that the source version satisfies. A prerelease such as `1.2.3-a1b2c3d` would not: npm rejects it against a `^1.2.0` peer range.
+- When only the version SHA would change, `git-publish` reuses the existing publication commit, and its version SHA keeps naming the source commit it was published from. Reuse requires that:
   - All other files are identical, and no file mode changes, including the mode of `package.json`.
-  - `package.json` gives the same `JSON.stringify` output after its stamp fields are substituted. Formatting differences are ignored, but a change in the order of named keys is not.
-  - The existing commit's stamp and its message name the same source commit.
+  - `package.json` gives the same `JSON.stringify` output after its version SHA fields are substituted. Formatting differences are ignored, but a change in the order of named keys is not.
+  - The existing commit's version SHA and its message name the same source commit.
 
-  Without `--fresh`, an unchanged package that meets these conditions keeps its publication commit. A build that writes the stamp into a packed file changes that file on every source commit.
-- The source version must parse as semver. node-semver normalizes forms such as `v1.2.3` to `1.2.3`. A version that does not parse, such as `1.2`, or that already has build metadata, such as `1.2.3+build.1`, is an error. So is a stamped version longer than node-semver's 256-character limit. A dry run reports the same error.
+  Without `--fresh`, an unchanged package that meets these conditions keeps its publication commit. A build that writes the version SHA into a packed file changes that file on every source commit.
+- The source version must parse as semver. node-semver normalizes forms such as `v1.2.3` to `1.2.3`. A version that does not parse, such as `1.2`, or that already has build metadata, such as `1.2.3+build.1`, is an error. So is a version with its SHA longer than node-semver's 256-character limit. A dry run reports the same error.
 
 ## JSON output
 

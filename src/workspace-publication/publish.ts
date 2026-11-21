@@ -21,7 +21,7 @@ import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import { assertSourceUnchanged, type Source } from '../utils/git.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 import { validatePeerRanges } from '../package-publication/validate.ts';
-import type { CommitStamp } from '../package-publication/commit-stamp.ts';
+import type { VersionSha } from '../package-publication/version-sha.ts';
 import type { WorkspacePublicationPlan } from './plan.ts';
 import { createInstallGraph } from './install-graph.ts';
 
@@ -33,7 +33,7 @@ export const publishWorkspaceClosure = async ({
 	pushMode,
 	source,
 	fresh,
-	commitStamps,
+	versionShas,
 }: {
 	plan: WorkspacePublicationPlan;
 	packageManager: PackageManager;
@@ -42,7 +42,7 @@ export const publishWorkspaceClosure = async ({
 	pushMode: PackagePublicationPushMode;
 	source: Source;
 	fresh: boolean | undefined;
-	commitStamps: ReadonlyMap<string, CommitStamp>;
+	versionShas: ReadonlyMap<string, VersionSha>;
 }, signal: AbortSignal): Promise<{ plan: WorkspacePublicationPlan;
 	preparations: ReadonlyMap<string, PackagePreparation>; }> => {
 	const repository = await createPublishRepository({
@@ -74,7 +74,7 @@ export const publishWorkspaceClosure = async ({
 			startTime,
 		}: TaskInnerAPI) => {
 			const node = plan.nodes[index]!;
-			const commitStamp = commitStamps.get(node.key);
+			const versionSha = versionShas.get(node.key);
 			signal.throwIfAborted();
 			startTime();
 			try {
@@ -95,7 +95,7 @@ export const publishWorkspaceClosure = async ({
 					node.package.dir,
 					repositoryPath,
 					path.relative(repositoryPath, node.package.dir),
-					commitStamp,
+					versionSha,
 					signal,
 				);
 				setStatus('Preparing publication commit');
@@ -135,7 +135,7 @@ export const publishWorkspaceClosure = async ({
 						targets,
 					},
 					peers: plan.peers.filter(peer => peer.from === node.key),
-					commitStamp,
+					versionSha,
 					gitOptions: repository.gitOptions,
 					signal,
 				});
