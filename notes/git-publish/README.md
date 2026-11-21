@@ -9,3 +9,4 @@ Project decisions for publishing packages, including monorepo packages, to Git b
 - [Remote URLs](./remote-urls.md): which repository install URLs name, how credentials are kept out of output, and the npm commit-pin and `HEAD` limitations for non-hosted servers.
 - [Publication performance](./publication-performance.md): where workspace publication time goes, why hooks and serial packing dominate, and why unchanged republishes still pack.
 - [Publication commits](./publication-commits.md): why packed entries are streamed directly into Git commits, and which alternatives were rejected.
+- [Signal tests](./signal-tests.md): why signal tests run before concurrent fixture setup, and how to distinguish startup failures from signal handling failures.
