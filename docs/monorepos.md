@@ -27,7 +27,7 @@ A selection publishes the selected packages plus every workspace package they ne
 
 In each published package, internal runtime dependencies are rewritten to Git URLs with the dependency's bare publish branch. Internal peers keep their packed ranges. These branches form a prerelease channel, like an npm dist-tag. The consumer lockfile pins commits, but an unlocked install can resolve branch tips from different publications even when each push was atomic.
 
-Publication fails before packing if the destination has a ref that a package manager could resolve instead of a branch in the plan. This includes same-named tags and can include pull request refs. Do not add conflicting refs after publication.
+Before packing, git-publish checks the destination for conflicting refs, such as same-named tags and pull request refs that a package manager could resolve instead of a branch in the plan. The check can miss unusual ref spellings and cannot prevent someone from adding a conflicting ref later.
 
 Publication fails before pushing if:
 

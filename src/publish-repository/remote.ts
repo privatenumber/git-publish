@@ -28,7 +28,7 @@ const getLiteralPushUrl = async (url: string, options: SpawnOptions) => {
 		prefixesByBase.set(base, prefixes);
 	}
 	let longest = -1;
-	let pushUrl = url;
+	let pushUrl: string | undefined;
 	for (const [base, prefixes] of prefixesByBase) {
 		for (const prefix of prefixes) {
 			if (prefix.length > longest && url.startsWith(prefix)) {
@@ -81,28 +81,30 @@ export const getPublishRemote = async (
 	}
 	const safeName = configuredName && /^[\w.-]+$/.test(configuredName) ? configuredName : undefined;
 	toPackageManagerGitUrl(fetchUrl, safeName);
-	let pushUrl = destinations[0]!;
-	if (expandedPush === undefined) {
-		pushUrl = await getLiteralPushUrl(fetchUrl, options).catch(() => {
-			throw new Error(`${label} has invalid Git remote configuration.`);
-		});
-	} else if (configuredPushUrls.length === 0) {
-		const expandedFetch = await spawn('git', ['remote', 'get-url', '--', remote], options).then(({ stdout }) => stdout).catch(() => {
-			throw new Error(`${label} has invalid Git remote configuration.`);
-		});
-		if (expandedPush !== expandedFetch) {
-			pushUrl = expandedPush;
-		}
-	}
+	const [expandedFetch, literalPush] = await Promise.all([
+		spawn('git', configuredName === undefined
+			? ['ls-remote', '--get-url', '--', fetchUrl]
+			: ['remote', 'get-url', '--', configuredName], options).then(({ stdout }) => stdout),
+		configuredName === undefined ? getLiteralPushUrl(fetchUrl, options) : undefined,
+	]).catch(() => {
+		throw new Error(`${label} has invalid Git remote configuration.`);
+	});
+	const pushUrl = expandedPush ?? literalPush ?? expandedFetch;
+	// Keep consumer-facing aliases for ordinary insteadOf and explicit push URLs.
+	const installPushUrl = literalPush ?? (
+		expandedPush !== undefined && configuredPushUrls.length === 0 && expandedPush !== expandedFetch
+			? expandedPush
+			: destinations[0]!
+	);
 	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')
 		? path.resolve(repositoryPath, url)
 		: url);
-	toPackageManagerGitUrl(pushUrl, safeName);
-	const publicationUrls = getPublicationUrls(fetchUrl, pushUrl, repositoryPath);
+	toPackageManagerGitUrl(installPushUrl, safeName);
+	const publicationUrls = getPublicationUrls(fetchUrl, installPushUrl, repositoryPath);
 	return {
 		pushUrl: normalizeLocal(pushUrl),
 		installUrl: normalizeLocal(publicationUrls.installUrl),
-		historyUrl: normalizeLocal(publicationUrls.historyUrl),
+		historyUrl: normalizeLocal(publicationUrls.useFetchForHistory ? expandedFetch : pushUrl),
 		configuredName,
 	};
 };

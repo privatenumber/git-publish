@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
+import { shellQuote } from '../utils/shell-quote.ts';
 import type { PublishRemote } from './remote.ts';
 
 type GitConfigScope = 'system' | 'global' | 'local' | 'worktree';
@@ -63,6 +64,33 @@ const isPortableGitConfig = ({ key }: GitConfigEntry) => key !== 'core.bare'
 	&& key !== 'include.path'
 	&& !key.startsWith('includeif.');
 
+const isUrlRewrite = (key: string) => /^url\..*\.(?:push)?insteadof$/s.test(key);
+const isInclude = (key: string) => key === 'include.path' || key.startsWith('includeif.');
+
+export const getTransportConfigParameters = async (options: SpawnOptions) => {
+	if (!process.env.GIT_CONFIG_COUNT && !process.env.GIT_CONFIG_PARAMETERS) {
+		return undefined;
+	}
+	// Read both command-scope environment formats in Git's own precedence order.
+	const { stdout } = await spawn('git', ['config', '--includes', '--null', '--show-scope', '--list'], options);
+	const fields = stdout.split('\0');
+	const parameters = [];
+	for (let index = 0; index + 1 < fields.length; index += 2) {
+		if (fields[index] !== 'command') {
+			continue;
+		}
+		const entry = fields[index + 1]!;
+		const separator = entry.indexOf('\n');
+		const key = separator === -1 ? entry : entry.slice(0, separator);
+		if (!isUrlRewrite(key) && !isInclude(key)) {
+			parameters.push(separator === -1
+				? `${shellQuote(key)}=`
+				: `${shellQuote(key)}=${shellQuote(entry.slice(separator + 1))}`);
+		}
+	}
+	return parameters.join(' ');
+};
+
 export const materializePublishGitConfig = async ({
 	sourceRepositoryOptions,
 	destinationRepositoryPath,
@@ -85,7 +113,9 @@ export const materializePublishGitConfig = async ({
 	const remoteConfig = remoteConfigPrefix
 		? sourceConfig.filter(({ key }) => key.startsWith(remoteConfigPrefix) && key !== `${remoteConfigPrefix}url` && key !== `${remoteConfigPrefix}pushurl`)
 		: [];
-	const publishConfig = sourceConfig.filter(({ key }) => !key.startsWith('remote.')).filter(isPortableGitConfig);
+	const publishConfig = sourceConfig.filter(entry => (
+		!entry.key.startsWith('remote.') && isPortableGitConfig(entry) && !isUrlRewrite(entry.key)
+	));
 	const writes = await Promise.allSettled([
 		fs.writeFile(systemConfigPath, publishConfig.filter(({ scope }) => scope === 'system').map(serializeGitConfig).join('')),
 		fs.writeFile(globalConfigPath, publishConfig.filter(({ scope }) => scope === 'global').map(serializeGitConfig).join('')),
@@ -105,4 +135,8 @@ export const materializePublishGitConfig = async ({
 			key: `remote.${remoteName}.${entry.key.slice(remoteConfigPrefix.length)}`,
 		}))),
 	].map(serializeGitConfig).join(''));
+	// Pack hooks inherit the source process's system, global, and command config.
+	return sourceConfig.filter(entry => (
+		(entry.scope === 'local' || entry.scope === 'worktree') && isUrlRewrite(entry.key)
+	)).map(serializeGitConfig).join('');
 };

@@ -24,14 +24,20 @@ export const loadPublishBranches = async (
 	signal: AbortSignal,
 ) => {
 	const { gitOptions, fetchRemoteName, pushRemoteName } = repository;
+	const branchReferences = branches.map(branch => ({
+		...branch,
+		headRef: `refs/heads/${branch.publishBranch}`,
+		conflictRefs: selectorConflicts(branch.publishBranch),
+	}));
 	const listReferences = async (remoteName: string, url: string, kind: 'heads' | 'conflicts' | 'both') => {
-		const requestedReferences = new Set(branches.flatMap(({ publishBranch }) => [
-			...(kind === 'conflicts' ? [] : [`refs/heads/${publishBranch}`]),
-			...(kind === 'heads' ? [] : selectorConflicts(publishBranch)),
+		const requestedReferences = new Set(branchReferences.flatMap(({ headRef, conflictRefs }) => [
+			...(kind === 'conflicts' ? [] : [headRef]),
+			...(kind === 'heads' ? [] : conflictRefs),
 		]));
 		const { stdout } = await spawnAbortable('git', [
 			'ls-remote',
 			'--refs',
+			...(kind === 'heads' ? ['--branches'] : []),
 			remoteName,
 			...requestedReferences,
 		], {
@@ -62,16 +68,18 @@ export const loadPublishBranches = async (
 		: references;
 	const remoteTips = new Map<string, string>();
 	const refspecs: string[] = [];
-	for (const { publishBranch, localRef } of branches) {
-		const conflict = selectorConflicts(publishBranch).find(ref => pushReferences.has(ref));
+	for (const {
+		publishBranch, localRef, headRef, conflictRefs,
+	} of branchReferences) {
+		const conflict = conflictRefs.find(ref => pushReferences.has(ref));
 		if (conflict) {
 			throw new Error(`Remote ref ${JSON.stringify(conflict)} conflicts with publish branch ${JSON.stringify(publishBranch)}. A package manager can resolve this ref instead of the branch.`);
 		}
-		const tip = references.get(`refs/heads/${publishBranch}`);
+		const tip = references.get(headRef);
 		if (tip) {
 			remoteTips.set(publishBranch, tip);
 			if (mode === 'normal') {
-				refspecs.push(`refs/heads/${publishBranch}:${localRef}`);
+				refspecs.push(`${headRef}:${localRef}`);
 			}
 		}
 	}

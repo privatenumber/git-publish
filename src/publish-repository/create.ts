@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
-import { materializePublishGitConfig } from './git-config.ts';
+import { getTransportConfigParameters, materializePublishGitConfig } from './git-config.ts';
 import {
 	configurePublishTransport, type PublishRemote,
 } from './remote.ts';
@@ -32,6 +32,7 @@ export const createPublishRepository = async ({
 	const pushRemoteName = 'publish';
 	const shareRemote = publishRemote.historyUrl === publishRemote.pushUrl;
 	const fetchRemoteName = shareRemote ? pushRemoteName : 'publish-source';
+	const transportConfigParameters = await getTransportConfigParameters(sourceRepositoryOptions);
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');
 	const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
@@ -39,6 +40,8 @@ export const createPublishRepository = async ({
 	const gitEnvironment = {
 		GIT_CONFIG_SYSTEM: path.join(temporaryDirectory, 'system-config'),
 		GIT_CONFIG_GLOBAL: path.join(temporaryDirectory, 'global-config'),
+		GIT_CONFIG_COUNT: undefined,
+		GIT_CONFIG_PARAMETERS: transportConfigParameters,
 	};
 	const gitOptions = {
 		cwd: publishRepositoryPath,
@@ -81,12 +84,11 @@ export const createPublishRepository = async ({
 				signal,
 			});
 		}
-		// An explicit pushurl keeps push-only rewrites from bypassing the ref check.
 		await spawnAbortable('git', ['config', `remote.${pushRemoteName}.pushurl`, publishRemote.pushUrl], {
 			...gitOptions,
 			signal,
 		});
-		await materializePublishGitConfig({
+		const packRewriteConfig = await materializePublishGitConfig({
 			sourceRepositoryOptions,
 			destinationRepositoryPath: publishRepositoryPath,
 			remote: publishRemote,
@@ -106,6 +108,20 @@ export const createPublishRepository = async ({
 			signal,
 		});
 		packWorktreeCreated = true;
+		if (packRewriteConfig) {
+			await spawnAbortable('git', ['config', '--local', 'extensions.worktreeConfig', 'true'], {
+				...gitOptions,
+				signal,
+			});
+			const { stdout: configPath } = await spawnAbortable('git', [
+				'rev-parse', '--git-path', 'config.worktree',
+			], {
+				...gitOptions,
+				cwd: packWorktreePath,
+				signal,
+			});
+			await fs.writeFile(path.resolve(packWorktreePath, configPath), packRewriteConfig);
+		}
 	} catch (error) {
 		try {
 			await dispose();

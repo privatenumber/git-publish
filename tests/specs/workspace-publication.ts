@@ -833,7 +833,7 @@ exec '${gitPath}' "$@"
 		const separateLog = await fs.readFile(callsPath, 'utf8');
 		const separateCalls = separateLog.trim().split('\n');
 		expect(separateCalls.slice(0, 2)).toStrictEqual([
-			['ls-remote', '--refs', 'publish-source', ...heads].join(' '),
+			['ls-remote', '--refs', '--branches', 'publish-source', ...heads].join(' '),
 			['ls-remote', '--refs', 'publish', ...conflicts.flat()].join(' '),
 		]);
 		expect(separateCalls).toHaveLength(4);

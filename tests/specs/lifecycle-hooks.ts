@@ -16,7 +16,11 @@ describe('Lifecycle hooks', async () => {
 	test('npm pack is used', async () => {
 		const branchName = 'test-npm-pack';
 		await using input = await createGitFixture(undefined, ['--bare']);
+		await using config = await createFixture();
 		const inputUrl = 'https://example.invalid/input.git';
+		const globalInputUrl = 'https://example.invalid/global.git';
+		const globalConfig = config.getPath('global-config');
+		await spawn('git', ['config', '--file', globalConfig, `url.${input.path}.insteadOf`, globalInputUrl]);
 
 		// This test verifies that npm pack is used (with lifecycle hooks)
 		// by creating a package with prepare/prepack scripts that generate files
@@ -27,7 +31,7 @@ describe('Lifecycle hooks', async () => {
 				files: ['dist', '*.txt'],
 				scripts: {
 					prepare: 'echo "prepare-ran" > prepare.txt',
-					prepack: `git ls-remote ${inputUrl} && echo "prepack-ran" > prepack.txt`,
+					prepack: `git ls-remote ${inputUrl} && git ls-remote ${globalInputUrl} && echo "prepack-ran" > prepack.txt`,
 				},
 			}),
 			dist: {
@@ -44,7 +48,9 @@ describe('Lifecycle hooks', async () => {
 		await git('remote', ['add', 'origin', remoteFixture.path]);
 		await git('config', [`url.${input.path}.insteadOf`, inputUrl]);
 
-		const gitPublishProcess = await gitPublish(fixture.path, ['--fresh']);
+		const gitPublishProcess = await gitPublish(fixture.path, ['--fresh'], {
+			GIT_CONFIG_GLOBAL: globalConfig,
+		});
 		onTestFail(() => {
 			console.log(gitPublishProcess);
 		});
