@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
 import { isLocalGitUrl, toPackageManagerGitUrl } from '../utils/git-url.ts';
@@ -10,6 +11,18 @@ export type PublishRemote = {
 	historyUrl: string;
 	hasPushUrl: boolean;
 	configuredName?: string;
+};
+
+const getLiteralPushUrl = async (url: string, options: SpawnOptions) => {
+	const name = `git-publish-probe-${randomUUID()}`;
+	// `remote get-url` can ignore remotes defined only with `-c`; `remote -v` lists them.
+	const { stdout } = await spawn('git', ['-c', `remote.${name}.url=${url}`, 'remote', '-v'], options);
+	const fetch = new RegExp(String.raw`^${name}\t(.*) \(fetch\)$`, 'm').exec(stdout)?.[1];
+	const push = new RegExp(String.raw`^${name}\t(.*) \(push\)$`, 'm').exec(stdout)?.[1];
+	if (fetch === undefined || push === undefined) {
+		throw new Error('Could not read Git URLs for the selected remote.');
+	}
+	return push === fetch ? url : push;
 };
 
 export const getPublishRemote = async (
@@ -47,8 +60,14 @@ export const getPublishRemote = async (
 	const configuredPushUrls = configuredName === undefined
 		? []
 		: await getAll(`remote.${remote}.pushurl`);
+	const safeName = configuredName && /^[\w.-]+$/.test(configuredName) ? configuredName : undefined;
+	toPackageManagerGitUrl(fetchUrl, safeName);
 	let rawPushUrls = configuredPushUrls.length > 0 ? configuredPushUrls : urls;
-	if (expandedPush !== undefined && configuredPushUrls.length === 0 && urls.length === 1) {
+	if (expandedPush === undefined) {
+		rawPushUrls = [await getLiteralPushUrl(fetchUrl, options).catch(() => {
+			throw new Error(`${label} has invalid Git remote configuration.`);
+		})];
+	} else if (configuredPushUrls.length === 0 && urls.length === 1) {
 		const expandedFetch = await spawn('git', ['remote', 'get-url', '--', remote], options).then(({ stdout }) => stdout).catch(() => {
 			throw new Error(`${label} has invalid Git remote configuration.`);
 		});
@@ -61,10 +80,7 @@ export const getPublishRemote = async (
 	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')
 		? path.resolve(repositoryPath, url)
 		: url);
-	const safeName = configuredName && /^[\w.-]+$/.test(configuredName) ? configuredName : undefined;
-	for (const url of [fetchUrl, pushUrl]) {
-		toPackageManagerGitUrl(url, safeName);
-	}
+	toPackageManagerGitUrl(pushUrl, safeName);
 	const publicationUrls = getPublicationUrls(fetchUrl, pushUrl, repositoryPath);
 	return {
 		pushUrl: normalizeLocal(pushUrl),

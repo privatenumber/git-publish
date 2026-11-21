@@ -148,10 +148,10 @@ describe('Error cases', () => {
 		await using hooksFixture = await createFixture(async (fixture) => {
 			const packCheckoutPath = fixture.getPath('pack-checkout');
 			const temporaryDirectoryModePath = fixture.getPath('temporary-directory-mode');
-			const temporaryDirectoryPath = fixture.getPath('temporary-directory-path');
+			const packWorktreePath = fixture.getPath('pack-worktree-path');
 			await fixture.writeFile('post-checkout', `#!/bin/sh
 stat -f '%Lp' "$PWD/.." > '${temporaryDirectoryModePath}' 2>/dev/null || stat -c '%a' "$PWD/.." > '${temporaryDirectoryModePath}'
-printf '%s\n' "$PWD/.." > '${temporaryDirectoryPath}'
+printf '%s\n' "$PWD" > '${packWorktreePath}'
 touch '${packCheckoutPath}'
 exit 1
 `);
@@ -182,6 +182,8 @@ exec "${gitPath}" "$@"
 		});
 		await fs.chmod(commands.getPath('git'), 0o755);
 
+		const listWorktrees = () => git('worktree', ['list', '--porcelain', '-z']);
+		const originalWorktrees = await listWorktrees();
 		try {
 			const gitPublishProcess = await gitPublish(fixture.path, [], {
 				TEST_HOOKS: hooksFixture.path,
@@ -190,22 +192,22 @@ exec "${gitPath}" "$@"
 			expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
 			expect(await hooksFixture.exists('pack-checkout')).toBe(true);
 			expect(await hooksFixture.readFile('temporary-directory-mode', 'utf8')).toBe('700\n');
-			const temporaryDirectory = await hooksFixture.readFile('temporary-directory-path', 'utf8');
-			const temporaryDirectoryExists = await fs.access(temporaryDirectory.trim())
+			const worktreePath = await hooksFixture.readFile('pack-worktree-path', 'utf8');
+			const temporaryDirectoryExists = await fs.access(path.dirname(worktreePath.trimEnd()))
 				.then(() => true, () => false);
 			expect(temporaryDirectoryExists).toBe(false);
 
 			// A failed creation must not leave temporary registrations behind.
-			const worktrees = await git('worktree', ['list', '--porcelain']);
-			expect(worktrees).not.toContain('git-publish-');
+			expect(await listWorktrees()).toBe(originalWorktrees);
 		} finally {
 			// Remove leaked registrations when the regression fails.
-			const worktrees = await git('worktree', ['list', '--porcelain']);
-			const worktreePaths = worktrees.split('\n')
-				.filter(worktree => worktree.startsWith('worktree ') && worktree.includes('/git-publish-'))
-				.map(worktree => worktree.slice('worktree '.length));
-
-			await Promise.all(worktreePaths.map(worktree => git('worktree', ['remove', '--force', worktree])));
+			if (await hooksFixture.exists('pack-worktree-path')) {
+				const packWorktree = await hooksFixture.readFile('pack-worktree-path', 'utf8');
+				const worktrees = await listWorktrees();
+				if (worktrees.split('\0').includes(`worktree ${packWorktree.trimEnd()}`)) {
+					await git('worktree', ['remove', '--force', packWorktree.trimEnd()]);
+				}
+			}
 		}
 	});
 

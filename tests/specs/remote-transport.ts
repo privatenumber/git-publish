@@ -196,7 +196,13 @@ describe('Remote transport', async () => {
 			});
 	});
 
-	for (const mode of ['pushurl', 'relative pushInsteadOf', 'absolute pushInsteadOf', 'generic SSH'] as const) {
+	for (const mode of [
+		'pushurl',
+		'relative pushInsteadOf',
+		'absolute pushInsteadOf',
+		'literal URL with pushInsteadOf',
+		'generic SSH',
+	] as const) {
 		test(`checks tags at the push destination with ${mode}`, async () => {
 			await using fixture = await createFixture({
 				'mirror.git': {},
@@ -225,6 +231,8 @@ describe('Remote transport', async () => {
 			await git('update-ref', [tag, 'HEAD']);
 			await git('push', [pushPath, tag]);
 			let installUrl = pathToFileURL(pushPath).href;
+			const literalUrl = pathToFileURL(mirrorPath).href;
+			const remoteArguments = mode === 'literal URL with pushInsteadOf' ? ['--remote', literalUrl] : [];
 			if (mode === 'generic SSH') {
 				const fetchUrl = 'ssh://git@example.test/remote';
 				const pushUrl = `${fetchUrl}.git`;
@@ -238,18 +246,20 @@ describe('Remote transport', async () => {
 				await git('remote', ['add', 'origin', fetchUrl]);
 				await git('config', mode === 'pushurl'
 					? ['remote.origin.pushurl', pushPath]
-					: [`url.${pushPath}.pushInsteadOf`, fetchUrl]);
+					: [`url.${pushPath}.pushInsteadOf`, remoteArguments.length ? literalUrl : fetchUrl]);
 				if (mode === 'pushurl') {
 					await git('config', [`url.${mirrorPath}.pushInsteadOf`, pushPath]);
+				} else if (remoteArguments.length) {
+					await git('config', [`url.${mirrorPath}.insteadOf`, literalUrl]);
 				}
 			}
-			for (const arguments_ of [[], ['--fresh']]) {
+			for (const arguments_ of [remoteArguments, [...remoteArguments, '--fresh']]) {
 				const result = await gitPublish(source, arguments_);
 				expect(result.output).toContain(`Remote tag "${tag}" conflicts with publish branch "npm/source"`);
 			}
 			expect(await destination('for-each-ref', ['--format=%(refname)'])).toBe(tag);
 			await destination('update-ref', ['-d', tag]);
-			const result = await gitPublish(source);
+			const result = await gitPublish(source, remoteArguments);
 			expect('exitCode' in result).toBe(false);
 			expect(result.stdout).toContain(`git+${installUrl}#npm/source`);
 			expect(await destination('for-each-ref', ['--format=%(refname)'])).toBe('refs/heads/npm/source');

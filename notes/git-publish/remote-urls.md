@@ -1,10 +1,10 @@
 # Remote URLs
 
-**Decision.** Install URLs and manifest branch references are derived from the push destination. The transport comes from the fetch URL when possible. git-publish does not include passwords in published manifests, `--json`, or install commands.
+**Decision.** Install URLs and manifest branch references are derived from the selected push URL. The transport comes from the fetch URL when possible. git-publish does not include passwords in published manifests, `--json`, or install commands.
 
 ## Push destination identity
 
-A branch URL must name the repository that receives the updated branch. So when a remote fetches from one repository and pushes to another (for example `origin` fetches upstream and `remote.origin.pushurl` points at a fork), git-publish uses the push destination.
+When the configured fetch URL points upstream and the selected push URL points to a fork, git-publish derives the branch URL from the fork. This selection happens before any additional rewrite by the isolated Git client.
 
 - **Same repository, different transports** (HTTPS fetch, SSH push): the fetch URL is used, because it is usually the consumer-friendly transport.
 - **Different repositories on the same hosted provider** (github.com, gitlab.com, bitbucket.org): the fetch URL's transport with the push destination's owner and repository, for example fetch `https://github.com/upstream/r.git` plus push `git@github.com:me/r.git` gives `https://github.com/me/r.git`.
@@ -14,7 +14,9 @@ Repository identity ignores the user in HTTP(S) and `git://` URLs, where the use
 
 Git-publish detects configured remotes with `git remote get-url --push --all -- <name>`, which also finds push-only remotes and validates the configuration. An unknown name is treated as a URL unless it is the default remote. Git rejects valueless `url` or `pushurl` keys. An explicitly empty entry resets its list, so only entries after the last empty value are used. An empty push list falls back to the URL list; a missing or empty URL list is rejected rather than treating the remote name as a URL. The fetch URL is the first remaining `url`. With one `url` and no `pushurl`, git-publish uses Git's effective push URL when it differs from the effective fetch URL. This resolves `pushInsteadOf` in the source repository before a relative path is made absolute. An explicit `pushurl` is used as configured. Git can still apply `insteadOf` at transport time.
 
-**Known limitation:** Install URLs reflect the effective push URL resolved by the publisher's Git when a push-only rewrite changes the destination. A consumer with additional rewrites for that URL may resolve it elsewhere. The printed URL does not carry the publisher's Git configuration.
+A literal `--remote <url>` uses the same comparison. On Git 2.54.0, `git ls-remote --get-url` reports only the fetch URL, and `git remote get-url` does not recognize a remote defined only with `-c`. `git -c remote.<name>.url=<url> remote -v` lists both URLs without contacting a server or changing repository config.
+
+**Known limitation:** If `pushInsteadOf` rewrites `upstream.git` to `fork.git`, and `insteadOf` rewrites `fork.git` to `other.git`, git-publish can print `fork.git` but publish to `other.git`. The isolated client [applies `insteadOf` to its configured URLs](https://github.com/git/git/blob/v2.54.0/remote.c#L587-L617), including the result of the source repository's push-only rewrite. With those rules and a named remote set to `upstream.git`, `develop` at `35cc906` printed a specifier ending in `fork.git#npm/source`, while only `other.git` received `refs/heads/npm/source`. A consumer with its own URL rewrites may also resolve the printed URL elsewhere.
 
 The tag check uses the same remote name and isolated Git client as the branch push. The isolated push remote sets `url` and `pushurl` to the selected destination, so Git can apply `insteadOf` to both but cannot apply `pushInsteadOf` again only for the push. History and tag lookups share one `ls-remote` only when both use the same target argument. An explicit source `pushurl` keeps them separate, even when the URLs match. Git-publish passes `--no-follow-tags` so a reachable local annotated tag cannot create a collision after the check. Publisher rewrite rules remain available to lifecycle hooks in the isolated checkout.
 

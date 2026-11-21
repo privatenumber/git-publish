@@ -88,7 +88,7 @@ export const createWorkspaceResult = (
 			}
 		}
 		const note = installPolicyNote(installed);
-		const peerPolicy = installPolicyNote(installed, peerPolicyClosure);
+		const peerPolicy = peers.length > 0 ? installPolicyNote(installed, peerPolicyClosure) : note;
 		const optionalDependencies = optional.filter(name => installed.has(name));
 		return [root, {
 			installSet: {
