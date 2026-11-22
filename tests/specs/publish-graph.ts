@@ -461,7 +461,7 @@ describe('Publication graph', () => {
 		const npm = createWorkspaceResult(plan, preparations, 'main', 'abc', 'npm', 'https://example.test/repo');
 		const output = formatWorkspaceResult(npm);
 		expect(output).toContain("npm install --allow-git=root 'git+https://example.test/repo#npm/app'\n");
-		expect(output).toContain("Optional peers adapter:\n  npm install --allow-git=all --allow-remote=all 'git+https://example.test/repo#npm/adapter' 'git+https://example.test/repo#npm/core'\n  npm 12+: set allow-git=all in .npmrc");
+		expect(output).toContain("Optional peers adapter:\n  npm install --allow-git=all --allow-remote=all 'git+https://example.test/repo#npm/adapter' 'git+https://example.test/repo#npm/core'\n  npm 12+: set allow-git=all and allow-remote=all in .npmrc to avoid EALLOWGIT and EALLOWREMOTE");
 		expect(output).not.toContain('#npm/platform');
 		expect(output).not.toContain('Optional workspace dependencies core install transitively');
 

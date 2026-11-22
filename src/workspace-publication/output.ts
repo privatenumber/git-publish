@@ -69,7 +69,11 @@ export const createWorkspaceResult = (
 			const allowGit = `allow-git=${git ? 'all' : 'root'}`;
 			return {
 				flags: [`--${allowGit}`, ...(remote ? ['--allow-remote=all'] : [])],
-				note: `npm 12+: set ${allowGit} in .npmrc to avoid EALLOWGIT on npm ci, clean installs, and updates.`,
+				note: [
+					`npm 12+: set ${allowGit}${remote ? ' and allow-remote=all' : ''} in .npmrc to avoid ${remote ? 'EALLOWGIT and EALLOWREMOTE' : 'EALLOWGIT'} on npm ci, clean installs, and updates.`,
+					// A CLI flag overrides .npmrc, so a narrower flag would lower an existing allow-git=all.
+					...(git ? [] : ['If .npmrc already sets allow-git=all, keep it and drop --allow-git=root.']),
+				].join(' '),
 			};
 		}
 		if (packageManager === 'pnpm' && (git || remote)) {

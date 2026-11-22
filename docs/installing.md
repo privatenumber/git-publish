@@ -28,11 +28,11 @@ With an explicit push URL to a fork, install URLs point at the fork rather than 
 
 ## Package manager settings
 
-The printed install and optional-peer commands include the npm or pnpm flags they need. These flags apply only to that invocation.
+The printed install and optional-peer commands include the npm or pnpm flags they need. These flags apply only to that invocation. They cover the dependencies declared in the published packages' manifests. Git or tarball dependencies of other registry packages, or the project's existing dependencies, can still need broader settings.
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | The command uses `--allow-git=root` unless npm fetches a Git dependency not listed directly with the same specifier, in which case it uses `--allow-git=all`. It includes `--allow-remote=all` when npm installs dependencies or required peers from direct HTTP(S) tarball URLs. Save the same `allow-git` value in the project's `.npmrc` to avoid `EALLOWGIT` on `npm ci`, clean installs, and updates. If the command also includes `--allow-remote=all`, save `allow-remote=all` there too. |
+| npm 12+ | The command uses `--allow-git=root` unless npm fetches a Git dependency not listed directly with the same specifier, in which case it uses `--allow-git=all`. It includes `--allow-remote=all` when npm installs dependencies or required peers from direct HTTP(S) tarball URLs. Save the same `allow-git` value in the project's `.npmrc` to avoid `EALLOWGIT` on `npm ci`, clean installs, and updates. If the command also includes `--allow-remote=all`, save `allow-remote=all` there too to avoid `EALLOWREMOTE`. A command-line flag overrides `.npmrc`, so if the project already sets `allow-git=all`, keep it and drop `--allow-git=root` from the command. |
 | pnpm 11+ | The command uses `--config.block-exotic-subdeps=false` when runtime or optional dependencies use Git or direct tarball URLs. Local `file:` dependencies do not need it. pnpm 12.21.0 also allows auto-installed required peers with these URLs without it. For updates, pass the flag again or set [`blockExoticSubdeps: false`](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps) in `pnpm-workspace.yaml`. Installs from the lockfile do not need it. |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Local-file remotes do not work with Yarn 4.18.1: it rejects `git+file:` URLs even when approved. Use an HTTPS or SSH remote instead. |
 | Bun | No Git dependency setting required |

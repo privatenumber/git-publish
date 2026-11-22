@@ -61,7 +61,10 @@ describe('Package managers', async () => {
 			const allowGit = `allow-git=${npmGit ? 'all' : 'root'}`;
 			const remoteFlag = npmRemote ? ' --allow-remote=all' : '';
 			expect(npm.stdout).toContain(`\n  npm i --${allowGit}${remoteFlag} '`);
-			expect(npm.stdout).toContain(`set ${allowGit} in .npmrc to avoid EALLOWGIT`);
+			expect(npm.stdout).toContain(npmRemote
+				? `set ${allowGit} and allow-remote=all in .npmrc to avoid EALLOWGIT and EALLOWREMOTE`
+				: `set ${allowGit} in .npmrc to avoid EALLOWGIT`);
+			expect(npm.stdout.includes('If .npmrc already sets allow-git=all, keep it and drop --allow-git=root.')).toBe(!npmGit);
 
 			await fixture.writeFile('pnpm-lock.yaml', '');
 			await fixture.git('add', ['pnpm-lock.yaml']);
