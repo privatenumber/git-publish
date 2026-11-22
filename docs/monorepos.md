@@ -12,7 +12,7 @@
   git-publish @acme/core ./packages/adapter './packages/plugins/*'
   ```
 
-`private` gates only the packages you select. Selecting a private package by name, directory, or glob, or running in a private package's directory, fails unless you pass `--force`. A private package that a selected package depends on is published with it, without `--force`, because the install needs it. The branch goes to the same remote as the packages you selected, which usually hosts the source already. `private` still keeps the package off the npm registry. The skip notice at the root omits private members that publish this way. `--dry` reports the same skips and errors without publishing.
+Private packages publish like any other when you select them, run in them, or a selected package depends on them. `private` only decides what the root publishes without arguments. See [Private packages](./cli.md#private-packages) for why. The skip notice omits private members that publish as dependencies, and `--dry` prints the same notice.
 
 ## What gets published
 

@@ -26,10 +26,27 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 | `-d, --dry` | Validate and print the publication plan. Resolves the remote from local Git config but does not contact it, check for conflicting refs, pack, run package hooks, commit, or push |
 | `-o, --fresh` | Publish a single-commit branch, replacing its history with a force-push. See [`--fresh`](#--fresh) |
 | `--version-sha` | Record the source commit in each published `package.json`. See [`--version-sha`](#--version-sha) |
-| `-f, --force` | Allow publishing selected packages marked as private, including workspace members that the root would otherwise skip. Private dependencies of selected packages don't need it |
+| `-f, --force` | At a workspace root without package arguments, also publish members marked as private. See [Private packages](#private-packages) |
 | `--json <path>` | Write publication details and install sets to a JSON file. See [JSON output](#json-output) |
 | `-h, --help` | Show help |
 | `--version` | Show the version |
+
+## Private packages
+
+`git-publish` publishes packages marked `"private": true`.
+
+`private` tells package managers not to publish a package to a registry. `git-publish` never publishes to a registry. It pushes a branch to a Git remote, so you can install and test a package before you release it, or without releasing it at all. A package that isn't ready for the registry is exactly what this is for. If you run `git-publish` in a private package, you want to test that package, so it publishes. The published `package.json` keeps `"private": true`, so the branch can't be published to a registry by mistake either.
+
+`private` changes one thing: which packages a workspace root publishes when you pass no package arguments. Private members are often apps, docs sites, examples, or test fixtures that nobody installs, so they are skipped by default with a notice:
+
+```text
+Skipped 38 private packages: @acme/admin, @acme/docs, @acme/playground, @acme/site, @acme/web, and 33 more. Pass --force to publish them.
+```
+
+Pass `--force` to include them, or select the ones you want (see [Monorepos](./monorepos.md#selecting-packages)). Everywhere else `private` is ignored:
+- a package you run in, standalone or in a workspace
+- a package you select by name, directory, or glob, including a private workspace root
+- a private package that a selected package depends on, which the install needs
 
 ## `--remote`
 

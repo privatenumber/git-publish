@@ -1660,24 +1660,22 @@ exec '${npmPath}' "$@"
 		expect(branches).not.toContain('private-a');
 	});
 
-	test('requires --force when selecting a private workspace member', async () => {
+	test('publishes selected private workspace members and roots without --force', async () => {
 		await using fixture = await createChainWorkspace('private-member', remoteFixture.path, {
 			corePrivate: true,
 		});
-		for (const selector of ['@test/core', './packages/core', './packages/co*']) {
-			const rejected = await gitPublish(fixture.path, [selector]);
-			expect('exitCode' in rejected && rejected.exitCode).toBe(1);
-			expect(rejected.stderr).toContain('Workspace package "@test/core" is marked as private. Use --force to publish it anyway.');
+		const runs = [
+			[fixture.path, '@test/core', 'npm/private-member-@test/core'],
+			[fixture.path, './packages/co*', 'npm/private-member-@test/core'],
+			[path.join(fixture.path, 'packages/core'), undefined, 'npm/private-member-@test/core'],
+			[fixture.path, '.', 'npm/private-member-test-monorepo'],
+		] as const;
+		for (const [cwd, selector, branch] of runs) {
+			const result = await gitPublish(cwd, [...(selector ? [selector] : []), '--dry']);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(result.stdout).toContain(`(private) → ${branch}`);
 		}
-	});
-
-	test('requires --force when selecting a private workspace root', async () => {
-		await using fixture = await createChainWorkspace('private-root', remoteFixture.path);
-		const rejected = await gitPublish(fixture.path, ['.']);
-		expect(('exitCode' in rejected) && rejected.exitCode).toBe(1);
-		expect(rejected.stderr).toContain('marked as private');
-		const forced = await gitPublish(fixture.path, ['.', '--dry', '--force']);
-		expect('exitCode' in forced).toBe(false);
 	});
 
 	test('publishes all non-private members by default at the workspace root', async () => {

@@ -203,6 +203,8 @@ export const planWorkspacePublication = async ({
 				if (path.resolve(candidate.dir) === path.resolve(workspace.rootDirectory)) {
 					continue;
 				}
+				// `private` keeps a package off registries; git-publish publishes it when chosen.
+				// It is read only to choose what a root publish without arguments covers.
 				if (!force && candidate.packageJson.private) {
 					skippedPrivatePackages.push(candidate.name);
 				} else {
@@ -353,16 +355,6 @@ export const planWorkspacePublication = async ({
 	});
 	if (publicRoot && graph.nodes.length === 1 && graph.peers.length === 0) {
 		return { kind: 'standalone' };
-	}
-	if (!force) {
-		// Only selected packages need --force. A private dependency is published with its dependents,
-		// because the install needs it and the branch is no more visible than the source repository.
-		const privatePackage = graph.nodes.find(node => (
-			roots.has(node.key) && node.package.packageJson.private
-		));
-		if (privatePackage) {
-			throw new Error(`Workspace package ${JSON.stringify(privatePackage.key)} is marked as private. Use --force to publish it anyway.`);
-		}
 	}
 	const nodes: WorkspacePublicationNode[] = [];
 	const branchTemplate = publishBranch ?? 'npm/{gitRef}-{package}';

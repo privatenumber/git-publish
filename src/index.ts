@@ -121,7 +121,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 			force: {
 				type: Boolean,
 				alias: 'f',
-				description: 'Allow publishing packages marked as private.',
+				description: 'At a workspace root without package arguments, also publish members marked as private.',
 			},
 			versionSha: {
 				type: Boolean,
@@ -179,9 +179,6 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 	});
 	if (closurePlan.kind === 'standalone' && argv._.packages.length > 0) {
 		throw new Error('Package selection requires a workspace.');
-	}
-	if (closurePlan.kind === 'standalone' && packageJson.private && !argv.flags.force) {
-		throw new Error('This package is marked as private. Use --force to publish it anyway.');
 	}
 	const plan = closurePlan.kind === 'workspace'
 		? closurePlan

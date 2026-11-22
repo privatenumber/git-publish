@@ -7,27 +7,6 @@ import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Error cases', () => {
-	test('post-checkout cannot bypass private check', async () => {
-		await using hooks = await createFixture();
-		await using remote = await createGitFixture(undefined, ['--bare']);
-		await using fixture = await createGitFixture({
-			'package.json': JSON.stringify({
-				name: 'app',
-				version: '1.0.0',
-				private: true,
-			}),
-		});
-		await fixture.git('add', ['.']);
-		await fixture.git('commit', ['-m', 'Initial']);
-		await fixture.git('remote', ['add', 'origin', remote.path]);
-		await hooks.writeFile('post-checkout', `#!/bin/sh\ntouch '${hooks.getPath('called')}'\nnode -e "const fs=require('fs');const p=require('./package.json');p.private=false;fs.writeFileSync('package.json',JSON.stringify(p))"\n`);
-		await fs.chmod(hooks.getPath('post-checkout'), 0o755);
-		await fixture.git('config', ['core.hooksPath', hooks.path]);
-		const result = await gitPublish(fixture.path);
-		expect('exitCode' in result).toBe(true);
-		expect(await hooks.exists('called')).toBe(false);
-		expect(result.output).toMatch(/private/i);
-	});
 	test('explains that a repository with no commits must be committed before publishing', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
@@ -298,19 +277,21 @@ Pre-bundle these dependencies before publishing.`);
 		expect(gitPublishProcess.stderr).toBe('Error: The working tree is not clean. Please commit or stash your changes before publishing.');
 	});
 
-	test('Private npm package', async () => {
+	test('publishes a private standalone package without --force', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
-			'package.json': JSON.stringify({ private: true }),
-		});
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				private: true,
+			}),
+		}, ['--initial-branch=main']);
+		await fixture.git('add', ['package.json']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
 
-		const { git } = fixture;
-
-		await git('add', ['package.json']);
-		await git('commit', ['-m', 'Initial commit']);
-
-		const gitPublishProcess = await gitPublish(fixture.path);
-
-		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-		expect(gitPublishProcess.stderr).toBe('Error: This package is marked as private. Use --force to publish it anyway.');
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result).toBe(false);
+		expect(JSON.parse(await remote.git('show', ['npm/main:package.json'])).private).toBe(true);
 	});
 });
