@@ -253,19 +253,22 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 
 	test('surfaces the underlying reason when pack fails', async () => {
 		const branchName = 'test-pack-error-output';
-		const missingBinary = 'this-binary-does-not-exist-xyz';
+		const cause = 'the-real-cause-xyz';
 
 		// When pack fails, the subprocess's stderr/stdout (the actual reason,
 		// e.g. a failing prepack/build script) must be surfaced. Otherwise the
 		// user only sees "Command failed with exit code N" with no way to debug.
+		// The script prints the cause before more lines than a default 5-line
+		// preview holds, as a package manager's error summary does.
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pack-error-output',
 				version: '1.0.0',
 				scripts: {
-					prepack: missingBinary,
+					prepack: 'node fail.js',
 				},
 			}, null, 2),
+			'fail.js': `console.error(${JSON.stringify(cause)}); for (let i = 1; i <= 10; i += 1) console.error('noise ' + i); process.exit(1);`,
 			'index.js': 'export const main = true;',
 		}, [`--initial-branch=${branchName}`]);
 
@@ -280,10 +283,11 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 		});
 
 		expect('exitCode' in gitPublishProcess).toBe(true);
-		// The missing binary name only appears in the pack subprocess output,
-		// never in nano-spawn's error.message. Asserting on it proves the
-		// underlying reason was surfaced rather than swallowed.
-		expect(gitPublishProcess.output).toMatch(missingBinary);
+		// The cause only appears in the script's output, never in the echoed
+		// command or nano-spawn's error.message. Asserting on it proves the
+		// underlying reason was surfaced rather than swallowed or truncated.
+		expect(gitPublishProcess.output).toMatch(cause);
+		expect(gitPublishProcess.output).not.toMatch(/\(\+ \d+ lines\)/);
 
 		// The failure is rendered inline within the task tree, so it must NOT
 		// also be re-logged by the top-level error handler, which would print
