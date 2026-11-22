@@ -350,7 +350,7 @@ describe('Publication graph', () => {
 			installCommand: "npm install 'git+https://example.test/repo#npm/app'",
 		});
 		const optionalOutput = formatWorkspaceResult(result);
-		expect(optionalOutput).toContain("Optional peers alias: install with npm install 'alias@git+https://example.test/repo#npm/core'");
+		expect(optionalOutput).toContain("Optional peers alias:\n  npm install --allow-git=root 'alias@git+https://example.test/repo#npm/core'");
 		expect(optionalOutput).not.toContain('Optional workspace dependencies core install transitively');
 		const app = nodes.find(node => node.key === 'app')!;
 		graph.peers[0]!.optional = false;
@@ -450,19 +450,25 @@ describe('Publication graph', () => {
 			dependencies: [],
 			peers: [],
 		}]));
-		const result = createWorkspaceResult({
+		const plan = {
 			roots: ['app'],
 			kind: 'workspace',
 			rootDirectory: workspace.rootDirectory,
 			selection: 'explicit',
 			nodes,
 			peers: graph.peers,
-		}, preparations, 'main', 'abc', 'npm', 'https://example.test/repo');
-		const output = formatWorkspaceResult(result);
-		expect(output).toContain("Optional peers adapter: install with npm install 'git+https://example.test/repo#npm/adapter' 'git+https://example.test/repo#npm/core'");
+		} satisfies Parameters<typeof createWorkspaceResult>[0];
+		const npm = createWorkspaceResult(plan, preparations, 'main', 'abc', 'npm', 'https://example.test/repo');
+		const output = formatWorkspaceResult(npm);
+		expect(output).toContain("npm install --allow-git=root 'git+https://example.test/repo#npm/app'\n");
+		expect(output).toContain("Optional peers adapter:\n  npm install --allow-git=all --allow-remote=all 'git+https://example.test/repo#npm/adapter' 'git+https://example.test/repo#npm/core'\n  npm 12+: set allow-git=all in .npmrc");
 		expect(output).not.toContain('#npm/platform');
-		expect(output).toContain('For optional peers: npm 12+: add --allow-git=all and --allow-remote=all');
 		expect(output).not.toContain('Optional workspace dependencies core install transitively');
+
+		const pnpm = createWorkspaceResult(plan, preparations, 'main', 'abc', 'pnpm', 'https://example.test/repo');
+		const pnpmOutput = formatWorkspaceResult(pnpm);
+		expect(pnpmOutput).toContain("pnpm add 'git+https://example.test/repo#npm/app'\n");
+		expect(pnpmOutput).toContain("Optional peers adapter:\n  pnpm add --config.block-exotic-subdeps=false 'git+https://example.test/repo#npm/adapter' 'git+https://example.test/repo#npm/core'\n  pnpm 11+:");
 	});
 
 	test('reports optional peers of optional dependencies', async () => {
@@ -524,7 +530,7 @@ describe('Publication graph', () => {
 			}, preparations, 'main', 'abc', 'npm', 'https://example.test/repo');
 			const output = formatWorkspaceResult(result);
 			expect(output).toContain('Optional workspace dependencies b are attempted transitively and may be skipped by the package manager. If a required peer is missing, use the peer command below to supply it.');
-			expect(output).toContain("Optional peers c: install with npm install 'git+https://example.test/repo#npm/c'");
+			expect(output).toContain("Optional peers c:\n  npm install --allow-git=all 'git+https://example.test/repo#npm/c'");
 		}
 	});
 

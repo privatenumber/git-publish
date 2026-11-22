@@ -41,12 +41,18 @@ export const createWorkspaceResult = (
 			directSpecifiers,
 		};
 	};
-	const installPolicyNote = (
+	const getInstallSettings = (
 		directSpecifiers: ReadonlyMap<string, string>,
 		...sets: ReadonlySet<string>[]
-	) => {
+	): {
+		flags: string[];
+		note?: string;
+	} => {
 		if (packageManager === 'yarn') {
-			return 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml';
+			return {
+				flags: [],
+				note: 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml',
+			};
 		}
 		let git = false;
 		let remote = false;
@@ -60,12 +66,19 @@ export const createWorkspaceResult = (
 			}
 		}
 		if (packageManager === 'npm') {
-			return `npm 12+: add --allow-git=${git ? 'all' : 'root'}${remote ? ' and --allow-remote=all' : ''}`;
+			const allowGit = `allow-git=${git ? 'all' : 'root'}`;
+			return {
+				flags: [`--${allowGit}`, ...(remote ? ['--allow-remote=all'] : [])],
+				note: `npm 12+: set ${allowGit} in .npmrc to avoid EALLOWGIT on npm ci, clean installs, and updates.`,
+			};
 		}
 		if (packageManager === 'pnpm' && (git || remote)) {
-			return 'pnpm 11+: set blockExoticSubdeps: false in pnpm-workspace.yaml';
+			return {
+				flags: ['--config.block-exotic-subdeps=false'],
+				note: 'pnpm 11+: updates need this flag again or blockExoticSubdeps: false in pnpm-workspace.yaml; lockfile installs do not.',
+			};
 		}
-		return '';
+		return { flags: [] };
 	};
 	const results = plan.roots.map((root) => {
 		const required = reachable([root], isRequired);
@@ -87,17 +100,24 @@ export const createWorkspaceResult = (
 		const command = all.size === 1 && packageManager !== 'yarn'
 			? `${packageManager} i`
 			: (packageManager === 'npm' ? 'npm install' : `${packageManager} add`);
+		const formatCommand = (args: string[], flags: string[] = []) => [
+			packageManager === 'pnpm' && flags.length > 0 ? 'pnpm add' : command,
+			...flags,
+			...args.map(shellQuote),
+		].join(' ');
 		const { args: installSpecifiers, directSpecifiers } = getInstallArguments(rootTargets);
-		const installCommand = `${command} ${installSpecifiers.map(shellQuote).join(' ')}`;
+		const settings = getInstallSettings(directSpecifiers, installed);
+		const lines = [formatCommand(installSpecifiers, settings.flags)];
+		if (settings.note) {
+			lines.push(settings.note);
+		}
 		const peers = followUpPeers.filter(edge => (
 			(edge.kind === 'optionalPeer' || !required.has(edge.from))
 				&& installed.has(edge.from) && !rootTargets.has(edge.key)
 		));
-		const note = installPolicyNote(directSpecifiers, installed);
 		const optionalDependencies = optional.filter(name => installed.has(name));
-		const notes = note ? [note] : [];
 		if (optionalDependencies.length > 0) {
-			notes.push(`Optional workspace dependencies ${optionalDependencies.join(', ')} are attempted transitively and may be skipped by the package manager.${peers.length > 0 ? ' If a required peer is missing, use the peer command below to supply it.' : ''}`);
+			lines.push(`Optional workspace dependencies ${optionalDependencies.join(', ')} are attempted transitively and may be skipped by the package manager.${peers.length > 0 ? ' If a required peer is missing, use the peer command below to supply it.' : ''}`);
 		}
 		if (peers.length > 0) {
 			const optionalPeerTargets = new Map(peers.map(peer => [peer.key, peer.target]));
@@ -112,15 +132,21 @@ export const createWorkspaceResult = (
 				}
 			}
 			const followUp = getInstallArguments(optionalPeerTargets);
-			notes.push(`Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}: install with ${command} ${followUp.args.map(shellQuote).join(' ')}`);
 			// The follow-up runs after the main command, so both sets are direct dependencies.
-			const peerPolicy = installPolicyNote(
+			const peerSettings = getInstallSettings(
 				new Map([...directSpecifiers, ...followUp.directSpecifiers]),
 				installed,
 				peerPolicyClosure,
 			);
-			if (peerPolicy !== note) {
-				notes.push(`For optional peers: ${peerPolicy}`);
+			const peerLabel = `Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}`;
+			const peerCommand = formatCommand(followUp.args, peerSettings.flags);
+			if (peerSettings.flags.length > 0) {
+				lines.push(`${peerLabel}:`, peerCommand);
+			} else {
+				lines.push(`${peerLabel}: install with ${peerCommand}`);
+			}
+			if (peerSettings.note && peerSettings.note !== settings.note) {
+				lines.push(peerSettings.note);
 			}
 		}
 		return [root, {
@@ -128,12 +154,12 @@ export const createWorkspaceResult = (
 				required: requiredNames,
 				optional,
 				installSpecifiers,
-				installCommand,
+				installCommand: formatCommand(installSpecifiers),
 			},
 			aliases: Object.fromEntries(edges.filter(edge => (
 				all.has(edge.from) && all.has(edge.target) && edge.key !== edge.target
 			)).map(edge => [edge.key, edge.target])),
-			notes,
+			lines,
 		}] as const;
 	});
 	const installSets = Object.fromEntries(results.map(([root, result]) => (
@@ -160,7 +186,7 @@ export const createWorkspaceResult = (
 		aliases,
 		presentation: {
 			publishAll: plan.kind === 'workspace' && plan.selection === 'default-roots',
-			notes: Object.fromEntries(results.map(([root, result]) => [root, result.notes])),
+			installLines: Object.fromEntries(results.map(([root, result]) => [root, result.lines])),
 		},
 	};
 };
@@ -186,7 +212,7 @@ export const formatWorkspaceResult = (result: WorkspaceResult) => {
 	}
 	for (const [root, set] of roots) {
 		const title = roots.length === 1 && set.required.length === 1 && set.optional.length === 0 ? 'command' : root;
-		sections.push([`→ Install ${title}`, set.installCommand, ...result.presentation.notes[root]!].join('\n  '));
+		sections.push([`→ Install ${title}`, ...result.presentation.installLines[root]!].join('\n  '));
 	}
 	return sections.join('\n\n');
 };

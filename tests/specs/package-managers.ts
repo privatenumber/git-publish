@@ -58,15 +58,20 @@ describe('Package managers', async () => {
 			await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
 			const npm = await gitPublish(fixture.path);
 			expect('exitCode' in npm).toBe(false);
-			expect(npm.stdout).toContain(`npm 12+: add --allow-git=${npmGit ? 'all' : 'root'}`);
-			expect(npm.stdout.includes('--allow-remote=all')).toBe(npmRemote);
+			const allowGit = `allow-git=${npmGit ? 'all' : 'root'}`;
+			const remoteFlag = npmRemote ? ' --allow-remote=all' : '';
+			expect(npm.stdout).toContain(`\n  npm i --${allowGit}${remoteFlag} '`);
+			expect(npm.stdout).toContain(`set ${allowGit} in .npmrc to avoid EALLOWGIT`);
 
 			await fixture.writeFile('pnpm-lock.yaml', '');
 			await fixture.git('add', ['pnpm-lock.yaml']);
 			await fixture.git('commit', ['-m', 'Use pnpm']);
 			const pnpm = await gitPublish(fixture.path);
 			expect('exitCode' in pnpm).toBe(false);
-			expect(pnpm.stdout.includes('pnpm 11+: set blockExoticSubdeps: false')).toBe(pnpmExotic);
+			expect(pnpm.stdout).toContain(pnpmExotic
+				? "\n  pnpm add --config.block-exotic-subdeps=false '"
+				: "\n  pnpm i '");
+			expect(pnpm.stdout.includes('lockfile installs do not')).toBe(pnpmExotic);
 		});
 	}
 
@@ -225,8 +230,9 @@ exec npm "$@"
 				const result = await gitPublish(fixture.path, ['--fresh'], environment);
 				onTestFail(() => console.log(result));
 				expect('exitCode' in result).toBe(false);
-				expect(result.stdout).toContain(`${command} '${specifier}'`);
-				expect(result.stdout.includes('npm 12+: add --allow-git=root')).toBe(packageManager === 'npm');
+				const flags = packageManager === 'npm' ? ' --allow-git=root' : '';
+				expect(result.stdout).toContain(`${command}${flags} '${specifier}'`);
+				expect(result.stdout.includes('set allow-git=root in .npmrc')).toBe(packageManager === 'npm');
 				expect(result.stdout).not.toContain('--allow-git=all');
 				expect(result.stdout.includes('approvedGitRepositories')).toBe(packageManager === 'yarn');
 				expect(result.stdout).not.toContain('blockExoticSubdeps');
