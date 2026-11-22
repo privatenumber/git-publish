@@ -384,7 +384,7 @@ describe('Publish history', async () => {
 		});
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
-		expect(gitPublishProcess.stdout).toContain(`npm i --allow-git=root 'test/repository#npm/${branchName}'`);
+		expect(gitPublishProcess.stdout).toContain(`npm i --allow-git=all 'test/repository#npm/${branchName}'`);
 		const publishedCommit = await remoteGit('rev-parse', [`npm/${branchName}`]);
 		expect(gitPublishProcess.stdout).toContain(`https://github.com/test/repository/tree/npm/${branchName}`);
 		expect(gitPublishProcess.stdout).toContain(`https://github.com/test/repository/commit/${publishedCommit}`);

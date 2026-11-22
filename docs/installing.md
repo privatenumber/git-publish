@@ -7,7 +7,7 @@ After a push, `git-publish` prints the install command for your package manager.
 Install a published package from its branch:
 
 ```sh
-npm i --allow-git=root 'owner/repo#npm/main'
+npm i --allow-git=all 'owner/repo#npm/main'
 ```
 
 For Yarn, the command uses `add` and includes the package name, which modern Yarn requires for Git dependencies:
@@ -28,12 +28,12 @@ With an explicit push URL to a fork, install URLs point at the fork rather than 
 
 ## Package manager settings
 
-The printed install and optional-peer commands include the npm or pnpm flags they need. These flags apply only to that invocation. They cover the dependencies declared in the published packages' manifests. Git or tarball dependencies of other registry packages, or the project's existing dependencies, can still need broader settings.
+The printed install and optional-peer commands include the npm or pnpm flags they need. These flags apply only to that invocation. Git settings are always included, because the consumer's other dependencies may also be Git-published packages that `git-publish` cannot see. npm's `--allow-remote=all` covers direct tarball URLs in the published packages' manifests; tarball dependencies of other registry packages, or of the project's existing dependencies, can still need it.
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | The command uses `--allow-git=root` unless npm fetches a Git dependency not listed directly with the same specifier, in which case it uses `--allow-git=all`. It includes `--allow-remote=all` when npm installs dependencies or required peers from direct HTTP(S) tarball URLs. Save the same `allow-git` value in the project's `.npmrc` to avoid `EALLOWGIT` on `npm ci`, clean installs, and updates. If the command also includes `--allow-remote=all`, save `allow-remote=all` there too to avoid `EALLOWREMOTE`. A command-line flag overrides `.npmrc`, so if the project already sets `allow-git=all`, keep it and drop `--allow-git=root` from the command. |
-| pnpm 11+ | The command uses `--config.block-exotic-subdeps=false` when runtime or optional dependencies use Git or direct tarball URLs. Local `file:` dependencies do not need it. pnpm 12.21.0 also allows auto-installed required peers with these URLs without it. For updates, pass the flag again or set [`blockExoticSubdeps: false`](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps) in `pnpm-workspace.yaml`. Installs from the lockfile do not need it. |
+| npm 12+ | The command always uses `--allow-git=all`. It adds `--allow-remote=all` when a published manifest installs a dependency or required peer from a direct HTTP(S) tarball URL. Save `allow-git=all` in the project's `.npmrc` to avoid `EALLOWGIT` on `npm ci`, clean installs, and updates, and save `allow-remote=all` too when the command includes it, to avoid `EALLOWREMOTE`. |
+| pnpm 11+ | The command always uses `pnpm add --config.block-exotic-subdeps=false`, which allows Git and direct tarball subdependencies. For updates, pass the flag again or set [`blockExoticSubdeps: false`](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps) in `pnpm-workspace.yaml`. Installs from the lockfile do not need it. |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Local-file remotes do not work with Yarn 4.18.1: it rejects `git+file:` URLs even when approved. Use an HTTPS or SSH remote instead. |
 | Bun | No Git dependency setting required |
 

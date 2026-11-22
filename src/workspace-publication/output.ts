@@ -28,23 +28,16 @@ export const createWorkspaceResult = (
 	const shorthand = singlePackage && !(packageManager === 'yarn' && preparations.get(singlePackage.key)!.publication.installSpecifier.startsWith('git+ssh://'))
 		? getGitHubInstallSpecifier(fetchUrl, singlePackage.branch)
 		: undefined;
-	const getInstallArguments = (targets: ReadonlyMap<string, string>) => {
-		const directSpecifiers = new Map<string, string>();
-		const args = [];
-		for (const [name, target] of targets) {
+	const getInstallArguments = (targets: ReadonlyMap<string, string>) => [...targets].map(
+		([name, target]) => {
 			const specifier = shorthand ?? preparations.get(target)!.publication.installSpecifier;
-			directSpecifiers.set(name, specifier);
-			args.push(packageManager === 'yarn' || name !== target ? `${name}@${specifier}` : specifier);
-		}
-		return {
-			args,
-			directSpecifiers,
-		};
-	};
-	const getInstallSettings = (
-		directSpecifiers: ReadonlyMap<string, string>,
-		...sets: ReadonlySet<string>[]
-	): {
+			return packageManager === 'yarn' || name !== target ? `${name}@${specifier}` : specifier;
+		},
+	);
+	// A consumer's other dependencies may also be Git-published packages that the publisher
+	// cannot see, so npm and pnpm always allow Git subdependencies.
+	// Only npm's tarball setting depends on the packed manifests.
+	const getInstallSettings = (...sets: ReadonlySet<string>[]): {
 		flags: string[];
 		note?: string;
 	} => {
@@ -54,29 +47,16 @@ export const createWorkspaceResult = (
 				note: 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml',
 			};
 		}
-		let git = false;
-		let remote = false;
-		for (const names of sets) {
-			for (const name of names) {
-				const { installPolicy } = preparations.get(name)!;
-				git ||= packageManager === 'npm'
-					? installPolicy.git.some(([key, specifier]) => directSpecifiers.get(key) !== specifier)
-					: installPolicy.git.length > 0;
-				remote ||= installPolicy.remote;
-			}
-		}
 		if (packageManager === 'npm') {
-			const allowGit = `allow-git=${git ? 'all' : 'root'}`;
+			const remote = sets.some(names => [...names].some(name => (
+				preparations.get(name)!.remoteDependency
+			)));
 			return {
-				flags: [`--${allowGit}`, ...(remote ? ['--allow-remote=all'] : [])],
-				note: [
-					`npm 12+: set ${allowGit}${remote ? ' and allow-remote=all' : ''} in .npmrc to avoid ${remote ? 'EALLOWGIT and EALLOWREMOTE' : 'EALLOWGIT'} on npm ci, clean installs, and updates.`,
-					// A CLI flag overrides .npmrc, so a narrower flag would lower an existing allow-git=all.
-					...(git ? [] : ['If .npmrc already sets allow-git=all, keep it and drop --allow-git=root.']),
-				].join(' '),
+				flags: ['--allow-git=all', ...(remote ? ['--allow-remote=all'] : [])],
+				note: `npm 12+: set allow-git=all${remote ? ' and allow-remote=all' : ''} in .npmrc to avoid ${remote ? 'EALLOWGIT and EALLOWREMOTE' : 'EALLOWGIT'} on npm ci, clean installs, and updates.`,
 			};
 		}
-		if (packageManager === 'pnpm' && (git || remote)) {
+		if (packageManager === 'pnpm') {
 			return {
 				flags: ['--config.block-exotic-subdeps=false'],
 				note: 'pnpm 11+: updates need this flag again or blockExoticSubdeps: false in pnpm-workspace.yaml; lockfile installs do not.',
@@ -109,8 +89,8 @@ export const createWorkspaceResult = (
 			...flags,
 			...args.map(shellQuote),
 		].join(' ');
-		const { args: installSpecifiers, directSpecifiers } = getInstallArguments(rootTargets);
-		const settings = getInstallSettings(directSpecifiers, installed);
+		const installSpecifiers = getInstallArguments(rootTargets);
+		const settings = getInstallSettings(installed);
 		const lines = [formatCommand(installSpecifiers, settings.flags)];
 		if (settings.note) {
 			lines.push(settings.note);
@@ -136,14 +116,9 @@ export const createWorkspaceResult = (
 				}
 			}
 			const followUp = getInstallArguments(optionalPeerTargets);
-			// The follow-up runs after the main command, so both sets are direct dependencies.
-			const peerSettings = getInstallSettings(
-				new Map([...directSpecifiers, ...followUp.directSpecifiers]),
-				installed,
-				peerPolicyClosure,
-			);
+			const peerSettings = getInstallSettings(installed, peerPolicyClosure);
 			const peerLabel = `Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}`;
-			const peerCommand = formatCommand(followUp.args, peerSettings.flags);
+			const peerCommand = formatCommand(followUp, peerSettings.flags);
 			if (peerSettings.flags.length > 0) {
 				lines.push(`${peerLabel}:`, peerCommand);
 			} else {

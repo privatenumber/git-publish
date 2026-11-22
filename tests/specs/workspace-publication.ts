@@ -1959,18 +1959,18 @@ exec '${npmPath}' "$@"
 		});
 		expect(core.role).toBe('dependency');
 		expect(core.reused).toBe(false);
-		for (const [name, command, allowGit] of [
-			['a', aCommand, 'root'],
-			['b', bCommand, 'all'],
-			['c', cCommand, 'all'],
+		for (const [name, command] of [
+			['a', aCommand],
+			['b', bCommand],
+			['c', cCommand],
 		] as const) {
-			const printedCommand = command.replace('npm install ', `npm install --allow-git=${allowGit} `);
-			expect(result.stdout).toContain(`→ Install ${name}\n  ${printedCommand}\n  npm 12+: set allow-git=${allowGit} in .npmrc`);
+			const printedCommand = command.replace('npm install ', 'npm install --allow-git=all ');
+			expect(result.stdout).toContain(`→ Install ${name}\n  ${printedCommand}\n  npm 12+: set allow-git=all in .npmrc`);
 		}
 
 		// npm 12.2.2 expects the advertised HEAD to resolve, even with an explicit selector.
 		await setRemote.git('symbolic-ref', ['HEAD', 'refs/heads/npm/sets-core']);
-		const npmArguments = ['install', '--allow-git=root', '--no-audit', '--no-fund'];
+		const npmArguments = ['install', '--allow-git=all', '--no-audit', '--no-fund'];
 		await using directConsumer = await createFixture({ 'package.json': '{}' });
 		await using transitiveConsumer = await createFixture({ 'package.json': '{}' });
 		const [direct, transitive] = await Promise.allSettled([
@@ -1985,10 +1985,9 @@ exec '${npmPath}' "$@"
 		expect(direct.status).toBe('fulfilled');
 		expect(await directConsumer.exists('node_modules/a/package.json')).toBe(true);
 		expect(await directConsumer.exists('node_modules/core/package.json')).toBe(true);
-		expect(transitive).toMatchObject({
-			status: 'rejected',
-			reason: { stderr: expect.stringContaining('EALLOWGIT') },
-		});
+		expect(transitive.status).toBe('fulfilled');
+		expect(await transitiveConsumer.exists('node_modules/b/package.json')).toBe(true);
+		expect(await transitiveConsumer.exists('node_modules/core/package.json')).toBe(true);
 	});
 
 	test('reports internal aliases in install sets and warns about npm policy', async () => {
@@ -2170,7 +2169,7 @@ exec '${npmPath}' "$@"
 		expect(('exitCode' in result) && result.exitCode).toBe(1);
 		expect(result.stderr).toContain('ENOENT');
 		expect(result.stdout).toContain('→ Install command');
-		expect(result.stdout).toContain(`npm i --allow-git=root 'git+${pathToFileURL(remote.path).href}#npm/json-failure'`);
+		expect(result.stdout).toContain(`npm i --allow-git=all 'git+${pathToFileURL(remote.path).href}#npm/json-failure'`);
 		expect(result.stderr).toContain('Publication succeeded');
 		expect(result.stderr).toContain(jsonPath);
 	});
@@ -2294,7 +2293,7 @@ exec '${npmPath}' "$@"
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(await branchRemoteGit('show', ['custom:package.json'])).toContain('@test/adapter');
-		expect(gitPublishProcess.stdout).toContain('npm 12+: set allow-git=root in .npmrc');
+		expect(gitPublishProcess.stdout).toContain('npm 12+: set allow-git=all in .npmrc');
 		expect(gitPublishProcess.stdout).not.toContain('Required workspace dependencies');
 		expect(gitPublishProcess.stdout).toContain('Pushing 1 package');
 	});
