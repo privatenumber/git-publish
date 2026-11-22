@@ -17,7 +17,10 @@ import {
 } from './utils/git-url.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { planPackagePublicationPush } from './package-publication/push.ts';
-import { planStandalonePublication, planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
+import {
+	formatSkippedPrivatePackages, planStandalonePublication, planWorkspacePublication,
+	type WorkspacePublicationPlan,
+} from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
 import { createVersionSha } from './package-publication/version-sha.ts';
 import {
@@ -205,10 +208,8 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 		: []);
 	if (closurePlan.kind === 'workspace') {
 		const { skippedPrivatePackages } = closurePlan;
-		if (skippedPrivatePackages.length === 1) {
-			console.log(`Skipped 1 private package: ${skippedPrivatePackages[0]}. Pass --force to publish it.`);
-		} else if (skippedPrivatePackages.length > 1) {
-			console.log(`Skipped ${skippedPrivatePackages.length} private packages: ${skippedPrivatePackages.join(', ')}. Pass --force to publish them.`);
+		if (skippedPrivatePackages.length > 0) {
+			console.log(formatSkippedPrivatePackages(skippedPrivatePackages));
 		}
 		if (dry) {
 			console.log(formatWorkspacePublicationPlan(closurePlan, source.name));

@@ -67,6 +67,17 @@ export type WorkspacePublicationPlan = PlanFields & (
 	}
 );
 
+const listedPrivatePackages = 5;
+
+export const formatSkippedPrivatePackages = (names: string[]) => {
+	const listed = names.slice(0, listedPrivatePackages);
+	const more = names.length - listed.length;
+	const list = more > 0 ? `${listed.join(', ')}, and ${more} more` : listed.join(', ');
+	return names.length === 1
+		? `Skipped 1 private package: ${list}. Pass --force to publish it.`
+		: `Skipped ${names.length} private packages: ${list}. Pass --force to publish them.`;
+};
+
 export const planStandalonePublication = async ({
 	cwd, gitRootPath, packageJson, sourceName, sourceCommitId, publishBranch,
 }: {
@@ -213,9 +224,10 @@ export const planWorkspacePublication = async ({
 			throw new Error(`Unknown selection mode: ${unreachable}`);
 		}
 	}
+	skippedPrivatePackages.sort();
 	if (roots.size === 0) {
 		throw new Error(skippedPrivatePackages.length > 0
-			? 'No non-private workspace packages found to publish. Pass --force to publish private members.'
+			? `No non-private workspace packages found to publish. ${formatSkippedPrivatePackages(skippedPrivatePackages)}`
 			: 'No workspace packages found to publish.');
 	}
 	const yarnConfig = packageManager === 'yarn'
@@ -344,6 +356,33 @@ export const planWorkspacePublication = async ({
 	}
 	if (!force) {
 		const privatePackage = graph.nodes.find(node => node.package.packageJson.private);
+		if (privatePackage && selectionMode === 'default-roots') {
+			const nodesByKey = new Map(graph.nodes.map(node => [node.key, node]));
+			const reaches = (root: string) => {
+				const seen = new Set([root]);
+				const queue = [root];
+				for (const key of queue) {
+					const targets = [
+						...nodesByKey.get(key)!.dependencies.map(edge => edge.target),
+						...graph.peers.filter(peer => peer.from === key && peer.target)
+							.map(peer => peer.target!),
+					];
+					for (const target of targets) {
+						if (!seen.has(target)) {
+							seen.add(target);
+							queue.push(target);
+						}
+					}
+				}
+				return seen.has(privatePackage.key);
+			};
+			const dependent = [...roots].find(reaches)!;
+			const others = skippedPrivatePackages.filter(name => name !== privatePackage.key).length;
+			const othersClause = others > 0
+				? `; at the workspace root this also publishes the other ${others} private member${others === 1 ? '' : 's'}`
+				: '';
+			throw new Error(`Workspace package ${JSON.stringify(privatePackage.key)} is marked as private. Pass --force to publish it${othersClause}. To publish only what you need, select packages, e.g. git-publish ${dependent} --force.`);
+		}
 		if (privatePackage) {
 			throw new Error(`Workspace package ${JSON.stringify(privatePackage.key)} is marked as private. Use --force to publish it anyway.`);
 		}
@@ -380,7 +419,7 @@ export const planWorkspacePublication = async ({
 		rootDirectory: workspace.rootDirectory,
 		roots: [...roots],
 		selection: selectionMode,
-		skippedPrivatePackages: skippedPrivatePackages.sort(),
+		skippedPrivatePackages,
 		nodes,
 		peers: graph.peers,
 	};
