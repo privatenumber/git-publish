@@ -17,7 +17,10 @@ import {
 } from './utils/git-url.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { planPackagePublicationPush } from './package-publication/push.ts';
-import { planStandalonePublication, planWorkspacePublication, type WorkspacePublicationPlan } from './workspace-publication/plan.ts';
+import {
+	formatSkippedPrivatePackages, planStandalonePublication, planWorkspacePublication,
+	type WorkspacePublicationPlan,
+} from './workspace-publication/plan.ts';
 import { publishWorkspaceClosure } from './workspace-publication/publish.ts';
 import { createVersionSha } from './package-publication/version-sha.ts';
 import {
@@ -115,10 +118,9 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 				alias: 'd',
 				description: 'Validate and print the publication plan without packing, committing, or pushing.',
 			},
-			force: {
+			includePrivate: {
 				type: Boolean,
-				alias: 'f',
-				description: 'Allow publishing a private standalone package or a private workspace root.',
+				description: 'At a workspace root without package arguments, also publish members marked as private.',
 			},
 			versionSha: {
 				type: Boolean,
@@ -171,14 +173,11 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 		sourceCommitId: source.commit,
 		packageManager,
 		publishBranch: branch,
-		force: argv.flags.force,
+		includePrivate: argv.flags.includePrivate,
 		selection: argv._.packages,
 	});
 	if (closurePlan.kind === 'standalone' && argv._.packages.length > 0) {
 		throw new Error('Package selection requires a workspace.');
-	}
-	if (closurePlan.kind === 'standalone' && packageJson.private && !argv.flags.force) {
-		throw new Error('This package is marked as private. Use --force to publish it anyway.');
 	}
 	const plan = closurePlan.kind === 'workspace'
 		? closurePlan
@@ -203,8 +202,14 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 			source.shortCommit,
 		)])
 		: []);
-	if (dry && plan.kind === 'workspace') {
-		console.log(formatWorkspacePublicationPlan(plan, source.name));
+	if (closurePlan.kind === 'workspace') {
+		const { skippedPrivatePackages } = closurePlan;
+		if (skippedPrivatePackages.length > 0) {
+			console.log(formatSkippedPrivatePackages(skippedPrivatePackages));
+		}
+		if (dry) {
+			console.log(formatWorkspacePublicationPlan(closurePlan, source.name));
+		}
 	}
 	const peerDiagnostics = formatWorkspacePeerDiagnostics(plan);
 	if (peerDiagnostics) {

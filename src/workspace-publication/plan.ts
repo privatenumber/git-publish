@@ -67,6 +67,17 @@ export type WorkspacePublicationPlan = PlanFields & (
 	}
 );
 
+const listedPrivatePackages = 5;
+
+export const formatSkippedPrivatePackages = (names: string[]) => {
+	const listed = names.slice(0, listedPrivatePackages);
+	const more = names.length - listed.length;
+	const list = more > 0 ? `${listed.join(', ')}, and ${more} more` : listed.join(', ');
+	return names.length === 1
+		? `Skipped 1 private package: ${list}. Pass --include-private to publish it.`
+		: `Skipped ${names.length} private packages: ${list}. Pass --include-private to publish them.`;
+};
+
 export const planStandalonePublication = async ({
 	cwd, gitRootPath, packageJson, sourceName, sourceCommitId, publishBranch,
 }: {
@@ -123,7 +134,7 @@ export const planWorkspacePublication = async ({
 	sourceCommitId,
 	packageManager,
 	publishBranch,
-	force,
+	includePrivate,
 	selection,
 }: {
 	cwd: string;
@@ -132,9 +143,12 @@ export const planWorkspacePublication = async ({
 	sourceCommitId: string;
 	packageManager: PackageManager;
 	publishBranch?: string;
-	force: boolean | undefined;
+	includePrivate: boolean | undefined;
 	selection: string[];
-}): Promise<Extract<WorkspacePublicationPlan, { kind: 'workspace' }> | { kind: 'standalone' }> => {
+}): Promise<
+	| (Extract<WorkspacePublicationPlan, { kind: 'workspace' }> & { skippedPrivatePackages: string[] })
+	| { kind: 'standalone' }
+> => {
 	const workspace = await findWorkspacePackages(cwd, packageManager, gitRootPath);
 	if (!workspace) {
 		return { kind: 'standalone' };
@@ -161,6 +175,7 @@ export const planWorkspacePublication = async ({
 		candidates.push(workspace.rootPackage);
 	}
 	const roots = new Set<string>();
+	const skippedPrivatePackages: string[] = [];
 	switch (selectionMode) {
 		case 'explicit': {
 			for (const argument of selection) {
@@ -185,10 +200,14 @@ export const planWorkspacePublication = async ({
 		}
 		case 'default-roots': {
 			for (const candidate of workspace.packages) {
-				if (
-					path.resolve(candidate.dir) !== path.resolve(workspace.rootDirectory)
-					&& !candidate.packageJson.private
-				) {
+				if (path.resolve(candidate.dir) === path.resolve(workspace.rootDirectory)) {
+					continue;
+				}
+				// `private` keeps a package off registries; git-publish publishes it when chosen.
+				// It is read only to choose what a root publish without arguments covers.
+				if (!includePrivate && candidate.packageJson.private) {
+					skippedPrivatePackages.push(candidate.name);
+				} else {
 					roots.add(candidate.name);
 				}
 			}
@@ -207,8 +226,11 @@ export const planWorkspacePublication = async ({
 			throw new Error(`Unknown selection mode: ${unreachable}`);
 		}
 	}
+	skippedPrivatePackages.sort();
 	if (roots.size === 0) {
-		throw new Error('No non-private workspace packages found to publish.');
+		throw new Error(skippedPrivatePackages.length > 0
+			? `No non-private workspace packages found to publish. ${formatSkippedPrivatePackages(skippedPrivatePackages)}`
+			: 'No workspace packages found to publish.');
 	}
 	const yarnConfig = packageManager === 'yarn'
 		? await fs.readFile(path.join(workspace.rootDirectory, '.yarnrc.yml'), 'utf8').catch((error: NodeJS.ErrnoException) => {
@@ -334,15 +356,6 @@ export const planWorkspacePublication = async ({
 	if (publicRoot && graph.nodes.length === 1 && graph.peers.length === 0) {
 		return { kind: 'standalone' };
 	}
-	if (!force) {
-		const privatePackage = graph.nodes.find(node => (
-			path.resolve(node.package.dir) === path.resolve(workspace.rootDirectory)
-			&& node.package.packageJson.private
-		));
-		if (privatePackage) {
-			throw new Error(`Workspace package ${JSON.stringify(privatePackage.key)} is marked as private. Use --force to publish it anyway.`);
-		}
-	}
 	const nodes: WorkspacePublicationNode[] = [];
 	const branchTemplate = publishBranch ?? 'npm/{gitRef}-{package}';
 	const packagesByBranch = new Map<string, string>();
@@ -375,6 +388,10 @@ export const planWorkspacePublication = async ({
 		rootDirectory: workspace.rootDirectory,
 		roots: [...roots],
 		selection: selectionMode,
+		// A skipped member that a root depends on is published anyway, so the notice omits it.
+		skippedPrivatePackages: skippedPrivatePackages.filter(name => (
+			!nodes.some(node => node.key === name)
+		)),
 		nodes,
 		peers: graph.peers,
 	};

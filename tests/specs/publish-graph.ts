@@ -116,7 +116,7 @@ describe('Publication graph', () => {
 			sourceName: 'main',
 			sourceCommitId: '0123456789abcdef0123456789abcdef01234567',
 			packageManager: 'yarn' as const,
-			force: false,
+			includePrivate: false,
 			selection: ['app'],
 		};
 		expect((await planWorkspacePublication(options))!.nodes.map(node => node.key)).toStrictEqual(['core', 'app']);
@@ -144,7 +144,7 @@ describe('Publication graph', () => {
 			}),
 		});
 		const script = `import { planWorkspacePublication } from ${JSON.stringify(new URL('../../src/workspace-publication/plan.ts', import.meta.url).href)};
-		const plan = await planWorkspacePublication({ cwd: ${JSON.stringify(fixture.path)}, gitRootPath: ${JSON.stringify(fixture.path)}, sourceName: 'main', packageManager: 'yarn', force: false, selection: ['app'] });
+		const plan = await planWorkspacePublication({ cwd: ${JSON.stringify(fixture.path)}, gitRootPath: ${JSON.stringify(fixture.path)}, sourceName: 'main', packageManager: 'yarn', includePrivate: false, selection: ['app'] });
 		console.log(JSON.stringify(plan.nodes.map(node => node.key)));`;
 		for (const value of ['false', '0']) {
 			const { stdout } = await spawn(process.execPath, ['--input-type=module', '-e', script], {
@@ -182,7 +182,7 @@ describe('Publication graph', () => {
 			sourceName: 'main',
 			sourceCommitId: '0123456789abcdef0123456789abcdef01234567',
 			packageManager: 'yarn',
-			force: false,
+			includePrivate: false,
 			selection: ['app'],
 		});
 		expect(plan!.nodes.map(node => node.key)).toStrictEqual(['app', 'core']);
@@ -207,7 +207,7 @@ describe('Publication graph', () => {
 			sourceName: 'main',
 			sourceCommitId: '0123456789abcdef0123456789abcdef01234567',
 			packageManager: 'pnpm' as const,
-			force: false,
+			includePrivate: false,
 			selection: ['app'],
 		};
 		for (const config of ['linkWorkspacePackages: true',
@@ -279,7 +279,7 @@ describe('Publication graph', () => {
 			sourceName: 'main',
 			sourceCommitId: '0123456789abcdef0123456789abcdef01234567',
 			packageManager: 'npm' as const,
-			force: false,
+			includePrivate: false,
 			selection: ['b', 'c'],
 		};
 		expect((await planWorkspacePublication(options))!.roots).toStrictEqual(['b', 'c']);

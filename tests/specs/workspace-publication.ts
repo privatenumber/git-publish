@@ -70,12 +70,12 @@ describe('Workspace publication', async () => {
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
-		for (const args of [['.', '--dry'], ['.', '--force', '--dry'], ['.', '--force']]) {
+		for (const args of [['.', '--dry'], ['.', '--include-private', '--dry'], ['.', '--include-private']]) {
 			const result = await gitPublish(fixture.path, args);
 			onTestFail(() => console.log(result.output));
 			expect('exitCode' in result).toBe(true);
 			expect(result.output).toContain('Cannot publish the selected workspace root because it has no name.');
-			expect(result.output).not.toContain('--force');
+			expect(result.output).not.toContain('--include-private');
 		}
 		expect(await remote.git('branch', ['--list'])).toBe('');
 	});
@@ -1620,7 +1620,7 @@ exec '${npmPath}' "$@"
 		});
 	}
 
-	test('publishes private workspace members as dependencies and selected packages', async () => {
+	test('publishes private dependencies of selected packages without a flag', async () => {
 		const branchName = 'test-private-workspace-dependency';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
 			corePrivate: true,
@@ -1628,44 +1628,84 @@ exec '${npmPath}' "$@"
 		const packagePath = path.join(fixture.path, 'packages/adapter');
 		const dryRun = await gitPublish(packagePath, ['--dry']);
 		expect('exitCode' in dryRun).toBe(false);
-		expect(dryRun.stdout).toContain('@test/core (private)');
+		expect(dryRun.stdout).toContain(`@test/core → npm/${branchName}-@test/core`);
 
 		const publication = await gitPublish(packagePath);
+		onTestFail(() => console.log(publication.output));
 		expect('exitCode' in publication).toBe(false);
 		expect(await remoteGit('show', [`npm/${branchName}-@test/core:package.json`])).toContain('"private": true');
-		const selectedPublication = await gitPublish(fixture.getPath('packages/core'));
-		expect('exitCode' in selectedPublication).toBe(false);
 	});
 
-	test('requires --force when selecting a private workspace root', async () => {
-		await using fixture = await createChainWorkspace('private-root', remoteFixture.path);
-		const rejected = await gitPublish(fixture.path, ['.']);
-		expect(('exitCode' in rejected) && rejected.exitCode).toBe(1);
-		expect(rejected.stderr).toContain('marked as private');
-		const forced = await gitPublish(fixture.path, ['.', '--dry', '--force']);
-		expect('exitCode' in forced).toBe(false);
+	test('publishes private dependencies of default roots without a flag', async () => {
+		await using rootRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('root-private-dependency', rootRemote.path, {
+			corePrivate: true,
+		});
+		await fixture.mkdir('packages/private-a');
+		await fixture.writeJson('packages/private-a/package.json', {
+			name: 'private-a',
+			version: '1.0.0',
+			private: true,
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Add private package']);
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		expect(result.stdout.split('\n').filter(line => line.startsWith('Skipped '))).toStrictEqual([
+			'Skipped 1 private package: private-a. Pass --include-private to publish it.',
+		]);
+		const branches = await rootRemote.git('branch', ['--list']);
+		expect(branches).toContain('npm/root-private-dependency-@test/core');
+		expect(branches).not.toContain('private-a');
+	});
+
+	test('publishes selected private workspace members and roots without a flag', async () => {
+		await using fixture = await createChainWorkspace('private-member', remoteFixture.path, {
+			corePrivate: true,
+		});
+		const runs = [
+			[fixture.path, '@test/core', 'npm/private-member-@test/core'],
+			[fixture.path, './packages/co*', 'npm/private-member-@test/core'],
+			[path.join(fixture.path, 'packages/core'), undefined, 'npm/private-member-@test/core'],
+			[fixture.path, '.', 'npm/private-member-test-monorepo'],
+		] as const;
+		for (const [cwd, selector, branch] of runs) {
+			const result = await gitPublish(cwd, [...(selector ? [selector] : []), '--dry']);
+			onTestFail(() => console.log(result.output));
+			expect('exitCode' in result).toBe(false);
+			expect(result.stdout).toContain(`(private) → ${branch}`);
+		}
 	});
 
 	test('publishes all non-private members by default at the workspace root', async () => {
 		await using allRemote = await createGitFixture(undefined, ['--bare']);
-		await using fixture = await createChainWorkspace('all', allRemote.path, { corePrivate: true });
-		for (const name of ['extra-a', 'extra-b']) {
+		await using fixture = await createChainWorkspace('all', allRemote.path);
+		for (const name of ['extra-a', 'extra-b', 'private-a', 'private-b']) {
 			await fixture.mkdir(`packages/${name}`);
 			await fixture.writeJson(`packages/${name}/package.json`, {
 				name,
 				version: '1.0.0',
+				private: name.startsWith('private-'),
 			});
 		}
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Add packages']);
 		await using output = await createFixture();
+		const notice = 'Skipped 2 private packages: private-a, private-b. Pass --include-private to publish them.';
+		const dry = await gitPublish(fixture.path, ['--dry']);
+		expect('exitCode' in dry).toBe(false);
+		expect(dry.stdout.split('\n').filter(line => line.startsWith('Skipped '))).toStrictEqual([notice]);
+		expect(await allRemote.git('branch', ['--list'])).toBe('');
 		const result = await gitPublish(fixture.path);
 		expect('exitCode' in result).toBe(false);
+		expect(result.stdout.split('\n').filter(line => line.startsWith('Skipped '))).toStrictEqual([notice]);
 		for (const name of ['core', 'broker', 'adapter']) {
 			expect(await allRemote.git('rev-parse', [`npm/all-@test/${name}`])).toMatch(/^[0-9a-f]{40}$/);
 		}
 		const branches = await allRemote.git('branch', ['--list']);
 		expect(branches).not.toContain('test-monorepo');
+		expect(branches).not.toContain('npm/all-private-');
 		const second = await gitPublish(fixture.path, ['--json', output.getPath('publication.json')]);
 		expect('exitCode' in second).toBe(false);
 		expect(second.stdout).toContain('unchanged');
@@ -1673,7 +1713,7 @@ exec '${npmPath}' "$@"
 		const data = await output.readJson<{ packages: { name: string;
 			role: string; }[]; }>('publication.json');
 		expect(data.packages.filter(item => item.role === 'root').map(item => item.name).sort())
-			.toStrictEqual(['@test/adapter', '@test/broker', 'extra-a', 'extra-b']);
+			.toStrictEqual(['@test/adapter', '@test/broker', '@test/core', 'extra-a', 'extra-b']);
 		const lines = result.stdout.split('\n');
 		const header = lines.find(line => line.startsWith('Package '))!;
 		const row = lines.find(line => line.startsWith('extra-a '))!;
@@ -1684,9 +1724,38 @@ exec '${npmPath}' "$@"
 		expect(lines.filter(line => line.startsWith('→ Install '))).toStrictEqual([
 			'→ Install @test/adapter',
 			'→ Install @test/broker',
+			'→ Install @test/core',
 			'→ Install extra-a',
 			'→ Install extra-b',
 		]);
+
+		const forced = await gitPublish(fixture.path, ['--include-private']);
+		expect('exitCode' in forced).toBe(false);
+		expect(forced.stdout).not.toContain('Skipped ');
+		const forcedBranches = await allRemote.git('branch', ['--list']);
+		expect(forcedBranches).toContain('npm/all-private-a');
+		expect(forcedBranches).toContain('npm/all-private-b');
+		expect(forcedBranches).not.toContain('test-monorepo');
+	});
+
+	test('lists at most five skipped names when every workspace member is private', async () => {
+		const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+		await using fixture = await createGitFixture({
+			'package.json': '{"name":"root","private":true,"workspaces":["packages/*"]}',
+			...Object.fromEntries(names.map(name => [
+				`packages/${name}/package.json`,
+				JSON.stringify({
+					name,
+					version: '1.0.0',
+					private: true,
+				}),
+			])),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		const rejected = await gitPublish(fixture.path, ['--dry']);
+		expect('exitCode' in rejected && rejected.exitCode).toBe(1);
+		expect(rejected.stderr).toContain('No non-private workspace packages found to publish. Skipped 7 private packages: a, b, c, d, e, and 2 more. Pass --include-private to publish them.');
 	});
 
 	test('publishes npm workspace closures without a lockfile', async () => {

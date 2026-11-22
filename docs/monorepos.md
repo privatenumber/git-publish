@@ -5,14 +5,14 @@
 ## Selecting packages
 
 - **In a package directory:** publishes that package.
-- **At the workspace root:** publishes every non-private member when the root `package.json` is private or unnamed. A named, public root publishes itself.
+- **At the workspace root:** publishes every non-private member when the root `package.json` is private or unnamed. The notice lists any skipped private members. Pass `--include-private` to include them. A private root itself is not selected by default. A named, public root publishes itself.
 - **With arguments:** publishes the packages selected by name, directory, or quoted glob:
 
   ```sh
   git-publish @acme/core ./packages/adapter './packages/plugins/*'
   ```
 
-Private workspace members are published without `--force`. `--force` is needed only when the publication includes a private workspace root, either because you selected it or because a selected package depends on it.
+Private packages publish like any other when you select them, run in them, or a selected package depends on them. `private` only decides what the root publishes without arguments. See [Private packages](./cli.md#private-packages) for why. The skip notice omits private members that publish as dependencies, and `--dry` prints the same notice.
 
 ## What gets published
 
