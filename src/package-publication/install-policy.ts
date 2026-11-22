@@ -6,10 +6,11 @@ export const getInstallPolicy = (
 	manifest: PackageJson,
 	packageManager: PackageManager,
 ) => {
-	const dependencies = Object.entries({
+	const runtimeDependencies = {
 		...manifest.dependencies,
 		...manifest.optionalDependencies,
-	});
+	};
+	const dependencies = Object.entries(runtimeDependencies);
 	const policy = {
 		git: [] as [name: string, specifier: string][],
 		remote: false,
@@ -19,7 +20,10 @@ export const getInstallPolicy = (
 	}
 	if (packageManager === 'npm') {
 		for (const [name, specifier] of Object.entries(manifest.peerDependencies ?? {})) {
-			if (!manifest.peerDependenciesMeta?.[name]?.optional) {
+			if (
+				!Object.hasOwn(runtimeDependencies, name)
+				&& !manifest.peerDependenciesMeta?.[name]?.optional
+			) {
 				dependencies.push([name, specifier]);
 			}
 		}

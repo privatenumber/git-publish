@@ -591,14 +591,16 @@ describe('Remote transport', async () => {
 	shift
 	exec sh -c "$*"
 	`);
-			await fixture.writeFile('receive-pack', `#!/bin/sh
-	if [ -n "$GIT_CONFIG_SYSTEM$GIT_CONFIG_GLOBAL" ]; then
+			await fs.chmod(fixture.getPath('ssh'), 0o755);
+			for (const command of ['upload-pack', 'receive-pack']) {
+				await fixture.writeFile(command, `#!/bin/sh
+	if printenv GIT_CONFIG_SYSTEM >/dev/null || printenv GIT_CONFIG_GLOBAL >/dev/null; then
 		exit 1
 	fi
-	exec git-receive-pack "$@"
+	exec git-${command} "$@"
 	`);
-			await fs.chmod(fixture.getPath('ssh'), 0o755);
-			await fs.chmod(fixture.getPath('receive-pack'), 0o755);
+				await fs.chmod(fixture.getPath(command), 0o755);
+			}
 		});
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
@@ -613,6 +615,7 @@ describe('Remote transport', async () => {
 		await git('remote', ['add', 'origin', `git@example.test:${remoteFixture.path}`]);
 		await git('config', ['core.sshCommand', commandsFixture.getPath('ssh')]);
 		await git('config', ['ssh.variant', 'simple']);
+		await git('config', ['remote.origin.uploadpack', commandsFixture.getPath('upload-pack')]);
 		await git('config', ['remote.origin.receivepack', commandsFixture.getPath('receive-pack')]);
 		await git('config', ['--add', 'remote.origin.pushurl', remoteFixture.path]);
 

@@ -28,6 +28,14 @@ describe('Package managers', async () => {
 		['local-file', { optionalDependencies: { external: 'file:./vendor/external.tgz' } }, false, false, false],
 		['required-git-peer', { peerDependencies: { external: gitDependency } }, true, false, false],
 		['required-remote-peer', { peerDependencies: { external: tarballDependency } }, false, true, false],
+		['shadowed-git-peer', {
+			dependencies: { external: '^1.0.0' },
+			peerDependencies: { external: gitDependency },
+		}, false, false, false],
+		['shadowed-tarball-peer', {
+			optionalDependencies: { external: '^1.0.0' },
+			peerDependencies: { external: tarballDependency },
+		}, false, false, false],
 		['optional-git-peer', {
 			peerDependencies: { external: gitDependency },
 			peerDependenciesMeta: { external: { optional: true } },

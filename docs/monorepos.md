@@ -36,6 +36,8 @@ Publication fails before pushing if:
 - a packed dependency or peer still uses `workspace:`,
 - or a lifecycle hook changed or added an internal dependency during packing. Hooks may remove internal dependencies.
 
+The conflict check covers every planned package before packing. A conflicting ref still blocks publication if a pack hook would later remove the dependency that brought the package into the plan.
+
 See [`--remote`](./cli.md#--remote) for the push URL requirement.
 
 ## Installing
