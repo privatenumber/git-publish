@@ -26,16 +26,16 @@ The CLI process used under a quarter of the wall time as CPU. CPU time alone doe
 
 ### Parallel packing comparison
 
-Measured on Mon Nov 23 2026 with Node.js 26.13.0, pnpm 12.18.0, and Git 2.54.0 on macOS with 12 available CPUs. The generated workspace used the default 20 packages (no hooks) and three timed runs per build after one warmup. The load average at the start of the final run was 143.9, just after the test suite. An earlier implementation at a load average of 3.8 gave similar synthetic timings (2.10 s to publish and 1.94 s to republish).
+Measured on Mon Nov 23 2026 with Node.js 26.13.0, pnpm 12.18.0, and Git 2.54.0 on macOS with 12 available CPUs. The generated workspace used the default 20 packages (no hooks) and three timed runs per build after one warmup. The 1-minute load average (`sysctl -n vm.loadavg`) was 3.27 at the start, and no other benchmark or test run was active.
 
 ```sh
-pnpm bench --scenario publish --scenario republish --cli dist/index.js --cli ../base/dist/index.js
+node bench/index.ts --scenario publish --scenario republish --cli dist/index.js --cli ../base/dist/index.js
 ```
 
 | Scenario | Sequential (`d872c42`) | Parallel |
 | --- | ---: | ---: |
-| First publish | 5.09 s (5.03–5.11 s) | 2.17 s (2.17–2.24 s) |
-| Unchanged republish | 4.45 s (4.45–4.46 s) | 2.08 s (1.99–2.25 s) |
+| First publish | 4.76 s (4.70–4.76 s) | 1.97 s (1.96–2.03 s) |
+| Unchanged republish | 4.21 s (4.19–4.24 s) | 1.84 s (1.80–1.87 s) |
 
 ### Parallel packing with build hooks
 
@@ -43,12 +43,16 @@ On the same machine, a separate private pnpm workspace published fewer than ten 
 
 Each configuration ran three times in rotating order. Each run published to a fresh local bare clone and then republished without changes. The bare clones occupied the same path in turn so the rewritten dependency URLs stayed identical. The cap-of-three experiment overrode `os.availableParallelism()` in the benchmark CLI process only.
 
-| Scenario | Sequential (`d872c42`) | Default parallelism | Cap of three |
-| --- | ---: | ---: | ---: |
-| First publish | 14.29 s (12.41–15.01 s) | 14.48 s (13.58–14.91 s) | 10.67 s (9.93–11.44 s) |
-| Unchanged republish | 14.40 s (14.08–14.54 s) | 12.96 s (12.15–15.06 s) | 10.61 s (10.33–10.82 s) |
+Before each round, the run waited until the 1-minute load average was 6 or lower. The loads at the start of the three rounds were 4.34, 5.42, and 4.99. No other benchmark or test run was active.
 
-Every package had the same published Git tree ID in every run, and every republish retained the branch tips. Default parallelism did not improve the first-publish median in this workspace. The cap of three was faster than both alternatives in every round for both scenarios, but this does not establish a general cap for other workloads. The implementation keeps the CPU-based limit.
+| Scenario | Sequential (`d872c42`) | Default parallelism (7) | Cap of three |
+| --- | ---: | ---: | ---: |
+| First publish | 12.61 s (11.76–14.14 s) | 12.52 s (11.74–13.46 s) | 9.38 s (9.05–10.03 s) |
+| Unchanged republish | 14.20 s (14.20–14.40 s) | 11.81 s (11.75–11.89 s) | 9.91 s (8.83–10.36 s) |
+
+Every package had the same published Git tree ID in every run, and every republish retained the branch tips. Default parallelism did not improve the first-publish median in this workspace. The cap of three was faster than both alternatives in every round for both scenarios.
+
+No single long build bounds the wall time. In a first publish with all seven packages at once, the per-package task times were 2, 2, 6, 7, 8, 9, and 10 s. With a cap of three, the same packages took 1 to 4 s each. Every build slows when seven run together, which suggests that the concurrent build hooks contend for CPU or I/O. This workspace alone does not establish a general cap. The implementation keeps the CPU-based limit.
 
 ### Earlier profile of a private workspace with build hooks
 
