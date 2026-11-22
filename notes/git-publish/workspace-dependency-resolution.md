@@ -40,7 +40,7 @@ A package reachable only through `optionalDependencies` or an optional peer (`pe
 Decision (Mon Nov 23, [#129](https://github.com/privatenumber/git-publish/pull/129)): `private: true` is not a publish gate. It only filters the default roots at a workspace root. User-facing explanation: [Private packages](../../docs/cli.md#private-packages).
 
 Behavior:
-- **Root without arguments:** the [workspace planner](../../src/workspace-publication/plan.ts) skips private members and prints a notice; `--force` includes them. A private root is never a default root. This is the only place `private` is read, and the only use of `--force`.
+- **Root without arguments:** the [workspace planner](../../src/workspace-publication/plan.ts) skips private members and prints a notice; `--include-private` includes them. A private root is never a default root. This is the only place `private` is read.
 - **Everything else publishes without a flag:** a standalone package, the workspace package you run in, an explicit selection (including a private workspace root), and the dependency closure. The skip notice omits private members that publish as dependencies.
 
 Why:
@@ -48,6 +48,7 @@ Why:
 - **The install needs private dependencies.** A published dependent references each dependency's branch URL, so skipping or rejecting one leaves a package that can't install.
 - **Usually no new exposure.** The branch goes to the publish remote, which by default (`origin`) hosts the source. Anyone who can read the branch can already read the source, and anyone who can push can push a branch by hand. With `--remote` pointing at another repository, the user chose that destination.
 - **The published `package.json` keeps `private: true`,** so a registry publish from the branch is still blocked.
+- **The flag is `--include-private`, not `--force`.** v2.5.0's `--force` meant "publish this private package anyway", which no longer needs a flag. What remains is a selection option that overrides nothing, and in a tool that pushes branches, `--force` reads like `git push --force`, which `--fresh` already does. `--private` was rejected because it can read as "publish privately" or "only private packages", and `--all` because a root publish already means every member. `--force` has no alias; `strictFlags` rejects it, so old scripts fail instead of silently changing behavior.
 - **The root default still needs a filter.** Without arguments, git-publish has to guess which members are meant for installing. Private members are typically apps, docs sites, examples, and fixtures. Publishing them packs each one with its hooks, adds branches, and a member that isn't set up as a package can fail the whole publication.
 
 Rejected alternatives:

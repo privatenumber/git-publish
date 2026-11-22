@@ -5,7 +5,7 @@
 ## Selecting packages
 
 - **In a package directory:** publishes that package.
-- **At the workspace root:** publishes every non-private member when the root `package.json` is private or unnamed. The notice lists any skipped private members. Pass `--force` to include them. A private root itself is not selected by default. A named, public root publishes itself.
+- **At the workspace root:** publishes every non-private member when the root `package.json` is private or unnamed. The notice lists any skipped private members. Pass `--include-private` to include them. A private root itself is not selected by default. A named, public root publishes itself.
 - **With arguments:** publishes the packages selected by name, directory, or quoted glob:
 
   ```sh

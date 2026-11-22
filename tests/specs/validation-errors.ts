@@ -184,7 +184,7 @@ exec "${gitPath}" "$@"
 				.filter(worktree => worktree.startsWith('worktree ') && worktree.includes('/git-publish-'))
 				.map(worktree => worktree.slice('worktree '.length));
 
-			await Promise.all(worktreePaths.map(worktree => git('worktree', ['remove', '--force', worktree])));
+			await Promise.all(worktreePaths.map(worktree => git('worktree', ['remove', '--include-private', worktree])));
 		}
 	});
 
@@ -277,7 +277,19 @@ Pre-bundle these dependencies before publishing.`);
 		expect(gitPublishProcess.stderr).toBe('Error: The working tree is not clean. Please commit or stash your changes before publishing.');
 	});
 
-	test('publishes a private standalone package without --force', async () => {
+	test('rejects the removed --force flag', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		});
+		const result = await gitPublish(fixture.path, ['--force', '--dry']);
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.stderr).toBe('Error: Unknown flag: --force.');
+	});
+
+	test('publishes a private standalone package without a flag', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({

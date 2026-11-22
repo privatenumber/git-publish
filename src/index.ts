@@ -118,9 +118,8 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 				alias: 'd',
 				description: 'Validate and print the publication plan without packing, committing, or pushing.',
 			},
-			force: {
+			includePrivate: {
 				type: Boolean,
-				alias: 'f',
 				description: 'At a workspace root without package arguments, also publish members marked as private.',
 			},
 			versionSha: {
@@ -174,7 +173,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 		sourceCommitId: source.commit,
 		packageManager,
 		publishBranch: branch,
-		force: argv.flags.force,
+		includePrivate: argv.flags.includePrivate,
 		selection: argv._.packages,
 	});
 	if (closurePlan.kind === 'standalone' && argv._.packages.length > 0) {

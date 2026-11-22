@@ -70,12 +70,12 @@ describe('Workspace publication', async () => {
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial']);
 		await fixture.git('remote', ['add', 'origin', remote.path]);
-		for (const args of [['.', '--dry'], ['.', '--force', '--dry'], ['.', '--force']]) {
+		for (const args of [['.', '--dry'], ['.', '--include-private', '--dry'], ['.', '--include-private']]) {
 			const result = await gitPublish(fixture.path, args);
 			onTestFail(() => console.log(result.output));
 			expect('exitCode' in result).toBe(true);
 			expect(result.output).toContain('Cannot publish the selected workspace root because it has no name.');
-			expect(result.output).not.toContain('--force');
+			expect(result.output).not.toContain('--include-private');
 		}
 		expect(await remote.git('branch', ['--list'])).toBe('');
 	});
@@ -1620,7 +1620,7 @@ exec '${npmPath}' "$@"
 		});
 	}
 
-	test('publishes private dependencies of selected packages without --force', async () => {
+	test('publishes private dependencies of selected packages without a flag', async () => {
 		const branchName = 'test-private-workspace-dependency';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
 			corePrivate: true,
@@ -1636,7 +1636,7 @@ exec '${npmPath}' "$@"
 		expect(await remoteGit('show', [`npm/${branchName}-@test/core:package.json`])).toContain('"private": true');
 	});
 
-	test('publishes private dependencies of default roots without --force', async () => {
+	test('publishes private dependencies of default roots without a flag', async () => {
 		await using rootRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('root-private-dependency', rootRemote.path, {
 			corePrivate: true,
@@ -1653,14 +1653,14 @@ exec '${npmPath}' "$@"
 		onTestFail(() => console.log(result.output));
 		expect('exitCode' in result).toBe(false);
 		expect(result.stdout.split('\n').filter(line => line.startsWith('Skipped '))).toStrictEqual([
-			'Skipped 1 private package: private-a. Pass --force to publish it.',
+			'Skipped 1 private package: private-a. Pass --include-private to publish it.',
 		]);
 		const branches = await rootRemote.git('branch', ['--list']);
 		expect(branches).toContain('npm/root-private-dependency-@test/core');
 		expect(branches).not.toContain('private-a');
 	});
 
-	test('publishes selected private workspace members and roots without --force', async () => {
+	test('publishes selected private workspace members and roots without a flag', async () => {
 		await using fixture = await createChainWorkspace('private-member', remoteFixture.path, {
 			corePrivate: true,
 		});
@@ -1692,7 +1692,7 @@ exec '${npmPath}' "$@"
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Add packages']);
 		await using output = await createFixture();
-		const notice = 'Skipped 2 private packages: private-a, private-b. Pass --force to publish them.';
+		const notice = 'Skipped 2 private packages: private-a, private-b. Pass --include-private to publish them.';
 		const dry = await gitPublish(fixture.path, ['--dry']);
 		expect('exitCode' in dry).toBe(false);
 		expect(dry.stdout.split('\n').filter(line => line.startsWith('Skipped '))).toStrictEqual([notice]);
@@ -1729,7 +1729,7 @@ exec '${npmPath}' "$@"
 			'→ Install extra-b',
 		]);
 
-		const forced = await gitPublish(fixture.path, ['--force']);
+		const forced = await gitPublish(fixture.path, ['--include-private']);
 		expect('exitCode' in forced).toBe(false);
 		expect(forced.stdout).not.toContain('Skipped ');
 		const forcedBranches = await allRemote.git('branch', ['--list']);
@@ -1755,7 +1755,7 @@ exec '${npmPath}' "$@"
 		await fixture.git('commit', ['-m', 'Initial commit']);
 		const rejected = await gitPublish(fixture.path, ['--dry']);
 		expect('exitCode' in rejected && rejected.exitCode).toBe(1);
-		expect(rejected.stderr).toContain('No non-private workspace packages found to publish. Skipped 7 private packages: a, b, c, d, e, and 2 more. Pass --force to publish them.');
+		expect(rejected.stderr).toContain('No non-private workspace packages found to publish. Skipped 7 private packages: a, b, c, d, e, and 2 more. Pass --include-private to publish them.');
 	});
 
 	test('publishes npm workspace closures without a lockfile', async () => {

@@ -28,9 +28,9 @@ Choose a valid Git branch using ASCII letters, digits, and `. _ / @ -`. Do not s
 ## Monorepos
 
 - In a package directory: publishes that package plus every workspace package it needs at runtime or as a peer. Each package gets its own branch (default `npm/{gitRef}-{package}`), and all branches are pushed in one atomic push.
-- At the workspace root: publishes every non-private member when the root `package.json` is private or unnamed and lists skipped private members. Pass `--force` to include them. A private root itself is not selected by default. A named public root publishes itself.
+- At the workspace root: publishes every non-private member when the root `package.json` is private or unnamed and lists skipped private members. Pass `--include-private` to include them. A private root itself is not selected by default. A named public root publishes itself.
 - Select packages explicitly by name, path, or quoted glob: `npx git-publish @acme/core ./packages/adapter './packages/plugins/*'`. A package named `skills` must be selected by path, because `skills` is a subcommand.
-- `private: true` only affects that root default. git-publish is a prerelease channel and never publishes to a registry, so a private package you run in, select, or depend on publishes without `--force` ([Private packages](https://github.com/privatenumber/git-publish/blob/develop/docs/cli.md#private-packages)).
+- `private: true` only affects that root default. git-publish is a prerelease channel and never publishes to a registry, so a private package you run in, select, or depend on publishes without a flag ([Private packages](https://github.com/privatenumber/git-publish/blob/develop/docs/cli.md#private-packages)).
 - Every publication needs exactly one push URL. For multiple destinations, run once per destination with separate remotes or `--remote <url>`.
 
 ## Install a published package

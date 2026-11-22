@@ -74,8 +74,8 @@ export const formatSkippedPrivatePackages = (names: string[]) => {
 	const more = names.length - listed.length;
 	const list = more > 0 ? `${listed.join(', ')}, and ${more} more` : listed.join(', ');
 	return names.length === 1
-		? `Skipped 1 private package: ${list}. Pass --force to publish it.`
-		: `Skipped ${names.length} private packages: ${list}. Pass --force to publish them.`;
+		? `Skipped 1 private package: ${list}. Pass --include-private to publish it.`
+		: `Skipped ${names.length} private packages: ${list}. Pass --include-private to publish them.`;
 };
 
 export const planStandalonePublication = async ({
@@ -134,7 +134,7 @@ export const planWorkspacePublication = async ({
 	sourceCommitId,
 	packageManager,
 	publishBranch,
-	force,
+	includePrivate,
 	selection,
 }: {
 	cwd: string;
@@ -143,7 +143,7 @@ export const planWorkspacePublication = async ({
 	sourceCommitId: string;
 	packageManager: PackageManager;
 	publishBranch?: string;
-	force: boolean | undefined;
+	includePrivate: boolean | undefined;
 	selection: string[];
 }): Promise<
 	| (Extract<WorkspacePublicationPlan, { kind: 'workspace' }> & { skippedPrivatePackages: string[] })
@@ -205,7 +205,7 @@ export const planWorkspacePublication = async ({
 				}
 				// `private` keeps a package off registries; git-publish publishes it when chosen.
 				// It is read only to choose what a root publish without arguments covers.
-				if (!force && candidate.packageJson.private) {
+				if (!includePrivate && candidate.packageJson.private) {
 					skippedPrivatePackages.push(candidate.name);
 				} else {
 					roots.add(candidate.name);
