@@ -28,9 +28,9 @@ Choose a valid Git branch using ASCII letters, digits, and `. _ / @ -`. Do not s
 ## Monorepos
 
 - In a package directory: publishes that package plus every workspace package it needs at runtime or as a peer. Each package gets its own branch (default `npm/{gitRef}-{package}`), and all branches are pushed in one atomic push.
-- At the workspace root: publishes every non-private member when the root `package.json` is private or unnamed; a named public root publishes itself.
+- At the workspace root: publishes every non-private member when the root `package.json` is private or unnamed and lists skipped private members. Pass `--force` to include them. A private root itself is not selected by default. A named public root publishes itself.
 - Select packages explicitly by name, path, or quoted glob: `npx git-publish @acme/core ./packages/adapter './packages/plugins/*'`. A package named `skills` must be selected by path, because `skills` is a subcommand.
-- Private workspace members are published without `--force`; `--force` is only for a private standalone package, or a publication that includes a private workspace root.
+- Pass `--force` to publish a private package you select or a private workspace package that a selected package needs. `--dry` reports the same skips and errors without publishing.
 - Every publication needs exactly one push URL. For multiple destinations, run once per destination with separate remotes or `--remote <url>`.
 
 ## Install a published package
@@ -58,7 +58,7 @@ For a private repository, the installing machine needs Git access to it (for Git
 | Message contains | Cause and fix |
 | --- | --- |
 | `working tree is not clean` | Commit or stash tracked changes first. |
-| `marked as private` | Standalone or workspace-root package is `private: true`. Pass `--force` only if the user intends to publish it. |
+| `marked as private` | The package is `private: true`. Pass `--force` only if the user intends to publish it. |
 | `Cannot publish packages with workspace dependencies` | A standalone package outside a workspace declares `workspace:` dependencies. Run from the workspace, or bundle them. |
 | `requires peer` or `in workspace range` | A packed peer range or explicit `workspace:` range does not match the target's version. Fix the range in the source manifest. |
 | `changed during packing` or `has unresolved` | A lifecycle hook rewrote an internal dependency, or the packed manifest still contains a `workspace:` value. Hooks may remove internal dependencies but not change or add them. |

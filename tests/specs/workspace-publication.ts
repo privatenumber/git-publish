@@ -1620,21 +1620,35 @@ exec '${npmPath}' "$@"
 		});
 	}
 
-	test('publishes private workspace members as dependencies and selected packages', async () => {
+	test('requires --force for private workspace members in the dependency closure', async () => {
 		const branchName = 'test-private-workspace-dependency';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
 			corePrivate: true,
 		});
 		const packagePath = path.join(fixture.path, 'packages/adapter');
 		const dryRun = await gitPublish(packagePath, ['--dry']);
-		expect('exitCode' in dryRun).toBe(false);
-		expect(dryRun.stdout).toContain('@test/core (private)');
+		expect('exitCode' in dryRun && dryRun.exitCode).toBe(1);
+		expect(dryRun.stderr).toContain('Workspace package "@test/core" is marked as private. Use --force to publish it anyway.');
 
-		const publication = await gitPublish(packagePath);
+		const rejected = await gitPublish(packagePath);
+		expect('exitCode' in rejected && rejected.exitCode).toBe(1);
+		expect(rejected.stderr).toContain('Workspace package "@test/core" is marked as private. Use --force to publish it anyway.');
+		expect(await remoteGit('branch', ['--list', `npm/${branchName}-*`])).toBe('');
+
+		const publication = await gitPublish(packagePath, ['--force']);
 		expect('exitCode' in publication).toBe(false);
 		expect(await remoteGit('show', [`npm/${branchName}-@test/core:package.json`])).toContain('"private": true');
-		const selectedPublication = await gitPublish(fixture.getPath('packages/core'));
-		expect('exitCode' in selectedPublication).toBe(false);
+	});
+
+	test('requires --force when selecting a private workspace member', async () => {
+		await using fixture = await createChainWorkspace('private-member', remoteFixture.path, {
+			corePrivate: true,
+		});
+		for (const selector of ['@test/core', './packages/core', './packages/co*']) {
+			const rejected = await gitPublish(fixture.path, [selector]);
+			expect('exitCode' in rejected && rejected.exitCode).toBe(1);
+			expect(rejected.stderr).toContain('Workspace package "@test/core" is marked as private. Use --force to publish it anyway.');
+		}
 	});
 
 	test('requires --force when selecting a private workspace root', async () => {
@@ -1648,24 +1662,32 @@ exec '${npmPath}' "$@"
 
 	test('publishes all non-private members by default at the workspace root', async () => {
 		await using allRemote = await createGitFixture(undefined, ['--bare']);
-		await using fixture = await createChainWorkspace('all', allRemote.path, { corePrivate: true });
-		for (const name of ['extra-a', 'extra-b']) {
+		await using fixture = await createChainWorkspace('all', allRemote.path);
+		for (const name of ['extra-a', 'extra-b', 'private-a', 'private-b']) {
 			await fixture.mkdir(`packages/${name}`);
 			await fixture.writeJson(`packages/${name}/package.json`, {
 				name,
 				version: '1.0.0',
+				private: name.startsWith('private-'),
 			});
 		}
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Add packages']);
 		await using output = await createFixture();
+		const notice = 'Skipped 2 private packages: private-a, private-b. Pass --force to publish them.';
+		const dry = await gitPublish(fixture.path, ['--dry']);
+		expect('exitCode' in dry).toBe(false);
+		expect(dry.stdout.split('\n').filter(line => line.startsWith('Skipped '))).toStrictEqual([notice]);
+		expect(await allRemote.git('branch', ['--list'])).toBe('');
 		const result = await gitPublish(fixture.path);
 		expect('exitCode' in result).toBe(false);
+		expect(result.stdout.split('\n').filter(line => line.startsWith('Skipped '))).toStrictEqual([notice]);
 		for (const name of ['core', 'broker', 'adapter']) {
 			expect(await allRemote.git('rev-parse', [`npm/all-@test/${name}`])).toMatch(/^[0-9a-f]{40}$/);
 		}
 		const branches = await allRemote.git('branch', ['--list']);
 		expect(branches).not.toContain('test-monorepo');
+		expect(branches).not.toContain('npm/all-private-');
 		const second = await gitPublish(fixture.path, ['--json', output.getPath('publication.json')]);
 		expect('exitCode' in second).toBe(false);
 		expect(second.stdout).toContain('unchanged');
@@ -1673,7 +1695,7 @@ exec '${npmPath}' "$@"
 		const data = await output.readJson<{ packages: { name: string;
 			role: string; }[]; }>('publication.json');
 		expect(data.packages.filter(item => item.role === 'root').map(item => item.name).sort())
-			.toStrictEqual(['@test/adapter', '@test/broker', 'extra-a', 'extra-b']);
+			.toStrictEqual(['@test/adapter', '@test/broker', '@test/core', 'extra-a', 'extra-b']);
 		const lines = result.stdout.split('\n');
 		const header = lines.find(line => line.startsWith('Package '))!;
 		const row = lines.find(line => line.startsWith('extra-a '))!;
@@ -1684,9 +1706,30 @@ exec '${npmPath}' "$@"
 		expect(lines.filter(line => line.startsWith('→ Install '))).toStrictEqual([
 			'→ Install @test/adapter',
 			'→ Install @test/broker',
+			'→ Install @test/core',
 			'→ Install extra-a',
 			'→ Install extra-b',
 		]);
+
+		const forced = await gitPublish(fixture.path, ['--force']);
+		expect('exitCode' in forced).toBe(false);
+		expect(forced.stdout).not.toContain('Skipped ');
+		const forcedBranches = await allRemote.git('branch', ['--list']);
+		expect(forcedBranches).toContain('npm/all-private-a');
+		expect(forcedBranches).toContain('npm/all-private-b');
+		expect(forcedBranches).not.toContain('test-monorepo');
+	});
+
+	test('suggests --force when every workspace member is private', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': '{"name":"root","private":true,"workspaces":["packages/*"]}',
+			'packages/a/package.json': '{"name":"a","version":"1.0.0","private":true}',
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		const rejected = await gitPublish(fixture.path, ['--dry']);
+		expect('exitCode' in rejected && rejected.exitCode).toBe(1);
+		expect(rejected.stderr).toContain('No non-private workspace packages found to publish. Pass --force');
 	});
 
 	test('publishes npm workspace closures without a lockfile', async () => {

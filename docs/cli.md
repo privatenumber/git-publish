@@ -26,7 +26,7 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 | `-d, --dry` | Validate and print the publication plan. Resolves the remote from local Git config but does not contact it, check for conflicting refs, pack, run package hooks, commit, or push |
 | `-o, --fresh` | Publish a single-commit branch, replacing its history with a force-push. See [`--fresh`](#--fresh) |
 | `--version-sha` | Record the source commit in each published `package.json`. See [`--version-sha`](#--version-sha) |
-| `-f, --force` | Allow publishing a private standalone package or a private workspace root |
+| `-f, --force` | Allow publishing packages marked as private, including workspace members that would otherwise be skipped by default |
 | `--json <path>` | Write publication details and install sets to a JSON file. See [JSON output](#json-output) |
 | `-h, --help` | Show help |
 | `--version` | Show the version |

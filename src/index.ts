@@ -118,7 +118,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 			force: {
 				type: Boolean,
 				alias: 'f',
-				description: 'Allow publishing a private standalone package or a private workspace root.',
+				description: 'Allow publishing packages marked as private.',
 			},
 			versionSha: {
 				type: Boolean,
@@ -203,8 +203,16 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 			source.shortCommit,
 		)])
 		: []);
-	if (dry && plan.kind === 'workspace') {
-		console.log(formatWorkspacePublicationPlan(plan, source.name));
+	if (closurePlan.kind === 'workspace') {
+		const { skippedPrivatePackages } = closurePlan;
+		if (skippedPrivatePackages.length === 1) {
+			console.log(`Skipped 1 private package: ${skippedPrivatePackages[0]}. Pass --force to publish it.`);
+		} else if (skippedPrivatePackages.length > 1) {
+			console.log(`Skipped ${skippedPrivatePackages.length} private packages: ${skippedPrivatePackages.join(', ')}. Pass --force to publish them.`);
+		}
+		if (dry) {
+			console.log(formatWorkspacePublicationPlan(closurePlan, source.name));
+		}
 	}
 	const peerDiagnostics = formatWorkspacePeerDiagnostics(plan);
 	if (peerDiagnostics) {

@@ -134,7 +134,10 @@ export const planWorkspacePublication = async ({
 	publishBranch?: string;
 	force: boolean | undefined;
 	selection: string[];
-}): Promise<Extract<WorkspacePublicationPlan, { kind: 'workspace' }> | { kind: 'standalone' }> => {
+}): Promise<
+	| (Extract<WorkspacePublicationPlan, { kind: 'workspace' }> & { skippedPrivatePackages: string[] })
+	| { kind: 'standalone' }
+> => {
 	const workspace = await findWorkspacePackages(cwd, packageManager, gitRootPath);
 	if (!workspace) {
 		return { kind: 'standalone' };
@@ -161,6 +164,7 @@ export const planWorkspacePublication = async ({
 		candidates.push(workspace.rootPackage);
 	}
 	const roots = new Set<string>();
+	const skippedPrivatePackages: string[] = [];
 	switch (selectionMode) {
 		case 'explicit': {
 			for (const argument of selection) {
@@ -185,10 +189,12 @@ export const planWorkspacePublication = async ({
 		}
 		case 'default-roots': {
 			for (const candidate of workspace.packages) {
-				if (
-					path.resolve(candidate.dir) !== path.resolve(workspace.rootDirectory)
-					&& !candidate.packageJson.private
-				) {
+				if (path.resolve(candidate.dir) === path.resolve(workspace.rootDirectory)) {
+					continue;
+				}
+				if (!force && candidate.packageJson.private) {
+					skippedPrivatePackages.push(candidate.name);
+				} else {
 					roots.add(candidate.name);
 				}
 			}
@@ -208,7 +214,9 @@ export const planWorkspacePublication = async ({
 		}
 	}
 	if (roots.size === 0) {
-		throw new Error('No non-private workspace packages found to publish.');
+		throw new Error(skippedPrivatePackages.length > 0
+			? 'No non-private workspace packages found to publish. Pass --force to publish private members.'
+			: 'No workspace packages found to publish.');
 	}
 	const yarnConfig = packageManager === 'yarn'
 		? await fs.readFile(path.join(workspace.rootDirectory, '.yarnrc.yml'), 'utf8').catch((error: NodeJS.ErrnoException) => {
@@ -335,10 +343,7 @@ export const planWorkspacePublication = async ({
 		return { kind: 'standalone' };
 	}
 	if (!force) {
-		const privatePackage = graph.nodes.find(node => (
-			path.resolve(node.package.dir) === path.resolve(workspace.rootDirectory)
-			&& node.package.packageJson.private
-		));
+		const privatePackage = graph.nodes.find(node => node.package.packageJson.private);
 		if (privatePackage) {
 			throw new Error(`Workspace package ${JSON.stringify(privatePackage.key)} is marked as private. Use --force to publish it anyway.`);
 		}
@@ -375,6 +380,7 @@ export const planWorkspacePublication = async ({
 		rootDirectory: workspace.rootDirectory,
 		roots: [...roots],
 		selection: selectionMode,
+		skippedPrivatePackages: skippedPrivatePackages.sort(),
 		nodes,
 		peers: graph.peers,
 	};

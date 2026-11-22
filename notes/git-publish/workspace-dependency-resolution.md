@@ -37,7 +37,7 @@ A package reachable only through `optionalDependencies` or an optional peer (`pe
 
 ## Private packages
 
-`private: true` is rejected without `--force` only for the workspace root and for standalone packages. [Issue #2](https://github.com/privatenumber/git-publish/issues/2) introduced the guard "for catching publishing the root of a monorepo". Private workspace members are the main audience of Git-branch publishing: they are not on a registry, which is what `private: true` marks in monorepos. The pre-push plan marks them `(private)`.
+The [workspace planner](../../src/workspace-publication/plan.ts) checks `private: true` in two places for different reasons: default selection skips private members without `--force`, then validation checks the full publication graph. Skipping a member as a default root does not remove it from another package's dependency closure. Rejecting that closure without `--force` prevents a public selection from implicitly publishing a private package. The [workspace publication tests](../../tests/specs/workspace-publication.ts) exercise both paths, including dry runs.
 
 ## Pack hooks and published manifests
 
