@@ -37,7 +37,25 @@ A package reachable only through `optionalDependencies` or an optional peer (`pe
 
 ## Private packages
 
-The [workspace planner](../../src/workspace-publication/plan.ts) checks `private: true` in two places for different reasons: default selection skips private members without `--force`, then validation checks the full publication graph. Skipping a member as a default root does not remove it from another package's dependency closure. Rejecting that closure without `--force` prevents a public selection from implicitly publishing a private package. The [workspace publication tests](../../tests/specs/workspace-publication.ts) exercise both paths, including dry runs.
+Decision (Sun Nov 22): `private: true` gates selection, not the dependency closure.
+
+The [workspace planner](../../src/workspace-publication/plan.ts) treats a private member like a private standalone package only when it is a root of the publication:
+- **Default selection at the root:** private members are skipped without `--force`, and a notice lists them. `--force` includes them.
+- **Explicit selection, or the package in the current directory:** a private root fails without `--force`, with the standalone wording.
+- **Dependency closure:** a private package that a root depends on is published with no flag. This includes a private workspace root. The skip notice omits it.
+
+Why the closure is exempt:
+- **The install needs it.** A published dependent references the dependency's branch URL, so skipping or rejecting the dependency leaves a package that can't install.
+- **Usually no new exposure.** The branch goes to the publish remote, which by default (`origin`) hosts the source. Anyone who can read the branch can already read the source, and anyone who can push can publish a branch by hand. `private` exists to keep a package off the npm registry, and git-publish never publishes to a registry. With `--remote` pointing at another repository, the user chose that destination for the selected packages, which can't install without their dependencies.
+- **A private runtime dependency is a source manifest problem.** A package that only supports development belongs in `devDependencies`, which git-publish doesn't follow.
+
+Rejected alternatives:
+- **Require `--force` for private dependencies too** (the first version of [#129](https://github.com/privatenumber/git-publish/pull/129)). At the root, `--force` also includes every other private member, so the hint to pass it led to publishing unrelated private packages. Fixing that needed a separate flag or a long warning, for no security gain.
+- **`"private": "git-publish"` as an opt-in value.** npm (`if (manifest.private)` in libnpmpublish) and Bun 1.4.4 block a string value, but Yarn 4 parses any non-boolean `private` as `false` ([`Manifest.ts`](https://github.com/yarnpkg/berry/blob/master/packages/yarnpkg-core/sources/Manifest.ts#L239-L242)), so `yarn npm publish` would publish it, and Yarn drops the field when it rewrites the manifest.
+
+Revisit this if users publish to destinations more visible than the source, such as a public mirror of a private repository, and expect private dependencies to stay out.
+
+The [workspace publication tests](../../tests/specs/workspace-publication.ts) cover each case, including dry runs.
 
 ## Pack hooks and published manifests
 

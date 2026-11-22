@@ -355,34 +355,11 @@ export const planWorkspacePublication = async ({
 		return { kind: 'standalone' };
 	}
 	if (!force) {
-		const privatePackage = graph.nodes.find(node => node.package.packageJson.private);
-		if (privatePackage && selectionMode === 'default-roots') {
-			const nodesByKey = new Map(graph.nodes.map(node => [node.key, node]));
-			const reaches = (root: string) => {
-				const seen = new Set([root]);
-				const queue = [root];
-				for (const key of queue) {
-					const targets = [
-						...nodesByKey.get(key)!.dependencies.map(edge => edge.target),
-						...graph.peers.filter(peer => peer.from === key && peer.target)
-							.map(peer => peer.target!),
-					];
-					for (const target of targets) {
-						if (!seen.has(target)) {
-							seen.add(target);
-							queue.push(target);
-						}
-					}
-				}
-				return seen.has(privatePackage.key);
-			};
-			const dependent = [...roots].find(reaches)!;
-			const others = skippedPrivatePackages.filter(name => name !== privatePackage.key).length;
-			const othersClause = others > 0
-				? `; at the workspace root this also publishes the other ${others} private member${others === 1 ? '' : 's'}`
-				: '';
-			throw new Error(`Workspace package ${JSON.stringify(privatePackage.key)} is marked as private. Pass --force to publish it${othersClause}. To publish only what you need, select packages, e.g. git-publish ${dependent} --force.`);
-		}
+		// Only selected packages need --force. A private dependency is published with its dependents,
+		// because the install needs it and the branch is no more visible than the source repository.
+		const privatePackage = graph.nodes.find(node => (
+			roots.has(node.key) && node.package.packageJson.private
+		));
 		if (privatePackage) {
 			throw new Error(`Workspace package ${JSON.stringify(privatePackage.key)} is marked as private. Use --force to publish it anyway.`);
 		}
@@ -419,7 +396,10 @@ export const planWorkspacePublication = async ({
 		rootDirectory: workspace.rootDirectory,
 		roots: [...roots],
 		selection: selectionMode,
-		skippedPrivatePackages,
+		// A skipped member that a root depends on is published anyway, so the notice omits it.
+		skippedPrivatePackages: skippedPrivatePackages.filter(name => (
+			!nodes.some(node => node.key === name)
+		)),
 		nodes,
 		peers: graph.peers,
 	};

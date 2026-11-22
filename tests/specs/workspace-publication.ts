@@ -1620,24 +1620,44 @@ exec '${npmPath}' "$@"
 		});
 	}
 
-	test('requires --force for private workspace members in the dependency closure', async () => {
+	test('publishes private dependencies of selected packages without --force', async () => {
 		const branchName = 'test-private-workspace-dependency';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path, {
 			corePrivate: true,
 		});
 		const packagePath = path.join(fixture.path, 'packages/adapter');
 		const dryRun = await gitPublish(packagePath, ['--dry']);
-		expect('exitCode' in dryRun && dryRun.exitCode).toBe(1);
-		expect(dryRun.stderr).toContain('Workspace package "@test/core" is marked as private. Use --force to publish it anyway.');
+		expect('exitCode' in dryRun).toBe(false);
+		expect(dryRun.stdout).toContain(`@test/core → npm/${branchName}-@test/core`);
 
-		const rejected = await gitPublish(packagePath);
-		expect('exitCode' in rejected && rejected.exitCode).toBe(1);
-		expect(rejected.stderr).toContain('Workspace package "@test/core" is marked as private. Use --force to publish it anyway.');
-		expect(await remoteGit('branch', ['--list', `npm/${branchName}-*`])).toBe('');
-
-		const publication = await gitPublish(packagePath, ['--force']);
+		const publication = await gitPublish(packagePath);
+		onTestFail(() => console.log(publication.output));
 		expect('exitCode' in publication).toBe(false);
 		expect(await remoteGit('show', [`npm/${branchName}-@test/core:package.json`])).toContain('"private": true');
+	});
+
+	test('publishes private dependencies of default roots without --force', async () => {
+		await using rootRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('root-private-dependency', rootRemote.path, {
+			corePrivate: true,
+		});
+		await fixture.mkdir('packages/private-a');
+		await fixture.writeJson('packages/private-a/package.json', {
+			name: 'private-a',
+			version: '1.0.0',
+			private: true,
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Add private package']);
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		expect(result.stdout.split('\n').filter(line => line.startsWith('Skipped '))).toStrictEqual([
+			'Skipped 1 private package: private-a. Pass --force to publish it.',
+		]);
+		const branches = await rootRemote.git('branch', ['--list']);
+		expect(branches).toContain('npm/root-private-dependency-@test/core');
+		expect(branches).not.toContain('private-a');
 	});
 
 	test('requires --force when selecting a private workspace member', async () => {
@@ -1739,28 +1759,6 @@ exec '${npmPath}' "$@"
 		expect('exitCode' in rejected && rejected.exitCode).toBe(1);
 		expect(rejected.stderr).toContain('No non-private workspace packages found to publish. Skipped 7 private packages: a, b, c, d, e, and 2 more. Pass --force to publish them.');
 	});
-
-	for (const extraPrivate of [false, true]) {
-		test(`explains root-wide --force for a private dependency${extraPrivate ? ' with other private members' : ''}`, async () => {
-			await using fixture = await createChainWorkspace('root-private-dependency', remoteFixture.path, {
-				corePrivate: true,
-			});
-			if (extraPrivate) {
-				await fixture.mkdir('packages/private-a');
-				await fixture.writeJson('packages/private-a/package.json', {
-					name: 'private-a',
-					version: '1.0.0',
-					private: true,
-				});
-				await fixture.git('add', ['.']);
-				await fixture.git('commit', ['-m', 'Add private package']);
-			}
-			const rejected = await gitPublish(fixture.path, ['--dry']);
-			expect('exitCode' in rejected && rejected.exitCode).toBe(1);
-			const others = extraPrivate ? '; at the workspace root this also publishes the other 1 private member' : '';
-			expect(rejected.stderr).toMatch(new RegExp(String.raw`Workspace package "@test/core" is marked as private\. Pass --force to publish it${others}\. To publish only what you need, select packages, e\.g\. git-publish @test/(adapter|broker) --force\.`));
-		});
-	}
 
 	test('publishes npm workspace closures without a lockfile', async () => {
 		await using noLockRemote = await createGitFixture(undefined, ['--bare']);

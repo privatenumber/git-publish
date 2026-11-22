@@ -12,7 +12,7 @@
   git-publish @acme/core ./packages/adapter './packages/plugins/*'
   ```
 
-If you select a private package, or a selected package needs a private workspace package through a recognized internal dependency, the publication fails unless you pass `--force`. An `npm:` alias that Yarn or Bun links to a private member is not detected (see [the alias experiment](../notes/git-publish/read-install-experiment.md)). At the workspace root without arguments, `--force` publishes every private member, so select packages to limit it, such as `git-publish app --force`. `--dry` reports the same skips and errors without publishing.
+`private` gates only the packages you select. Selecting a private package by name, directory, or glob, or running in a private package's directory, fails unless you pass `--force`. A private package that a selected package depends on is published with it, without `--force`, because the install needs it. The branch goes to the same remote as the packages you selected, which usually hosts the source already. `private` still keeps the package off the npm registry. The skip notice at the root omits private members that publish this way. `--dry` reports the same skips and errors without publishing.
 
 ## What gets published
 
