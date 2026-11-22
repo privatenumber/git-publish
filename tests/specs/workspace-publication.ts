@@ -1,8 +1,9 @@
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import fs from 'node:fs/promises';
 import {
-	describe, test, expect, onFinish, onTestFail,
+	describe, test, expect, onFinish, onTestFail, skip,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
@@ -20,6 +21,94 @@ describe('Workspace publication', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
+
+	for (const fail of [false, true]) {
+		test(fail
+			? 'aborts a sibling pack without hiding the original failure or pushing'
+			: 'runs independent prepack hooks concurrently', async () => {
+			if (os.availableParallelism() < 2) {
+				skip('Requires two available CPUs');
+			}
+			await using markers = await createFixture();
+			await using temporary = await createFixture();
+			await using remote = await createGitFixture(undefined, ['--bare']);
+			const hook = String.raw`
+const fs = require('node:fs');
+const path = require('node:path');
+const [name, target, outcome] = process.argv.slice(2);
+const directory = process.env.PACK_MARKERS;
+if (outcome === 'hold') console.error('cancelled sibling output');
+const targetPath = path.join(directory, target);
+const deadline = setTimeout(() => {
+  fs.writeFileSync(path.join(directory, name + '-timed-out'), '');
+  console.error('timed out waiting for ' + target);
+  process.exit(2);
+}, 30_000);
+const watcher = fs.watch(directory, check);
+function check() {
+  if (!fs.existsSync(targetPath)) return;
+  watcher.close();
+  clearTimeout(deadline);
+  if (outcome === 'fail') {
+    for (let i = 0; i < 20; i++) fs.writeSync(2, 'primary diagnostic ' + i + '\n');
+    process.exit(1);
+  }
+  fs.writeFileSync('packed.txt', name);
+}
+fs.writeFileSync(path.join(directory, name), String(process.pid));
+check();
+`;
+			const packRan = (name: string, arguments_: string) => JSON.stringify({
+				name,
+				version: '1.0.0',
+				files: ['packed.txt'],
+				scripts: { prepack: `node hook.cjs ${name} ${arguments_}` },
+			});
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					private: true,
+					workspaces: ['packages/*'],
+				}),
+				'package-lock.json': '{}',
+				'packages/a/package.json': packRan('a', fail ? 'b fail' : 'b'),
+				'packages/a/hook.cjs': hook,
+				'packages/b/package.json': packRan('b', fail ? 'never hold' : 'a'),
+				'packages/b/hook.cjs': hook,
+			}, ['--initial-branch=parallel']);
+			await fixture.git('add', ['.']);
+			await fixture.git('commit', ['-m', 'Initial']);
+			await fixture.git('remote', ['add', 'origin', remote.path]);
+
+			const result = await gitPublish(fixture.path, [], {
+				PACK_MARKERS: markers.path,
+				TMPDIR: temporary.path,
+				NODE_DISABLE_COMPILE_CACHE: '1',
+			});
+			onTestFail(() => console.log(result.output));
+			if (fail) {
+				expect('exitCode' in result && result.exitCode).toBe(1);
+				expect(result.output).toContain('primary diagnostic 0');
+				expect(result.output).toContain('primary diagnostic 19');
+				expect(result.output).not.toContain('cancelled sibling output');
+				expect(await markers.exists('b-timed-out')).toBe(false);
+				const hookPid = await markers.readFile('b', 'utf8');
+				const hookStatus = await spawn('ps', ['-o', 'stat=', '-p', hookPid])
+					.catch((error: { exitCode?: number }) => {
+						if (error.exitCode !== 1) {
+							throw error;
+						}
+						return undefined;
+					});
+				expect(!hookStatus || hookStatus.stdout.trim().startsWith('Z')).toBe(true);
+				expect(await remote.git('for-each-ref')).toBe('');
+			} else {
+				expect('exitCode' in result).toBe(false);
+				expect(await remote.git('show', ['npm/parallel-a:packed.txt'])).toBe('a');
+				expect(await remote.git('show', ['npm/parallel-b:packed.txt'])).toBe('b');
+			}
+			expect(await temporary.readdir('')).toStrictEqual([]);
+		}, 180_000);
+	}
 
 	for (const [workspacePattern, packagePath] of [
 		['packages/*', 'packages/a'],
