@@ -16,36 +16,22 @@ describe('Package managers', async () => {
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
 
-	const gitDependency = 'git+https://example.test/external.git#main';
 	const tarballDependency = 'https://example.test/external.tgz';
-	for (const [label, fields, npmGit, npmRemote, pnpmExotic] of [
-		['explicit-git', { optionalDependencies: { external: gitDependency } }, true, false, true],
-		['hosted-scp', { optionalDependencies: { external: 'git@github.com:owner/external.git#main' } }, true, false, true],
-		['gitlab-https', { optionalDependencies: { external: 'https://gitlab.com/owner/subgroup/external.git#main' } }, true, false, true],
-		['generic-https-git', { optionalDependencies: { external: 'https://example.test/external.git#main' } }, false, true, true],
-		['tarball-url', { dependencies: { external: tarballDependency } }, false, true, true],
-		['plain-ssh', { optionalDependencies: { external: 'ssh://git@example.test/owner/external.git#main' } }, false, false, true],
-		['local-file', { optionalDependencies: { external: 'file:./vendor/external.tgz' } }, false, false, false],
-		['required-git-peer', { peerDependencies: { external: gitDependency } }, true, false, false],
-		['required-remote-peer', { peerDependencies: { external: tarballDependency } }, false, true, false],
-		['shadowed-git-peer', {
-			dependencies: { external: '^1.0.0' },
-			peerDependencies: { external: gitDependency },
-		}, false, false, false],
+	for (const [label, fields, npmRemote] of [
+		['explicit-git', { optionalDependencies: { external: 'git+https://example.test/external.git#main' } }, false],
+		['generic-https-git', { optionalDependencies: { external: 'https://example.test/external.git#main' } }, true],
+		['tarball-url', { dependencies: { external: tarballDependency } }, true],
+		['required-remote-peer', { peerDependencies: { external: tarballDependency } }, true],
+		['optional-remote-peer', {
+			peerDependencies: { external: tarballDependency },
+			peerDependenciesMeta: { external: { optional: true } },
+		}, false],
 		['shadowed-tarball-peer', {
 			optionalDependencies: { external: '^1.0.0' },
 			peerDependencies: { external: tarballDependency },
-		}, false, false, false],
-		['optional-git-peer', {
-			peerDependencies: { external: gitDependency },
-			peerDependenciesMeta: { external: { optional: true } },
-		}, false, false, false],
-		['git-peer-with-tarball', {
-			peerDependencies: { peer: gitDependency },
-			dependencies: { external: tarballDependency },
-		}, true, true, true],
+		}, false],
 	] as const) {
-		test(`reports npm and pnpm install policy for ${label} in the packed manifest`, async () => {
+		test(`reports the npm remote setting for ${label} in the packed manifest`, async () => {
 			await using fixture = await createGitFixture({
 				'package.json': JSON.stringify({
 					name: 'test-pkg',
@@ -58,15 +44,10 @@ describe('Package managers', async () => {
 			await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
 			const npm = await gitPublish(fixture.path);
 			expect('exitCode' in npm).toBe(false);
-			expect(npm.stdout).toContain(`npm 12+: add --allow-git=${npmGit ? 'all' : 'root'}`);
-			expect(npm.stdout.includes('--allow-remote=all')).toBe(npmRemote);
-
-			await fixture.writeFile('pnpm-lock.yaml', '');
-			await fixture.git('add', ['pnpm-lock.yaml']);
-			await fixture.git('commit', ['-m', 'Use pnpm']);
-			const pnpm = await gitPublish(fixture.path);
-			expect('exitCode' in pnpm).toBe(false);
-			expect(pnpm.stdout.includes('pnpm 11+: set blockExoticSubdeps: false')).toBe(pnpmExotic);
+			expect(npm.stdout).toContain(`\n  npm i --allow-git=all${npmRemote ? ' --allow-remote=all' : ''} '`);
+			expect(npm.stdout).toContain(npmRemote
+				? 'npm 12+: set allow-git=all and allow-remote=all in .npmrc to avoid EALLOWGIT and EALLOWREMOTE on npm ci, clean installs, and updates.'
+				: 'npm 12+: set allow-git=all in .npmrc to avoid EALLOWGIT on npm ci, clean installs, and updates.');
 		});
 	}
 
@@ -225,11 +206,15 @@ exec npm "$@"
 				const result = await gitPublish(fixture.path, ['--fresh'], environment);
 				onTestFail(() => console.log(result));
 				expect('exitCode' in result).toBe(false);
-				expect(result.stdout).toContain(`${command} '${specifier}'`);
-				expect(result.stdout.includes('npm 12+: add --allow-git=root')).toBe(packageManager === 'npm');
-				expect(result.stdout).not.toContain('--allow-git=all');
+				const flags = {
+					npm: ' --allow-git=all',
+					pnpm: ' --config.block-exotic-subdeps=false',
+				}[packageManager as string] ?? '';
+				const printedCommand = packageManager === 'pnpm' ? 'pnpm add' : command;
+				expect(result.stdout).toContain(`${printedCommand}${flags} '${specifier}'`);
+				expect(result.stdout.includes('set allow-git=all in .npmrc')).toBe(packageManager === 'npm');
 				expect(result.stdout.includes('approvedGitRepositories')).toBe(packageManager === 'yarn');
-				expect(result.stdout).not.toContain('blockExoticSubdeps');
+				expect(result.stdout.includes('blockExoticSubdeps')).toBe(packageManager === 'pnpm');
 			});
 		}
 	});

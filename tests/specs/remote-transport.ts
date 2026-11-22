@@ -460,7 +460,7 @@ describe('Remote transport', async () => {
 		await using output = await createFixture();
 		const result = await gitPublish(fixture.path, ['--json', output.getPath('result.json')]);
 		expect('exitCode' in result).toBe(false);
-		expect(result.stdout).toContain("npm i 'fork/repo#npm/hosted'");
+		expect(result.stdout).toContain("npm i --allow-git=all 'fork/repo#npm/hosted'");
 		expect(await output.readFile('result.json', 'utf8')).toContain('git+https://github.com/fork/repo.git#');
 		expect(await upstream.git('for-each-ref')).toBe('');
 		expect(await destination.git('rev-parse', ['npm/hosted'])).toMatch(/^[0-9a-f]{40}$/);

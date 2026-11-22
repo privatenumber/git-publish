@@ -1959,13 +1959,18 @@ exec '${npmPath}' "$@"
 		});
 		expect(core.role).toBe('dependency');
 		expect(core.reused).toBe(false);
-		expect(result.stdout).toContain(`→ Install a\n  ${aCommand}\n  npm 12+: add --allow-git=root`);
-		expect(result.stdout).toContain(`→ Install b\n  ${bCommand}\n  npm 12+: add --allow-git=all`);
-		expect(result.stdout).toContain(`→ Install c\n  ${cCommand}\n  npm 12+: add --allow-git=all`);
+		for (const [name, command] of [
+			['a', aCommand],
+			['b', bCommand],
+			['c', cCommand],
+		] as const) {
+			const printedCommand = command.replace('npm install ', 'npm install --allow-git=all ');
+			expect(result.stdout).toContain(`→ Install ${name}\n  ${printedCommand}\n  npm 12+: set allow-git=all in .npmrc`);
+		}
 
 		// npm 12.2.2 expects the advertised HEAD to resolve, even with an explicit selector.
 		await setRemote.git('symbolic-ref', ['HEAD', 'refs/heads/npm/sets-core']);
-		const npmArguments = ['install', '--allow-git=root', '--no-audit', '--no-fund'];
+		const npmArguments = ['install', '--allow-git=all', '--no-audit', '--no-fund'];
 		await using directConsumer = await createFixture({ 'package.json': '{}' });
 		await using transitiveConsumer = await createFixture({ 'package.json': '{}' });
 		const [direct, transitive] = await Promise.allSettled([
@@ -1980,10 +1985,9 @@ exec '${npmPath}' "$@"
 		expect(direct.status).toBe('fulfilled');
 		expect(await directConsumer.exists('node_modules/a/package.json')).toBe(true);
 		expect(await directConsumer.exists('node_modules/core/package.json')).toBe(true);
-		expect(transitive).toMatchObject({
-			status: 'rejected',
-			reason: { stderr: expect.stringContaining('EALLOWGIT') },
-		});
+		expect(transitive.status).toBe('fulfilled');
+		expect(await transitiveConsumer.exists('node_modules/b/package.json')).toBe(true);
+		expect(await transitiveConsumer.exists('node_modules/core/package.json')).toBe(true);
 	});
 
 	test('reports internal aliases in install sets and warns about npm policy', async () => {
@@ -2012,7 +2016,7 @@ exec '${npmPath}' "$@"
 		const result = await gitPublish(fixture.getPath('packages/app'), ['--json', output.getPath('result.json')]);
 		expect('exitCode' in result).toBe(false);
 		expect(result.stdout).not.toContain('alias@git+file://');
-		expect(result.stdout).toContain('npm 12+: add --allow-git=all');
+		expect(result.stdout).toContain("npm install --allow-git=all '");
 		const json = await output.readJson<{ aliases: Record<string, Record<string, string>> }>('result.json');
 		expect(json.aliases).toStrictEqual({ app: { alias: 'core' } });
 	});
@@ -2040,7 +2044,7 @@ exec '${npmPath}' "$@"
 		onTestFail(() => console.log(result));
 		expect('exitCode' in result).toBe(false);
 		const specifier = `git+${pathToFileURL(remote.path).href}#npm/overlap-app`;
-		expect(result.stdout).toContain(`npm install '${specifier}'\n  npm 12+: add --allow-git=all`);
+		expect(result.stdout).toContain(`npm install --allow-git=all '${specifier}'\n  npm 12+: set allow-git=all in .npmrc`);
 		expect(result.stdout).not.toContain('Optional peers');
 
 		await using consumer = await createFixture({ 'package.json': '{}' });
@@ -2134,11 +2138,12 @@ exec '${npmPath}' "$@"
 			expect('exitCode' in result).toBe(false);
 			const revision = `npm/output-${manager}-@test/adapter`;
 			const prefix = manager === 'yarn' ? '@test/adapter@' : '';
-			expect(result.stdout.split('\n')).toContain(`  ${manager} add '${prefix}git+ssh://git@github.com/owner/repo.git#${revision}'`);
+			const flags = manager === 'pnpm' ? ' --config.block-exotic-subdeps=false' : '';
+			expect(result.stdout.split('\n')).toContain(`  ${manager} add${flags} '${prefix}git+ssh://git@github.com/owner/repo.git#${revision}'`);
 			if (manager === 'yarn') {
 				expect(result.stdout).toContain('approvedGitRepositories');
 			} else if (manager === 'pnpm') {
-				expect(result.stdout).toContain('blockExoticSubdeps: false');
+				expect(result.stdout).toContain('updates need this flag again or blockExoticSubdeps: false in pnpm-workspace.yaml; lockfile installs do not.');
 			} else {
 				expect(result.stdout).not.toContain('blockExoticSubdeps');
 				expect(result.stdout).not.toContain('allow-git');
@@ -2164,7 +2169,7 @@ exec '${npmPath}' "$@"
 		expect(('exitCode' in result) && result.exitCode).toBe(1);
 		expect(result.stderr).toContain('ENOENT');
 		expect(result.stdout).toContain('→ Install command');
-		expect(result.stdout).toContain(`npm i 'git+${pathToFileURL(remote.path).href}#npm/json-failure'`);
+		expect(result.stdout).toContain(`npm i --allow-git=all 'git+${pathToFileURL(remote.path).href}#npm/json-failure'`);
 		expect(result.stderr).toContain('Publication succeeded');
 		expect(result.stderr).toContain(jsonPath);
 	});
@@ -2288,7 +2293,7 @@ exec '${npmPath}' "$@"
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(await branchRemoteGit('show', ['custom:package.json'])).toContain('@test/adapter');
-		expect(gitPublishProcess.stdout).toContain('npm 12+: add --allow-git=root');
+		expect(gitPublishProcess.stdout).toContain('npm 12+: set allow-git=all in .npmrc');
 		expect(gitPublishProcess.stdout).not.toContain('Required workspace dependencies');
 		expect(gitPublishProcess.stdout).toContain('Pushing 1 package');
 	});
@@ -2778,7 +2783,7 @@ exec sh -c "$*"
 		const { installSets } = await output.readJson<{
 			installSets: Record<string, { installSpecifiers: string[] }>;
 		}>('result.json');
-		expect(gitPublishProcess.stdout).toContain(`npm install '${packageManagerRemoteUrl}#${branches.adapter}'\n`);
+		expect(gitPublishProcess.stdout).toContain(`npm install --allow-git=all '${packageManagerRemoteUrl}#${branches.adapter}'\n`);
 		expect(installSets['@test/adapter']!.installSpecifiers).toStrictEqual([`${packageManagerRemoteUrl}#${branches.adapter}`]);
 
 		await using consumerFixture = await createFixture({

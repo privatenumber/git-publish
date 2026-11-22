@@ -37,7 +37,7 @@ Choose a valid Git branch using ASCII letters, digits, and `. _ / @ -`. Do not s
 
 After a push, git-publish prints the install command for the repository's package manager. Use it as printed:
 
-- Install the selected package and its required internal peers with the printed command. Runtime dependencies install transitively. The package manager may skip optional workspace dependencies. Use the printed peer command to supply a missing peer when applicable. Arguments and manifests use the same bare branch refs, such as `npm i 'owner/repo#npm/main'`.
+- Install the selected package and its required internal peers with the printed command. Runtime dependencies install transitively. The package manager may skip optional workspace dependencies. Use the printed peer command to supply a missing peer when applicable. Both commands include any required npm or pnpm flags and use the same bare branch refs as the manifests, such as `npm i --allow-git=all 'owner/repo#npm/main'`. npm and pnpm commands always allow Git subdependencies, because the consumer's other dependencies may also be Git-published. npm's `--allow-remote=all` only covers direct tarball URLs in the published manifests; other packages' tarball dependencies can still need it.
 - With Yarn Plug'n'Play and `pnpFallbackMode: none`, do not rely on a root install to supply a transitive peer. If `a` depends on `b` and `b` needs peer `c`, declare `c` as a peer of `a` too.
 - Treat publish branches like a prerelease dist-tag. The lockfile pins commits. Update every channel package by its install key, including transitive dependencies. For unaliased dependencies, use commands such as `npm update app core`, `pnpm update app core`, `bun update app core`, or `yarn up -R app core`. If `app` declares `core` as `my-core`, use `npm update app my-core`, not `npm update app core`.
 - When migrating from a commit-pinned publication, use the new commands to replace direct commit pins, then update by install key (`npm update app my-core` for the alias above). Do not add refs that a package manager could resolve instead of a publish branch, such as same-named tags.
@@ -46,8 +46,8 @@ Consumer settings the installing project needs:
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | Use `--allow-git=root` for direct Git installs. Use `--allow-git=all` when npm fetches a Git dependency that the command does not list with the same specifier. Add `--allow-remote=all` if npm also installs dependencies or required peers from direct HTTP(S) tarball URLs. In `.npmrc`, omit `--`. |
-| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when runtime or optional dependencies use Git or direct tarball URLs. Local `file:` dependencies do not need it. pnpm 12.21.0 also allows auto-installed required peers with Git or tarball URLs without changing the setting. |
+| npm 12+ | Save `allow-git=all` in the project's `.npmrc` to avoid `EALLOWGIT` on `npm ci`, clean installs, and updates. If the command includes `--allow-remote=all`, save `allow-remote=all` there too to avoid `EALLOWREMOTE`. |
+| pnpm 11+ | Pass `--config.block-exotic-subdeps=false` again for updates or set `blockExoticSubdeps: false` in `pnpm-workspace.yaml`. Installs from the lockfile do not need it. |
 | Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Yarn needs `name@url` arguments, which the printed command uses. Use HTTPS or SSH, not a local-file remote: Yarn 4.18.1 rejects `git+file:` URLs even when approved. |
 | Bun | No Git dependency setting required |
 

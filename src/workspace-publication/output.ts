@@ -28,44 +28,41 @@ export const createWorkspaceResult = (
 	const shorthand = singlePackage && !(packageManager === 'yarn' && preparations.get(singlePackage.key)!.publication.installSpecifier.startsWith('git+ssh://'))
 		? getGitHubInstallSpecifier(fetchUrl, singlePackage.branch)
 		: undefined;
-	const getInstallArguments = (targets: ReadonlyMap<string, string>) => {
-		const directSpecifiers = new Map<string, string>();
-		const args = [];
-		for (const [name, target] of targets) {
+	const getInstallArguments = (targets: ReadonlyMap<string, string>) => [...targets].map(
+		([name, target]) => {
 			const specifier = shorthand ?? preparations.get(target)!.publication.installSpecifier;
-			directSpecifiers.set(name, specifier);
-			args.push(packageManager === 'yarn' || name !== target ? `${name}@${specifier}` : specifier);
-		}
-		return {
-			args,
-			directSpecifiers,
-		};
-	};
-	const installPolicyNote = (
-		directSpecifiers: ReadonlyMap<string, string>,
-		...sets: ReadonlySet<string>[]
-	) => {
+			return packageManager === 'yarn' || name !== target ? `${name}@${specifier}` : specifier;
+		},
+	);
+	// A consumer's other dependencies may also be Git-published packages that the publisher
+	// cannot see, so npm and pnpm always allow Git subdependencies.
+	// Only npm's tarball setting depends on the packed manifests.
+	const getInstallSettings = (...sets: ReadonlySet<string>[]): {
+		flags: string[];
+		note?: string;
+	} => {
 		if (packageManager === 'yarn') {
-			return 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml';
-		}
-		let git = false;
-		let remote = false;
-		for (const names of sets) {
-			for (const name of names) {
-				const { installPolicy } = preparations.get(name)!;
-				git ||= packageManager === 'npm'
-					? installPolicy.git.some(([key, specifier]) => directSpecifiers.get(key) !== specifier)
-					: installPolicy.git.length > 0;
-				remote ||= installPolicy.remote;
-			}
+			return {
+				flags: [],
+				note: 'Yarn 4: add the repository to approvedGitRepositories in .yarnrc.yml',
+			};
 		}
 		if (packageManager === 'npm') {
-			return `npm 12+: add --allow-git=${git ? 'all' : 'root'}${remote ? ' and --allow-remote=all' : ''}`;
+			const remote = sets.some(names => [...names].some(name => (
+				preparations.get(name)!.remoteDependency
+			)));
+			return {
+				flags: ['--allow-git=all', ...(remote ? ['--allow-remote=all'] : [])],
+				note: `npm 12+: set allow-git=all${remote ? ' and allow-remote=all' : ''} in .npmrc to avoid ${remote ? 'EALLOWGIT and EALLOWREMOTE' : 'EALLOWGIT'} on npm ci, clean installs, and updates.`,
+			};
 		}
-		if (packageManager === 'pnpm' && (git || remote)) {
-			return 'pnpm 11+: set blockExoticSubdeps: false in pnpm-workspace.yaml';
+		if (packageManager === 'pnpm') {
+			return {
+				flags: ['--config.block-exotic-subdeps=false'],
+				note: 'pnpm 11+: updates need this flag again or blockExoticSubdeps: false in pnpm-workspace.yaml; lockfile installs do not.',
+			};
 		}
-		return '';
+		return { flags: [] };
 	};
 	const results = plan.roots.map((root) => {
 		const required = reachable([root], isRequired);
@@ -87,17 +84,24 @@ export const createWorkspaceResult = (
 		const command = all.size === 1 && packageManager !== 'yarn'
 			? `${packageManager} i`
 			: (packageManager === 'npm' ? 'npm install' : `${packageManager} add`);
-		const { args: installSpecifiers, directSpecifiers } = getInstallArguments(rootTargets);
-		const installCommand = `${command} ${installSpecifiers.map(shellQuote).join(' ')}`;
+		const formatCommand = (args: string[], flags: string[] = []) => [
+			packageManager === 'pnpm' && flags.length > 0 ? 'pnpm add' : command,
+			...flags,
+			...args.map(shellQuote),
+		].join(' ');
+		const installSpecifiers = getInstallArguments(rootTargets);
+		const settings = getInstallSettings(installed);
+		const lines = [formatCommand(installSpecifiers, settings.flags)];
+		if (settings.note) {
+			lines.push(settings.note);
+		}
 		const peers = followUpPeers.filter(edge => (
 			(edge.kind === 'optionalPeer' || !required.has(edge.from))
 				&& installed.has(edge.from) && !rootTargets.has(edge.key)
 		));
-		const note = installPolicyNote(directSpecifiers, installed);
 		const optionalDependencies = optional.filter(name => installed.has(name));
-		const notes = note ? [note] : [];
 		if (optionalDependencies.length > 0) {
-			notes.push(`Optional workspace dependencies ${optionalDependencies.join(', ')} are attempted transitively and may be skipped by the package manager.${peers.length > 0 ? ' If a required peer is missing, use the peer command below to supply it.' : ''}`);
+			lines.push(`Optional workspace dependencies ${optionalDependencies.join(', ')} are attempted transitively and may be skipped by the package manager.${peers.length > 0 ? ' If a required peer is missing, use the peer command below to supply it.' : ''}`);
 		}
 		if (peers.length > 0) {
 			const optionalPeerTargets = new Map(peers.map(peer => [peer.key, peer.target]));
@@ -112,15 +116,16 @@ export const createWorkspaceResult = (
 				}
 			}
 			const followUp = getInstallArguments(optionalPeerTargets);
-			notes.push(`Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}: install with ${command} ${followUp.args.map(shellQuote).join(' ')}`);
-			// The follow-up runs after the main command, so both sets are direct dependencies.
-			const peerPolicy = installPolicyNote(
-				new Map([...directSpecifiers, ...followUp.directSpecifiers]),
-				installed,
-				peerPolicyClosure,
-			);
-			if (peerPolicy !== note) {
-				notes.push(`For optional peers: ${peerPolicy}`);
+			const peerSettings = getInstallSettings(installed, peerPolicyClosure);
+			const peerLabel = `Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}`;
+			const peerCommand = formatCommand(followUp, peerSettings.flags);
+			if (peerSettings.flags.length > 0) {
+				lines.push(`${peerLabel}:`, peerCommand);
+			} else {
+				lines.push(`${peerLabel}: install with ${peerCommand}`);
+			}
+			if (peerSettings.note && peerSettings.note !== settings.note) {
+				lines.push(peerSettings.note);
 			}
 		}
 		return [root, {
@@ -128,12 +133,12 @@ export const createWorkspaceResult = (
 				required: requiredNames,
 				optional,
 				installSpecifiers,
-				installCommand,
+				installCommand: formatCommand(installSpecifiers),
 			},
 			aliases: Object.fromEntries(edges.filter(edge => (
 				all.has(edge.from) && all.has(edge.target) && edge.key !== edge.target
 			)).map(edge => [edge.key, edge.target])),
-			notes,
+			lines,
 		}] as const;
 	});
 	const installSets = Object.fromEntries(results.map(([root, result]) => (
@@ -160,7 +165,7 @@ export const createWorkspaceResult = (
 		aliases,
 		presentation: {
 			publishAll: plan.kind === 'workspace' && plan.selection === 'default-roots',
-			notes: Object.fromEntries(results.map(([root, result]) => [root, result.notes])),
+			installLines: Object.fromEntries(results.map(([root, result]) => [root, result.lines])),
 		},
 	};
 };
@@ -186,7 +191,7 @@ export const formatWorkspaceResult = (result: WorkspaceResult) => {
 	}
 	for (const [root, set] of roots) {
 		const title = roots.length === 1 && set.required.length === 1 && set.optional.length === 0 ? 'command' : root;
-		sections.push([`→ Install ${title}`, set.installCommand, ...result.presentation.notes[root]!].join('\n  '));
+		sections.push([`→ Install ${title}`, ...result.presentation.installLines[root]!].join('\n  '));
 	}
 	return sections.join('\n\n');
 };

@@ -7,7 +7,7 @@ import { toPackageManagerGitUrl } from '../utils/git-url.ts';
 import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/graph.ts';
 import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { importTarball, type File } from './import-tarball.ts';
-import { getInstallPolicy } from './install-policy.ts';
+import { hasRemoteDependency } from './install-policy.ts';
 import { validatePackedManifest, type PackedManifestValidationContext } from './validate.ts';
 import { getVersionShaCommit, type VersionSha } from './version-sha.ts';
 
@@ -26,7 +26,7 @@ export type PackagePreparation = {
 	unpublishedFilesFieldEntries: string[];
 	reusedExistingCommit: boolean;
 	version: string | undefined;
-	installPolicy: ReturnType<typeof getInstallPolicy>;
+	remoteDependency: boolean;
 	peerDependencies: Partial<Record<string, string>>;
 	dependencies: PublishGraphEdge[];
 	peers: WorkspacePeer[];
@@ -276,10 +276,7 @@ export const preparePackagePublication = async ({
 		),
 		reusedExistingCommit,
 		version: packedManifest.version,
-		installPolicy: getInstallPolicy(
-			packedManifest,
-			validationContext.packageManager,
-		),
+		remoteDependency: hasRemoteDependency(packedManifest),
 		peerDependencies: peerDependencies ?? {},
 		dependencies: dependencyEdges.filter(edge => (
 			Object.hasOwn(packedManifest[edge.field] ?? {}, edge.key)
