@@ -2,10 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import spawn, { type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
-import { shellQuote } from '../utils/shell-quote.ts';
-import type { PublishEndpoint } from './create.ts';
+import type { PublishRemote } from './remote.ts';
 
-type GitConfigScope = 'system' | 'global' | 'local' | 'worktree' | 'command';
+type GitConfigScope = 'system' | 'global' | 'local' | 'worktree';
 
 type GitConfigEntry = {
 	scope: GitConfigScope;
@@ -57,68 +56,36 @@ export const serializeGitConfig = ({ key, value }: GitConfigEntry) => {
 	return `[${section}${subsection}]\n\t${variable} = "${escapedValue}"\n`;
 };
 
-const isUrlRewrite = (key: string) => /^url\..*\.(?:push)?insteadof$/s.test(key);
-
-const isTransportConfig = (key: string) => key !== 'core.bare'
+const isPortableGitConfig = ({ key }: GitConfigEntry) => key !== 'core.bare'
 	&& key !== 'core.worktree'
 	&& key !== 'core.repositoryformatversion'
 	&& !key.startsWith('extensions.')
 	&& key !== 'include.path'
-	&& !key.startsWith('includeif.')
-	&& !key.startsWith('remote.')
-	&& !isUrlRewrite(key);
-
-export const getCommandGitConfig = async (options: SpawnOptions): Promise<GitConfigEntry[]> => {
-	if (!process.env.GIT_CONFIG_COUNT && !process.env.GIT_CONFIG_PARAMETERS) {
-		return [];
-	}
-	// Read both command-scope environment formats in Git's own precedence order.
-	const { stdout } = await spawn('git', ['config', '--includes', '--null', '--show-scope', '--list'], options);
-	const fields = stdout.split('\0');
-	const entries: GitConfigEntry[] = [];
-	for (let index = 0; index + 1 < fields.length; index += 2) {
-		if (fields[index] !== 'command') {
-			continue;
-		}
-		const entry = fields[index + 1]!;
-		const separator = entry.indexOf('\n');
-		entries.push({
-			scope: 'command',
-			key: separator === -1 ? entry : entry.slice(0, separator),
-			value: separator === -1 ? '' : entry.slice(separator + 1),
-		});
-	}
-	return entries;
-};
-
-export const getTransportConfigParameters = (commandConfig: GitConfigEntry[]) => commandConfig
-	.filter(({ key }) => isTransportConfig(key))
-	.map(({ key, value }) => `${shellQuote(key)}=${shellQuote(value)}`)
-	.join(' ') || undefined;
+	&& !key.startsWith('includeif.');
 
 export const materializePublishGitConfig = async ({
 	sourceRepositoryOptions,
 	destinationRepositoryPath,
-	configuredName,
-	endpoints,
-	commandConfig,
+	remote,
+	fetchRemoteName,
+	pushRemoteName,
 	systemConfigPath,
 	globalConfigPath,
 }: {
 	sourceRepositoryOptions: SpawnOptions;
 	destinationRepositoryPath: string;
-	configuredName: string | undefined;
-	endpoints: readonly PublishEndpoint[];
-	commandConfig: GitConfigEntry[];
+	remote: PublishRemote;
+	fetchRemoteName: string;
+	pushRemoteName: string;
 	systemConfigPath: string;
 	globalConfigPath: string;
 }) => {
 	const sourceConfig = await getGitConfig(sourceRepositoryOptions);
-	const remoteConfigPrefix = configuredName ? `remote.${configuredName}.` : '';
+	const remoteConfigPrefix = remote.configuredName ? `remote.${remote.configuredName}.` : '';
 	const remoteConfig = remoteConfigPrefix
-		? [...sourceConfig, ...commandConfig].filter(({ key }) => key.startsWith(remoteConfigPrefix) && key !== `${remoteConfigPrefix}url` && key !== `${remoteConfigPrefix}pushurl`)
+		? sourceConfig.filter(({ key }) => key.startsWith(remoteConfigPrefix) && key !== `${remoteConfigPrefix}url` && key !== `${remoteConfigPrefix}pushurl`)
 		: [];
-	const publishConfig = sourceConfig.filter(({ key }) => isTransportConfig(key));
+	const publishConfig = sourceConfig.filter(({ key }) => !key.startsWith('remote.')).filter(isPortableGitConfig);
 	const writes = await Promise.allSettled([
 		fs.writeFile(systemConfigPath, publishConfig.filter(({ scope }) => scope === 'system').map(serializeGitConfig).join('')),
 		fs.writeFile(globalConfigPath, publishConfig.filter(({ scope }) => scope === 'global').map(serializeGitConfig).join('')),
@@ -127,16 +94,13 @@ export const materializePublishGitConfig = async ({
 	if (failedWrite) {
 		throw failedWrite.reason;
 	}
+	const remoteNames = [fetchRemoteName, pushRemoteName];
 	const configPath = await getStdout(spawn('git', ['rev-parse', '--git-path', 'config'], { cwd: destinationRepositoryPath }));
 	await fs.appendFile(path.resolve(destinationRepositoryPath, configPath), [
 		...publishConfig.filter(({ scope }) => scope === 'local' || scope === 'worktree'),
-		...endpoints.flatMap(({ name }) => remoteConfig.map(entry => ({
+		...remoteNames.flatMap(remoteName => remoteConfig.map(entry => ({
 			...entry,
-			key: `remote.${name}.${entry.key.slice(remoteConfigPrefix.length)}`,
+			key: `remote.${remoteName}.${entry.key.slice(remoteConfigPrefix.length)}`,
 		}))),
 	].map(serializeGitConfig).join(''));
-	// Pack hooks inherit the source process's system, global, and command config.
-	return sourceConfig.filter(entry => (
-		(entry.scope === 'local' || entry.scope === 'worktree') && isUrlRewrite(entry.key)
-	)).map(serializeGitConfig).join('');
 };

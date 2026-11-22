@@ -90,7 +90,7 @@ export const createWorkspaceResult = (
 		const { args: installSpecifiers, directSpecifiers } = getInstallArguments(rootTargets);
 		const installCommand = `${command} ${installSpecifiers.map(shellQuote).join(' ')}`;
 		const peers = followUpPeers.filter(edge => (
-			(edge.kind === 'optionalPeer' || (edge.kind === 'peer' && !required.has(edge.from)))
+			(edge.kind === 'optionalPeer' || !required.has(edge.from))
 				&& installed.has(edge.from) && !rootTargets.has(edge.key)
 		));
 		const note = installPolicyNote(directSpecifiers, installed);

@@ -64,13 +64,11 @@ export const parseRepository = (value: string, directory: string) => {
 	if (!host) {
 		return { identity: `file:${path.resolve(directory, value)}` };
 	}
-	const hostIsHosted = hostedGitHosts.has(host);
-	const trimmedPath = parsed.path.replace(/\/+$/, '');
-	const rawPath = hostIsHosted ? trimmedPath.replace(/\.git$/, '') : trimmedPath;
+	const rawPath = parsed.path.replace(/\/+$/, '').replace(/\.git$/, '');
 	const pathname = kind === 'scp'
 		? scpPath(rawPath, host)
 		: rawPath;
-	const user = (kind === 'scp' || kind === 'ssh') && !hostIsHosted
+	const user = (kind === 'scp' || kind === 'ssh') && !hostedGitHosts.has(host)
 		? `${parsed.user}@`
 		: '';
 	return {
@@ -142,6 +140,19 @@ export const getGitHubRepositoryName = (value: string) => githubRepositoryName(p
 export const getGitHubInstallSpecifier = (remoteUrl: string, revision: string) => {
 	const repositoryName = getGitHubRepositoryName(remoteUrl);
 	return repositoryName ? `${repositoryName}#${revision}` : undefined;
+};
+
+export const isHostedGitRemote = (value: string) => {
+	const parsed = parseGitUrl(value);
+	const host = parsed.scpHost ?? parsed.host;
+	const github = parsed.kind === 'https'
+		? githubRepositoryName({
+			...parsed,
+			user: '',
+			password: '',
+		})
+		: githubRepositoryName(parsed);
+	return Boolean(github || host === 'gitlab.com' || host === 'bitbucket.org');
 };
 
 export const redactRemote = (value: string) => value

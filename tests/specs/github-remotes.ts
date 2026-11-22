@@ -2,7 +2,7 @@ import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { describe, test, expect } from 'manten';
 import {
-	getGitHubInstallSpecifier, getGitHubRepositoryName, toPackageManagerGitUrl,
+	getGitHubInstallSpecifier, getGitHubRepositoryName, isHostedGitRemote, toPackageManagerGitUrl,
 } from '../../src/utils/git-url.ts';
 
 describe('package manager Git URLs', () => {
@@ -71,6 +71,9 @@ describe('package manager Git URLs', () => {
 });
 
 describe('GitHub remotes', () => {
+	test('recognizes authenticated GitHub URLs as hosted', () => {
+		expect(isHostedGitRemote('https://token@github.com/o/r.git')).toBe(true);
+	});
 	test('normalizes supported remote URLs', () => {
 		for (const remoteUrl of [
 			'git@github.com:owner/repository.git',

@@ -1,7 +1,8 @@
 import { getErrorDetails } from '../utils/error.ts';
 import { redactRemote } from '../utils/git-url.ts';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
-import type { PublishEndpoint, PublishRepository } from './create.ts';
+import type { PublishRepository } from './create.ts';
+import type { PublishRemote } from './remote.ts';
 
 const selectorConflicts = (branch: string) => [
 	`refs/${branch}`,
@@ -14,6 +15,7 @@ const selectorConflicts = (branch: string) => [
 
 export const loadPublishBranches = async (
 	repository: PublishRepository,
+	publishRemote: PublishRemote,
 	branches: {
 		publishBranch: string;
 		localRef: string;
@@ -21,13 +23,13 @@ export const loadPublishBranches = async (
 	mode: 'normal' | 'force' | 'lease',
 	signal: AbortSignal,
 ) => {
-	const { gitOptions, history, push } = repository;
+	const { gitOptions, fetchRemoteName, pushRemoteName } = repository;
 	const branchReferences = branches.map(branch => ({
 		...branch,
 		headRef: `refs/heads/${branch.publishBranch}`,
 		conflictRefs: selectorConflicts(branch.publishBranch),
 	}));
-	const listReferences = async ({ name, url }: PublishEndpoint, kind: 'heads' | 'conflicts' | 'both') => {
+	const listReferences = async (name: string, url: string, kind: 'heads' | 'conflicts' | 'both') => {
 		const requestedReferences = new Set(branchReferences.flatMap(({ headRef, conflictRefs }) => [
 			...(kind === 'conflicts' ? [] : [headRef]),
 			...(kind === 'heads' ? [] : conflictRefs),
@@ -57,12 +59,12 @@ export const loadPublishBranches = async (
 		}
 		return references;
 	};
-	const separateConflictLookup = mode === 'normal' && history.name !== push.name;
+	const separateConflictLookup = mode === 'normal' && fetchRemoteName !== pushRemoteName;
 	const references = mode === 'normal'
-		? await listReferences(history, separateConflictLookup ? 'heads' : 'both')
-		: await listReferences(push, mode === 'lease' ? 'both' : 'conflicts');
+		? await listReferences(fetchRemoteName, publishRemote.historyUrl, separateConflictLookup ? 'heads' : 'both')
+		: await listReferences(pushRemoteName, publishRemote.pushUrl, mode === 'lease' ? 'both' : 'conflicts');
 	const pushReferences = separateConflictLookup
-		? await listReferences(push, 'conflicts')
+		? await listReferences(pushRemoteName, publishRemote.pushUrl, 'conflicts')
 		: references;
 	const remoteTips = new Map<string, string>();
 	const refspecs: string[] = [];
@@ -82,7 +84,7 @@ export const loadPublishBranches = async (
 		}
 	}
 	if (refspecs.length > 0) {
-		await spawnAbortable('git', ['fetch', '--depth=1', '--no-tags', history.name, ...refspecs], {
+		await spawnAbortable('git', ['fetch', '--depth=1', '--no-tags', fetchRemoteName, ...refspecs], {
 			...gitOptions,
 			signal,
 		});

@@ -89,7 +89,8 @@ describe('Publish history', async () => {
 		expect(result.output).toContain('upload-pack-denied');
 	});
 
-	test('rejects a same-named remote tag on a fresh standalone publication', async () => {
+	test('rejects a same-named tag at an explicit push URL on a fresh standalone publication', async () => {
+		await using fetchRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
@@ -98,7 +99,8 @@ describe('Publish history', async () => {
 		}, ['--initial-branch=standalone-tag']);
 		await fixture.git('add', ['.']);
 		await fixture.git('commit', ['-m', 'Initial commit']);
-		await fixture.git('remote', ['add', 'origin', remoteFixture.path]);
+		await fixture.git('remote', ['add', 'origin', fetchRemote.path]);
+		await fixture.git('remote', ['set-url', '--push', 'origin', remoteFixture.path]);
 		const branch = 'npm/standalone-tag';
 		const tag = `refs/tags/${branch}`;
 		await fixture.git('tag', ['-a', '--no-sign', branch, '-m', 'Conflicting tag']);

@@ -21,7 +21,7 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 | Record the source commit in each published `package.json` (`version` gets `+sha-<commit>`, `gitHead` the full commit) | `npx git-publish --version-sha` |
 | Get machine-readable results, such as for a PR comment | `npx git-publish --json result.json` |
 
-`--fresh` rewrites the published branch, and an existing lockfile pinned to an old commit can stop installing once that commit is garbage-collected. Use it only when the user asks for it. Publishing requires read access to the destination to check for conflicting refs, even with `--fresh`.
+`--fresh` rewrites the published branch, and an existing lockfile pinned to an old commit can stop installing once that commit is garbage-collected. Use it only when the user asks for it. Publishing requires Git read access to check for conflicting refs, even with `--fresh`. An applicable `pushInsteadOf` rule can send the push to a different repository from the one the check reads.
 
 Choose a valid Git branch using ASCII letters, digits, and `. _ / @ -`. Do not start it with `refs/`, `heads/`, `tags/`, or `remotes/`. Avoid bare `@`, `HEAD` in any case, names made only of uppercase letters and underscores (such as `FETCH_HEAD`), and bare names of 7 to 64 hexadecimal digits. Names such as `npm/@` are valid. If the default name fails, use `--branch 'preview/{package}'` or `--branch 'preview/{gitSha}/{package}'`.
 

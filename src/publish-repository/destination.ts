@@ -6,7 +6,7 @@ export const getPublicationUrls = (fetchUrl: string, pushUrl: string, directory:
 	if (fetch.identity === push.identity) {
 		return {
 			installUrl: fetchUrl,
-			useFetchForHistory: true,
+			historyUrl: fetchUrl,
 		};
 	}
 	let installUrl = pushUrl;
@@ -22,6 +22,6 @@ export const getPublicationUrls = (fetchUrl: string, pushUrl: string, directory:
 	}
 	return {
 		installUrl,
-		useFetchForHistory: false,
+		historyUrl: pushUrl,
 	};
 };

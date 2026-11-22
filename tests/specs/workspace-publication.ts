@@ -782,7 +782,7 @@ exec "${npmPath}" "$@"
 		return fixture;
 	};
 
-	test('batches history and selector-conflict lookups when destination URLs match', async () => {
+	test('batches history and selector-conflict lookups separately for distinct remote names', async () => {
 		await using batchRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('batch', batchRemote.path);
 		const packagePath = fixture.getPath('packages/adapter');
@@ -810,35 +810,15 @@ exec '${gitPath}' "$@"
 		]);
 		const batched = await gitPublish(packagePath, [], environment);
 		expect('exitCode' in batched).toBe(false);
-		const batchedLog = await fs.readFile(callsPath, 'utf8');
-		const batchedCalls = batchedLog.trim().split('\n');
-		expect(batchedCalls[0]).toBe(
-			['ls-remote', '--refs', 'publish', ...heads.flatMap((head, index) => [head, ...conflicts[index]!])].join(' '),
-		);
-		expect(batchedCalls).toHaveLength(3);
-		expect(batchedCalls[1]).toMatch(/^fetch .* publish /);
-		expect(batchedCalls[2]).toMatch(/^push .* --no-verify publish /);
-
-		await fs.writeFile(callsPath, '');
-		await fixture.git('config', ['remote.origin.pushurl', batchRemote.path]);
-		const explicit = await gitPublish(packagePath, [], environment);
-		expect('exitCode' in explicit).toBe(false);
-		expect(await fs.readFile(callsPath, 'utf8')).toBe(batchedLog);
-
-		await fs.writeFile(callsPath, '');
-		// Same repository, but a different URL can have different Git rewrite rules.
-		await fixture.git('config', ['remote.origin.pushurl', pathToFileURL(batchRemote.path).href]);
-		const separate = await gitPublish(packagePath, [], environment);
-		expect('exitCode' in separate).toBe(false);
-		const separateLog = await fs.readFile(callsPath, 'utf8');
-		const separateCalls = separateLog.trim().split('\n');
-		expect(separateCalls.slice(0, 2)).toStrictEqual([
+		const log = await fs.readFile(callsPath, 'utf8');
+		const calls = log.trim().split('\n');
+		expect(calls.slice(0, 2)).toStrictEqual([
 			['ls-remote', '--refs', '--branches', 'publish-source', ...heads].join(' '),
 			['ls-remote', '--refs', 'publish', ...conflicts.flat()].join(' '),
 		]);
-		expect(separateCalls).toHaveLength(4);
-		expect(separateCalls[2]).toMatch(/^fetch .* publish-source /);
-		expect(separateCalls[3]).toMatch(/^push .* --no-verify publish /);
+		expect(calls).toHaveLength(4);
+		expect(calls[2]).toMatch(/^fetch .* publish-source /);
+		expect(calls[3]).toMatch(/^push .* --no-verify publish /);
 	});
 
 	test('rejects a remote tag on a transitive package branch before packing, except in dry runs', async () => {
@@ -871,7 +851,7 @@ exec '${npmPath}' "$@"
 			expect(result.output).toContain(`Remote ref "${tag}" conflicts with publish branch "${branch}"`);
 			expect(result.output).toContain('A package manager can resolve this ref instead of the branch');
 		}
-		expect(await fixture.readFile('git-calls', 'utf8')).toBe('lookup\nlookup\n');
+		expect(await fixture.readFile('git-calls', 'utf8')).toBe('lookup\nlookup\nlookup\n');
 		expect(await remote.git('for-each-ref', ['--format=%(refname)'])).toBe(tag);
 	});
 

@@ -32,7 +32,7 @@ Nested dependency `core` declared by `app` with each selector. Each cell is "no 
 
 No tested selector is both accepted by all four managers and unambiguous. The bare name is accepted by all four, so git-publish uses it and checks for conflicting refs before packing. A dry run reads local remote config without contacting the remote and does not perform this check. The check cannot stop a conflicting ref created after the lookup. In the npm tag collision fixture, `npm ci` installed branch content that differed from the commit in the lockfile.
 
-The conflict check reads the [push destination](./remote-urls.md#push-destination-identity), even when Git reads branch history elsewhere.
+The conflict check lists refs by the push remote's name, even when branch history uses a different remote name. An applicable [`pushInsteadOf` rule](./remote-urls.md#open-scope-questions) can send the push to a different repository from the one the check reads.
 
 ### Rendered branch validation
 

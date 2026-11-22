@@ -32,7 +32,7 @@ export const pushPackagePublications = async ({
 			args.push(`--force-with-lease=refs/heads/${publication.branch}:${remoteTips.get(publication.branch) ?? ''}`);
 		}
 	}
-	args.push('--no-verify', repository.push.name, ...publications.map(publication => `${publication.commit}:refs/heads/${publication.branch}`));
+	args.push('--no-verify', repository.pushRemoteName, ...publications.map(publication => `${publication.commit}:refs/heads/${publication.branch}`));
 	await spawnAbortable('git', args, {
 		...repository.gitOptions,
 		signal,
