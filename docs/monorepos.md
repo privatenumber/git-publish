@@ -25,7 +25,9 @@ A selection publishes the selected packages plus every workspace package they ne
 - pnpm, Bun, and Yarn `catalog:` references, using the same rules as the range in the catalog.
 - Plain semver runtime ranges whose range the workspace package's version satisfies: for npm and Bun always, for Yarn unless transparent workspaces are disabled, and for pnpm when `linkWorkspacePackages` is enabled (`true` or `deep`). Plain peer ranges are considered for every package manager.
 
-In each published package, internal runtime dependencies are rewritten to commit-pinned Git URLs of the published packages. Internal peers keep their packed ranges.
+In each published package, internal runtime dependencies are rewritten to Git URLs with the dependency's bare publish branch. Internal peers keep their packed ranges. These branches form a prerelease channel, like an npm dist-tag. The consumer lockfile pins commits, but an unlocked install can resolve branch tips from different publications even when each push was atomic.
+
+Before packing, git-publish checks the destination for conflicting refs, such as same-named tags and pull request refs that a package manager could resolve instead of a branch in the plan. The check can miss unusual ref spellings and cannot prevent someone from adding a conflicting ref later.
 
 Publication fails before pushing if:
 
@@ -34,11 +36,13 @@ Publication fails before pushing if:
 - a packed dependency or peer still uses `workspace:`,
 - or a lifecycle hook changed or added an internal dependency during packing. Hooks may remove internal dependencies.
 
+The conflict check covers every planned package before packing. A conflicting ref still blocks publication if a pack hook would later remove the dependency that brought the package into the plan.
+
 See [`--remote`](./cli.md#--remote) for the push URL requirement.
 
 ## Installing
 
-After the push, `git-publish` prints one install command per selected package. It installs the package's whole set as root dependencies, each pinned to its publish commit, so every internal package resolves to exactly one copy. Packages reachable only through optional dependencies install transitively. See [Installing](./installing.md) for the settings consumers need.
+After the push, `git-publish` prints one install command per selected package, even when the workspace publishes a large selection. The command lists the selected package and its required internal peers. Runtime dependencies install transitively from the branch URLs in the published manifests. When a package appears in both places, it uses the same Git specifier. See [Installing](./installing.md) for consumer settings and [Updating](./installing.md#updating) to refresh the channel or migrate from commit pins.
 
 ## Preparing packages
 

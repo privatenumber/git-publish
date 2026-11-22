@@ -5,13 +5,111 @@ import {
 	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
-import { createGit, createGitFixture } from '../utils/create-git.ts';
+import { createGit, createGitFixture, mockGitSshTransport } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 
 describe('Publish history', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
+
+	for (const [branch, existingReferences, conflict] of [
+		['pull/7', ['refs/pull/7/head'], true],
+		['notes/preview', ['refs/notes/preview'], true],
+		['pull/7', ['refs/heads/foo/pull/7', 'refs/heads/foo/refs/pull/7/head'], false],
+	] as const) {
+		test(`${conflict ? 'rejects' : 'ignores'} ${existingReferences[0]} for bare selector ${branch}`, async () => {
+			await using destination = await createGitFixture(undefined, ['--bare']);
+			await using fixture = await createGitFixture({
+				'package.json': JSON.stringify({
+					name: 'app',
+					version: '1.0.0',
+				}),
+			});
+			const { git } = fixture;
+			await git('add', ['.']);
+			await git('commit', ['-m', 'Initial commit']);
+			await git('remote', ['add', 'origin', destination.path]);
+			await git('push', ['origin', ...existingReferences.map(ref => `HEAD:${ref}`)]);
+
+			const result = await gitPublish(fixture.path, ['--fresh', '--branch', branch]);
+			expect('exitCode' in result).toBe(conflict);
+			if (conflict) {
+				expect(result.output).toContain(`Remote ref "${existingReferences[0]}" conflicts with publish branch "${branch}"`);
+			}
+			const expectedReferences: string[] = [...existingReferences];
+			if (!conflict) {
+				expectedReferences.push(`refs/heads/${branch}`);
+			}
+			expect(await destination.git('for-each-ref', ['--format=%(refname)'])).toBe(expectedReferences.sort().join('\n'));
+		});
+	}
+
+	test('does not push a reachable annotated tag when push.followTags is enabled', async () => {
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=main']);
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', destination.path]);
+		await git('push', ['origin', 'HEAD:refs/heads/npm/main']);
+		await git('tag', ['-a', '--no-sign', 'npm/main', '-m', 'Conflicting tag']);
+		await git('config', ['push.followTags', 'true']);
+		await fixture.writeFile('index.js', 'export const version = 2;');
+		await git('add', ['index.js']);
+		await git('commit', ['-m', 'Update package']);
+		const result = await gitPublish(fixture.path);
+		expect('exitCode' in result).toBe(false);
+		expect(await destination.git('for-each-ref', ['--format=%(refname)'])).toBe('refs/heads/npm/main');
+		expect(await destination.git('show', ['refs/heads/npm/main:index.js'])).toBe('export const version = 2;');
+	});
+
+	test('explains why a fresh standalone publication needs remote read access', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=standalone-unreadable']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		const url = 'ssh://git@example.test/repo.git';
+		await fixture.git('remote', ['add', 'origin', url]);
+		const result = await gitPublish(fixture.path, ['--fresh'], {
+			GIT_SSH_COMMAND: "sh -c 'echo upload-pack-denied >&2; exit 1' --",
+			GIT_SSH_VARIANT: 'simple',
+		});
+		expect('exitCode' in result && result.exitCode).toBe(1);
+		expect(result.output).toContain(`git-publish must list refs on "${url}" to check for conflicting refs`);
+		expect(result.output).toContain('upload-pack-denied');
+	});
+
+	test('rejects a same-named tag at an explicit push URL on a fresh standalone publication', async () => {
+		await using fetchRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=standalone-tag']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', fetchRemote.path]);
+		await fixture.git('remote', ['set-url', '--push', 'origin', remoteFixture.path]);
+		const branch = 'npm/standalone-tag';
+		const tag = `refs/tags/${branch}`;
+		await fixture.git('tag', ['-a', '--no-sign', branch, '-m', 'Conflicting tag']);
+		await fixture.git('push', ['origin', tag]);
+		const result = await gitPublish(fixture.path, ['--fresh']);
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain(`Remote ref "${tag}" conflicts with publish branch "${branch}"`);
+		expect(await remoteGit('for-each-ref', ['--format=%(refname)', `refs/heads/${branch}`])).toBe('');
+	});
 
 	test('preserves configured committer identity in publication commits', async () => {
 		await using fixture = await createGitFixture({
@@ -269,23 +367,19 @@ describe('Publish history', async () => {
 
 	test('prints one branch-based GitHub install command after standalone publication', async () => {
 		const branchName = 'test-standalone-install-command';
-		const githubUrl = 'https://github.com/test/repository.git';
+		const githubUrl = 'git@github.com:test/repository.git';
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
 				name: 'test-pkg',
 				version: '1.0.0',
 			}, null, 2),
 		}, [`--initial-branch=${branchName}`]);
-		await using configFixture = await createFixture();
 		const { git } = fixture;
 		await git('add', ['package.json']);
 		await git('commit', ['-m', 'Initial commit']);
-		const globalConfig = configFixture.getPath('gitconfig');
-		await spawn('git', ['config', '--file', globalConfig, `url.file://${remoteFixture.path}.insteadOf`, githubUrl]);
+		await mockGitSshTransport(fixture, remoteFixture.path);
 
 		const gitPublishProcess = await gitPublish(fixture.path, ['--remote', githubUrl], {
-			GIT_CONFIG_GLOBAL: globalConfig,
-			GIT_CONFIG_SYSTEM: configFixture.getPath('system-config'),
 			FORCE_HYPERLINK: '1',
 		});
 

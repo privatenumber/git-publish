@@ -1,5 +1,4 @@
 import { createWriteStream } from 'node:fs';
-import path from 'node:path';
 import { createGzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import { describe, expect, test } from 'manten';
@@ -459,7 +458,6 @@ describe('Package publication', () => {
 			importRef: 'refs/git-publish/0',
 			parent: undefined,
 			branch: 'npm/adapter',
-			fetchUrl: '/remote.git',
 			commitMessage: 'Published "@test/adapter" from "main" (1234567)',
 			dependencyEdges: [
 				{
@@ -475,19 +473,10 @@ describe('Package publication', () => {
 					specification: 'workspace:*',
 				},
 			],
-			dependencyPublications: new Map([
-				['@test/core', {
-					packageName: '@test/core',
-					branch: 'npm/core',
-					commit: 'core-commit',
-					installSpecifier: 'git+file:///remote.git#core-commit',
-				}],
-				['@test/optional', {
-					packageName: '@test/optional',
-					branch: 'npm/optional',
-					commit: 'optional-commit',
-					installSpecifier: 'git+file:///remote.git#optional-commit',
-				}],
+			installSpecifiers: new Map([
+				['@test/adapter', 'git+file:///remote.git#npm/adapter'],
+				['@test/core', 'git+file:///remote.git#npm/core'],
+				['@test/optional', 'git+file:///remote.git#npm/optional'],
 			]),
 			validationContext: {
 				from: packageFixture.getPath('package'),
@@ -508,10 +497,10 @@ describe('Package publication', () => {
 		});
 		const manifest = JSON.parse(await publishFixture.git('show', [`${preparation.publication.commit}:package.json`]));
 		expect(manifest.dependencies).toStrictEqual({
-			'core-alias': 'git+file:///remote.git#core-commit',
+			'core-alias': 'git+file:///remote.git#npm/core',
 		});
 		expect(manifest.optionalDependencies).toStrictEqual({
-			'@test/optional': 'git+file:///remote.git#optional-commit',
+			'@test/optional': 'git+file:///remote.git#npm/optional',
 		});
 		expect(manifest.scripts).toStrictEqual({
 			build: 'node build.js',
@@ -530,7 +519,7 @@ describe('Package publication', () => {
 			packageName: '@test/adapter',
 			branch: 'npm/adapter',
 			commit: preparation.publication.commit,
-			installSpecifier: `git+file://${path.resolve('/remote.git')}#${preparation.publication.commit}`,
+			installSpecifier: 'git+file:///remote.git#npm/adapter',
 		});
 	});
 });

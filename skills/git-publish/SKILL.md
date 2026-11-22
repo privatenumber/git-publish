@@ -21,7 +21,9 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 | Record the source commit in each published `package.json` (`version` gets `+sha-<commit>`, `gitHead` the full commit) | `npx git-publish --version-sha` |
 | Get machine-readable results, such as for a PR comment | `npx git-publish --json result.json` |
 
-`--fresh` rewrites the published branch, and an existing lockfile pinned to an old commit can stop installing once that commit is garbage-collected. Use it only when the user asks for it.
+`--fresh` rewrites the published branch, and an existing lockfile pinned to an old commit can stop installing once that commit is garbage-collected. Use it only when the user asks for it. Publishing requires Git read access to check for conflicting refs, even with `--fresh`. An applicable `pushInsteadOf` rule can send the push to a different repository from the one the check reads.
+
+Choose a valid Git branch using ASCII letters, digits, and `. _ / @ -`. Do not start it with `refs/`, `heads/`, `tags/`, or `remotes/`. Avoid bare `@`, `HEAD` in any case, names made only of uppercase letters and underscores (such as `FETCH_HEAD`), and bare names of 7 to 64 hexadecimal digits. Names such as `npm/@` are valid. If the default name fails, use `--branch 'preview/{package}'` or `--branch 'preview/{gitSha}/{package}'`.
 
 ## Monorepos
 
@@ -35,16 +37,19 @@ Preconditions: run inside a Git repository with a clean tracked working tree (`g
 
 After a push, git-publish prints the install command for the repository's package manager. Use it as printed:
 
-- A package without internal dependencies uses the moving branch, such as `npm i 'owner/repo#npm/main'`. A lockfile pins the commit; run the package manager's update command (`npm update <name>`, `pnpm update <name>`, `bun update <name>`, `yarn up -R <name>`) to move to a newer publish.
-- A package with internal dependencies prints one command that installs the whole set as root dependencies, each pinned to its publish commit. Install every listed argument together; installing only the selected package needs broader consumer settings. Upgrading means running the newly printed command.
+- Install the selected package and its required internal peers with the printed command. Runtime dependencies install transitively. The package manager may skip optional workspace dependencies. Use the printed peer command to supply a missing peer when applicable. Arguments and manifests use the same bare branch refs, such as `npm i 'owner/repo#npm/main'`.
+- With Yarn Plug'n'Play and `pnpFallbackMode: none`, do not rely on a root install to supply a transitive peer. If `a` depends on `b` and `b` needs peer `c`, declare `c` as a peer of `a` too.
+- Treat publish branches like a prerelease dist-tag. The lockfile pins commits. Update every channel package by its install key, including transitive dependencies. For unaliased dependencies, use commands such as `npm update app core`, `pnpm update app core`, `bun update app core`, or `yarn up -R app core`. If `app` declares `core` as `my-core`, use `npm update app my-core`, not `npm update app core`.
+- When migrating from a commit-pinned publication, use the new commands to replace direct commit pins, then update by install key (`npm update app my-core` for the alias above). Do not add refs that a package manager could resolve instead of a publish branch, such as same-named tags.
 
 Consumer settings the installing project needs:
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | `--allow-git=root` on the install command, or `allow-git=root` in `.npmrc`. Optional transitive Git dependencies need `allow-git=all`. |
-| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when the install set has more than one package |
-| Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Yarn needs `name@url` arguments, which the printed command uses. |
+| npm 12+ | Use `--allow-git=root` for direct Git installs. Use `--allow-git=all` when npm fetches a Git dependency that the command does not list with the same specifier. Add `--allow-remote=all` if npm also installs dependencies or required peers from direct HTTP(S) tarball URLs. In `.npmrc`, omit `--`. |
+| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when runtime or optional dependencies use Git or direct tarball URLs. Local `file:` dependencies do not need it. pnpm 12.21.0 also allows auto-installed required peers with Git or tarball URLs without changing the setting. |
+| Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Yarn needs `name@url` arguments, which the printed command uses. Use HTTPS or SSH, not a local-file remote: Yarn 4.18.1 rejects `git+file:` URLs even when approved. |
+| Bun | No Git dependency setting required |
 
 For a private repository, the installing machine needs Git access to it (for GitHub: `gh auth setup-git`, or an `insteadOf` rewrite scoped to the owner). Do not put tokens in install URLs; git-publish strips credentials from every URL it writes or prints.
 

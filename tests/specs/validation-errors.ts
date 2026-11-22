@@ -117,7 +117,7 @@ describe('Error cases', () => {
 		const gitPublishProcess = await gitPublish(fixture.path, ['--branch', 'invalid..branch']);
 
 		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-		expect(gitPublishProcess.stderr).toBe('Error: Invalid publish branch "invalid..branch".');
+		expect(gitPublishProcess.stderr).toContain('Invalid publish branch "invalid..branch". The name must also be a valid Git branch.');
 		expect(await markerFixture.exists('packed')).toBe(false);
 	});
 

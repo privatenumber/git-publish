@@ -7,7 +7,7 @@ import {
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
 import which from 'which';
-import { createGit, createGitFixture } from '../utils/create-git.ts';
+import { createGit, createGitFixture, mockGitSshTransport } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
 import { createYarnEnvironment } from '../utils/yarn-environment.ts';
@@ -437,9 +437,12 @@ exec "${npmPath}" "$@"
 			onTestFail(() => console.log(result.stdout, result.stderr));
 			expect('exitCode' in result).toBe(false);
 			const json = JSON.parse(await output.readFile('result.json', 'utf8'));
+			const specifier = `git+${pathToFileURL(remote.path).href}#npm/removed-app`;
 			expect(json.installSets.app).toStrictEqual({
 				required: ['app'],
 				optional: [],
+				installSpecifiers: [specifier],
+				installCommand: `npm i '${specifier}'`,
 			});
 			expect(json.packages.map((item: { name: string }) => item.name)).toStrictEqual(['app']);
 			const installOutput = result.stdout.slice(result.stdout.indexOf('→ Install'));
@@ -565,7 +568,7 @@ exec "${npmPath}" "$@"
 		expect(json.packages.find(item => item.name === 'core')?.role).toBe('peer');
 	});
 
-	test('publishes and pins an npm sibling file dependency', async () => {
+	test('publishes an npm sibling file dependency as a branch dependency', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
@@ -590,9 +593,8 @@ exec "${npmPath}" "$@"
 		const result = await gitPublish(fixture.getPath('packages/app'));
 		onTestFail(() => console.log(result.stdout, result.stderr));
 		expect('exitCode' in result).toBe(false);
-		const coreCommit = await remote.git('rev-parse', ['npm/file-sibling-core']);
 		const manifest = JSON.parse(await remote.git('show', ['npm/file-sibling-app:package.json']));
-		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${coreCommit}`);
+		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#npm/file-sibling-core`);
 	});
 
 	test('rejects sibling file: peers that consumers cannot resolve', async () => {
@@ -780,26 +782,93 @@ exec "${npmPath}" "$@"
 		return fixture;
 	};
 
-	test('batches remote branch lookups and fetches for a workspace closure', async () => {
+	test('batches history and selector-conflict lookups separately for distinct remote names', async () => {
 		await using batchRemote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createChainWorkspace('batch', batchRemote.path);
 		const packagePath = fixture.getPath('packages/adapter');
 		const first = await gitPublish(packagePath);
 		expect('exitCode' in first).toBe(false);
 		const gitPath = path.resolve(await which('git'));
+		const callsPath = fixture.getPath('git-calls');
 		await using commands = await createFixture({
 			git: `#!/bin/sh
-case "$1" in ls-remote|fetch) printf '%s\n' "$1" >> '${fixture.getPath('git-calls')}';; esac
+case "$1" in ls-remote|fetch|push) printf '%s\n' "$*" >> '${callsPath}';; esac
 exec '${gitPath}' "$@"
 `,
 		});
 		await fs.chmod(commands.getPath('git'), 0o755);
-		const result = await gitPublish(packagePath, [], {
+		const environment = {
 			PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
+		};
+		const branches = ['core', 'broker', 'adapter'].map(name => `npm/batch-@test/${name}`);
+		const heads = branches.map(branch => `refs/heads/${branch}`);
+		const conflicts = branches.map(branch => [
+			`refs/${branch}`,
+			`refs/tags/${branch}`,
+			`refs/remotes/${branch}`,
+			`refs/remotes/${branch}/HEAD`,
+		]);
+		const batched = await gitPublish(packagePath, [], environment);
+		expect('exitCode' in batched).toBe(false);
+		const log = await fs.readFile(callsPath, 'utf8');
+		const calls = log.trim().split('\n');
+		expect(calls.slice(0, 2)).toStrictEqual([
+			['ls-remote', '--refs', '--branches', 'publish-source', ...heads].join(' '),
+			['ls-remote', '--refs', 'publish', ...conflicts.flat()].join(' '),
+		]);
+		expect(calls).toHaveLength(4);
+		expect(calls[2]).toMatch(/^fetch .* publish-source /);
+		expect(calls[3]).toMatch(/^push .* --no-verify publish /);
+	});
+
+	test('rejects a remote tag on a transitive package branch before packing, except in dry runs', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('tag-collision', remote.path);
+		const branch = 'npm/tag-collision-@test/core';
+		const tag = `refs/tags/${branch}`;
+		await fixture.git('tag', ['-a', branch, '-m', 'Conflicting tag']);
+		await fixture.git('push', ['origin', tag]);
+		const gitPath = path.resolve(await which('git'));
+		await using commands = await createFixture({
+			git: String.raw`#!/bin/sh
+if [ "$1" = ls-remote ]; then printf 'lookup\n' >> '${fixture.getPath('git-calls')}'; fi
+exec '${gitPath}' "$@"
+`,
+			npm: String.raw`#!/bin/sh
+if [ "$1" = pack ]; then printf 'pack\n' >> '${fixture.getPath('git-calls')}'; fi
+exec '${npmPath}' "$@"
+`,
 		});
-		expect('exitCode' in result).toBe(false);
-		const calls = await fixture.readFile('git-calls', 'utf8');
-		expect(calls.trim().split('\n')).toStrictEqual(['ls-remote', 'fetch']);
+		await fs.chmod(commands.getPath('git'), 0o755);
+		await fs.chmod(commands.getPath('npm'), 0o755);
+		const environment = { PATH: `${commands.path}${path.delimiter}${process.env.PATH}` };
+		const packagePath = fixture.getPath('packages/adapter');
+		const dry = await gitPublish(packagePath, ['--dry'], environment);
+		expect('exitCode' in dry).toBe(false);
+		for (const args of [[], ['--fresh']]) {
+			const result = await gitPublish(packagePath, args, environment);
+			expect('exitCode' in result).toBe(true);
+			expect(result.output).toContain(`Remote ref "${tag}" conflicts with publish branch "${branch}"`);
+			expect(result.output).toContain('A package manager can resolve this ref instead of the branch');
+		}
+		expect(await fixture.readFile('git-calls', 'utf8')).toBe('lookup\nlookup\nlookup\n');
+		expect(await remote.git('for-each-ref', ['--format=%(refname)'])).toBe(tag);
+	});
+
+	test('reuses dependent commits when only a dependency changes', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('reuse-dependents', remote.path);
+		const packagePath = fixture.getPath('packages/adapter');
+		const branches = ['core', 'broker', 'adapter'].map(name => `npm/reuse-dependents-@test/${name}`);
+		expect('exitCode' in await gitPublish(packagePath)).toBe(false);
+		const before = await Promise.all(branches.map(branch => remote.git('rev-parse', [branch])));
+
+		await fixture.writeFile('packages/core/index.js', 'module.exports = { core: 2 };');
+		await fixture.git('commit', ['-am', 'Change core only']);
+		expect('exitCode' in await gitPublish(packagePath)).toBe(false);
+		const after = await Promise.all(branches.map(branch => remote.git('rev-parse', [branch])));
+		expect(after[0]).not.toBe(before[0]);
+		expect(after.slice(1)).toStrictEqual(before.slice(1));
 	});
 
 	test('does not restore dependencies removed before packing', async () => {
@@ -860,7 +929,7 @@ exec "${npmPath}" "$@"
 		const branches = ['core', 'broker', 'adapter'].map(name => `npm/triangular-@test/${name}`);
 		const commits = await Promise.all(branches.map(branch => destination.git('rev-parse', [branch])));
 		const manifest = JSON.parse(await destination.git('show', [`${branches[1]}:package.json`]));
-		expect(manifest.dependencies['@test/core']).toBe(`git+file://${destination.path}#${commits[0]}`);
+		expect(manifest.dependencies['@test/core']).toBe(`git+file://${destination.path}#${branches[0]}`);
 		const json = await output.readFile('result.json', 'utf8');
 		expect(json).toContain(`git+file://${destination.path}#`);
 		expect(first.stdout).toContain(`git+file://${destination.path}#`);
@@ -906,8 +975,7 @@ exec "${npmPath}" "$@"
 			expect('exitCode' in result).toBe(false);
 			const manifest = JSON.parse(await rangeRemote.git('show', ['npm/plain-app:package.json']));
 			if (internal) {
-				const commit = await rangeRemote.git('rev-parse', ['npm/plain-core']);
-				expect(manifest.dependencies.core).toBe(`git+file://${rangeRemote.path}#${commit}`);
+				expect(manifest.dependencies.core).toBe(`git+file://${rangeRemote.path}#npm/plain-core`);
 			} else {
 				expect(manifest.dependencies.core).toBe(range);
 				const branches = await rangeRemote.git('branch', ['--list']);
@@ -943,9 +1011,8 @@ exec "${npmPath}" "$@"
 			const result = await gitPublish(app);
 			onTestFail(() => console.log(result.output));
 			expect('exitCode' in result).toBe(false);
-			const commit = await remote.git('rev-parse', ['npm/catalog-core']);
 			const manifest = JSON.parse(await remote.git('show', ['npm/catalog-app:package.json']));
-			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#npm/catalog-core`);
 		});
 	}
 
@@ -975,9 +1042,8 @@ exec "${npmPath}" "$@"
 			const result = await gitPublish(fixture.getPath('packages/app'));
 			onTestFail(() => console.log(result.output));
 			expect('exitCode' in result).toBe(false);
-			const commit = await remote.git('rev-parse', ['npm/catalog-extra-core']);
 			const manifest = JSON.parse(await remote.git('show', ['npm/catalog-extra-app:package.json']));
-			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#npm/catalog-extra-core`);
 		});
 	}
 
@@ -1110,8 +1176,7 @@ exec "${npmPath}" "$@"
 		onTestFail(() => console.log(result.output));
 		expect('exitCode' in result).toBe(false);
 		const manifest = JSON.parse(await remote.git('show', ['npm/workspace-path-app:package.json']));
-		const target = await remote.git('rev-parse', ['npm/workspace-path-core']);
-		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${target}`);
+		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#npm/workspace-path-core`);
 	});
 
 	for (const scenario of [
@@ -1257,8 +1322,7 @@ exec '${npmPath}' "$@"
 		onTestFail(() => console.log(result.output));
 		expect('exitCode' in result).toBe(false);
 		const manifest = JSON.parse(await remote.git('show', ['npm/shadowed-path-app:package.json']));
-		const commit = await remote.git('rev-parse', ['npm/shadowed-path-core']);
-		expect(manifest.optionalDependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+		expect(manifest.optionalDependencies.core).toBe(`git+file://${remote.path}#npm/shadowed-path-core`);
 	});
 
 	test('does not validate peer ranges of packages removed from the effective plan', async () => {
@@ -1357,9 +1421,8 @@ exec '${npmPath}' "$@"
 			const result = await gitPublish(fixture.getPath('packages/app'), [], environment);
 			onTestFail(() => console.log(result.output));
 			expect('exitCode' in result).toBe(false);
-			const commit = await remote.git('rev-parse', ['npm/yarn-versionless-core']);
 			const manifest = JSON.parse(await remote.git('show', ['npm/yarn-versionless-app:package.json']));
-			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#npm/yarn-versionless-core`);
 		});
 	}
 
@@ -1400,9 +1463,8 @@ exec '${npmPath}' "$@"
 			const result = await gitPublish(fixture.getPath('packages/app'), [], environment);
 			onTestFail(() => console.log(result.output));
 			expect('exitCode' in result).toBe(false);
-			const commit = await remote.git('rev-parse', ['npm/yarn-catalog-core']);
 			const manifest = JSON.parse(await remote.git('show', ['npm/yarn-catalog-app:package.json']));
-			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#npm/yarn-catalog-core`);
 		});
 	}
 
@@ -1483,10 +1545,9 @@ exec '${npmPath}' "$@"
 			onTestFail(() => console.log(result.output));
 			expect('exitCode' in result).toBe(false);
 		}
-		const commit = await remote.git('rev-parse', ['npm/yarn-distinct-is-number']);
 		const local = JSON.parse(await remote.git('show', ['npm/yarn-distinct-local:package.json']));
 		const external = JSON.parse(await remote.git('show', ['npm/yarn-distinct-external:package.json']));
-		expect(local.dependencies['is-number']).toBe(`git+file://${remote.path}#${commit}`);
+		expect(local.dependencies['is-number']).toBe(`git+file://${remote.path}#npm/yarn-distinct-is-number`);
 		expect(external.dependencies['is-number']).toBe('^7.0.0');
 	});
 
@@ -1554,9 +1615,8 @@ exec '${npmPath}' "$@"
 			const result = await gitPublish(app);
 			onTestFail(() => console.log(result.output));
 			expect('exitCode' in result).toBe(false);
-			const commit = await remote.git('rev-parse', ['npm/bun-catalog-core']);
 			const manifest = JSON.parse(await remote.git('show', ['npm/bun-catalog-app:package.json']));
-			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+			expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#npm/bun-catalog-core`);
 		});
 	}
 
@@ -1620,7 +1680,13 @@ exec '${npmPath}' "$@"
 		expect(row).toMatch(/^extra-a +npm\/all-extra-a +[\da-f]{7} +published +root$/);
 		expect(['Branch', 'Commit', 'Status', 'Role'].map(title => header.indexOf(title)))
 			.toStrictEqual(['npm/', /[\da-f]{7} /, 'published', 'root'].map(cell => row.search(cell)));
-		expect(result.stdout).toContain('Use --json <path> for install sets');
+		expect(result.stdout).not.toContain('Use --json');
+		expect(lines.filter(line => line.startsWith('→ Install '))).toStrictEqual([
+			'→ Install @test/adapter',
+			'→ Install @test/broker',
+			'→ Install extra-a',
+			'→ Install extra-b',
+		]);
 	});
 
 	test('publishes npm workspace closures without a lockfile', async () => {
@@ -1646,9 +1712,8 @@ exec '${npmPath}' "$@"
 		await fixture.git('remote', ['add', 'origin', noLockRemote.path]);
 		const result = await gitPublish(fixture.getPath('packages/app'));
 		expect('exitCode' in result).toBe(false);
-		const commit = await noLockRemote.git('rev-parse', ['npm/no-lock-core']);
 		const manifest = JSON.parse(await noLockRemote.git('show', ['npm/no-lock-app:package.json']));
-		expect(manifest.dependencies.core).toBe(`git+file://${noLockRemote.path}#${commit}`);
+		expect(manifest.dependencies.core).toBe(`git+file://${noLockRemote.path}#npm/no-lock-core`);
 	});
 
 	test('detects a pnpm workspace without a lockfile ahead of stale Yarn locks', async () => {
@@ -1680,9 +1745,8 @@ exec '${npmPath}' "$@"
 		onTestFail(() => console.log(result));
 		expect('exitCode' in result).toBe(false);
 		expect(result.stdout).toContain('pnpm add');
-		const commit = await remote.git('rev-parse', ['npm/pnpm-no-lock-core']);
 		const manifest = JSON.parse(await remote.git('show', ['npm/pnpm-no-lock-app:package.json']));
-		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#${commit}`);
+		expect(manifest.dependencies.core).toBe(`git+file://${remote.path}#npm/pnpm-no-lock-core`);
 	});
 
 	test('publishes a public workspace root as a standalone package', async () => {
@@ -1730,9 +1794,8 @@ exec '${npmPath}' "$@"
 		await fixture.git('remote', ['add', 'origin', rootRemote.path]);
 		const result = await gitPublish(fixture.path);
 		expect('exitCode' in result).toBe(false);
-		const commit = await rootRemote.git('rev-parse', ['npm/public-closure-member']);
 		const manifest = JSON.parse(await rootRemote.git('show', ['npm/public-closure:package.json']));
-		expect(manifest.dependencies.member).toBe(`git+file://${rootRemote.path}#${commit}`);
+		expect(manifest.dependencies.member).toBe(`git+file://${rootRemote.path}#npm/public-closure-member`);
 	});
 
 	test('publishes a peer-only closure of a public workspace root', async () => {
@@ -1822,12 +1885,19 @@ exec '${npmPath}' "$@"
 			'packages/a/package.json': JSON.stringify({
 				name: 'a',
 				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
 				peerDependencies: { core: '^1.0.0' },
 			}),
 			'packages/b/package.json': JSON.stringify({
 				name: 'b',
 				version: '1.0.0',
 				dependencies: { core: '^1.0.0' },
+			}),
+			'packages/c/package.json': JSON.stringify({
+				name: 'c',
+				version: '1.0.0',
+				dependencies: { b: '^1.0.0' },
+				peerDependencies: { core: '^1.0.0' },
 			}),
 			'packages/core/package.json': JSON.stringify({
 				name: 'core',
@@ -1838,7 +1908,7 @@ exec '${npmPath}' "$@"
 		await fixture.git('commit', ['-m', 'Initial commit']);
 		await fixture.git('remote', ['add', 'origin', setRemote.path]);
 		await using output = await createFixture();
-		const result = await gitPublish(fixture.path, ['a', 'b', '--json', output.getPath('sets.json')]);
+		const result = await gitPublish(fixture.path, ['a', 'b', 'c', '--json', output.getPath('sets.json')]);
 		expect('exitCode' in result).toBe(false);
 		const data = await output.readJson<{
 			source: { ref: string;
@@ -1848,29 +1918,72 @@ exec '${npmPath}' "$@"
 				role: string;
 				reused: boolean; }[];
 			installSets: Record<string, { required: string[];
-				optional: string[]; }>;
+				optional: string[];
+				installSpecifiers: string[];
+				installCommand: string; }>;
 		}>('sets.json');
 		expect(data.source).toStrictEqual({
 			ref: 'sets',
 			commit: await fixture.git('rev-parse', ['HEAD']),
 		});
+		const repository = `git+${pathToFileURL(setRemote.path).href}`;
+		const aCommand = `npm install '${repository}#npm/sets-a' '${repository}#npm/sets-core'`;
+		const bCommand = `npm install '${repository}#npm/sets-b'`;
+		const core = data.packages.find(item => item.name === 'core')!;
+		const manifest = JSON.parse(await setRemote.git('show', ['npm/sets-b:package.json']));
+		expect(core.installSpecifier).toBe(`${repository}#npm/sets-core`);
+		expect(manifest.dependencies.core).toBe(core.installSpecifier);
+		const runtimeAndPeer = JSON.parse(await setRemote.git('show', ['npm/sets-a:package.json']));
+		expect(runtimeAndPeer.dependencies.core).toBe(core.installSpecifier);
+		expect(runtimeAndPeer.peerDependencies.core).toBe('^1.0.0');
+		const cCommand = `npm install '${repository}#npm/sets-c' '${core.installSpecifier}'`;
 		expect(data.installSets).toStrictEqual({
 			a: {
 				required: ['a', 'core'],
 				optional: [],
+				installSpecifiers: [`${repository}#npm/sets-a`, `${repository}#npm/sets-core`],
+				installCommand: aCommand,
 			},
 			b: {
 				required: ['b', 'core'],
 				optional: [],
+				installSpecifiers: [`${repository}#npm/sets-b`],
+				installCommand: bCommand,
+			},
+			c: {
+				required: ['c', 'core', 'b'],
+				optional: [],
+				installSpecifiers: [`${repository}#npm/sets-c`, core.installSpecifier],
+				installCommand: cCommand,
 			},
 		});
-		const core = data.packages.find(item => item.name === 'core')!;
 		expect(core.role).toBe('dependency');
 		expect(core.reused).toBe(false);
-		const manifest = JSON.parse(await setRemote.git('show', ['npm/sets-b:package.json']));
-		expect(manifest.dependencies.core).toBe(core.installSpecifier);
-		expect(result.stdout.split(core.installSpecifier)).toHaveLength(3);
-		expect(result.stdout).toContain('npm 12+: add --allow-git=root');
+		expect(result.stdout).toContain(`→ Install a\n  ${aCommand}\n  npm 12+: add --allow-git=root`);
+		expect(result.stdout).toContain(`→ Install b\n  ${bCommand}\n  npm 12+: add --allow-git=all`);
+		expect(result.stdout).toContain(`→ Install c\n  ${cCommand}\n  npm 12+: add --allow-git=all`);
+
+		// npm 12.2.2 expects the advertised HEAD to resolve, even with an explicit selector.
+		await setRemote.git('symbolic-ref', ['HEAD', 'refs/heads/npm/sets-core']);
+		const npmArguments = ['install', '--allow-git=root', '--no-audit', '--no-fund'];
+		await using directConsumer = await createFixture({ 'package.json': '{}' });
+		await using transitiveConsumer = await createFixture({ 'package.json': '{}' });
+		const [direct, transitive] = await Promise.allSettled([
+			spawn(npmPath, [...npmArguments, ...data.installSets.a!.installSpecifiers], {
+				cwd: directConsumer.path,
+			}),
+			spawn(npmPath, [...npmArguments, ...data.installSets.b!.installSpecifiers], {
+				cwd: transitiveConsumer.path,
+			}),
+		]);
+		onTestFail(() => console.log(direct, transitive));
+		expect(direct.status).toBe('fulfilled');
+		expect(await directConsumer.exists('node_modules/a/package.json')).toBe(true);
+		expect(await directConsumer.exists('node_modules/core/package.json')).toBe(true);
+		expect(transitive).toMatchObject({
+			status: 'rejected',
+			reason: { stderr: expect.stringContaining('EALLOWGIT') },
+		});
 	});
 
 	test('reports internal aliases in install sets and warns about npm policy', async () => {
@@ -1898,9 +2011,45 @@ exec '${npmPath}' "$@"
 		await using output = await createFixture();
 		const result = await gitPublish(fixture.getPath('packages/app'), ['--json', output.getPath('result.json')]);
 		expect('exitCode' in result).toBe(false);
-		expect(result.stderr).not.toContain('npm 12 needs --allow-git=all for alias "alias"');
+		expect(result.stdout).not.toContain('alias@git+file://');
+		expect(result.stdout).toContain('npm 12+: add --allow-git=all');
 		const json = await output.readJson<{ aliases: Record<string, Record<string, string>> }>('result.json');
 		expect(json.aliases).toStrictEqual({ app: { alias: 'core' } });
+	});
+
+	test('omits an optional peer already supplied by a required runtime dependency', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': '{"private":true,"workspaces":["packages/*"]}',
+			'package-lock.json': '{}',
+			'packages/app/package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				dependencies: { core: '^1.0.0' },
+				peerDependencies: { core: '^1.0.0' },
+				peerDependenciesMeta: { core: { optional: true } },
+			}),
+			'packages/app/index.js': 'module.exports = require("core");',
+			'packages/core/package.json': '{"name":"core","version":"1.0.0"}',
+			'packages/core/index.js': 'module.exports = 42;',
+		}, ['--initial-branch=overlap']);
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const result = await gitPublish(fixture.path, ['app']);
+		onTestFail(() => console.log(result));
+		expect('exitCode' in result).toBe(false);
+		const specifier = `git+${pathToFileURL(remote.path).href}#npm/overlap-app`;
+		expect(result.stdout).toContain(`npm install '${specifier}'\n  npm 12+: add --allow-git=all`);
+		expect(result.stdout).not.toContain('Optional peers');
+
+		await using consumer = await createFixture({ 'package.json': '{}' });
+		await remote.git('symbolic-ref', ['HEAD', 'refs/heads/npm/overlap-app']);
+		await spawn(npmPath, ['install', '--allow-git=all', '--no-audit', '--no-fund', specifier], {
+			cwd: consumer.path,
+		});
+		const { stdout } = await spawn(process.execPath, ['-p', 'require("app")'], { cwd: consumer.path });
+		expect(stdout).toBe('42');
 	});
 
 	test('keeps optional-only packages out of root install arguments', async () => {
@@ -1946,13 +2095,11 @@ exec '${npmPath}' "$@"
 			packages: { name: string;
 				installSpecifier: string; }[];
 		}>('result.json');
-		expect(json.installSets.app).toStrictEqual({
-			required: ['app', 'leaf', 'core'],
-			optional: ['optional'],
-		});
+		expect(json.installSets.app!.required).toStrictEqual(['app', 'leaf', 'core']);
+		expect(json.installSets.app!.optional).toStrictEqual(['optional']);
 		const optional = json.packages.find(item => item.name === 'optional')!;
 		expect(result.stdout).not.toContain(optional.installSpecifier);
-		expect(result.stdout).toContain('Optional workspace dependencies optional install transitively');
+		expect(result.stdout).toContain('Optional workspace dependencies optional are attempted transitively and may be skipped by the package manager');
 		const manifest = JSON.parse(await remote.git('show', ['npm/optional-app:package.json']));
 		expect(manifest.optionalDependencies.optional).toBe(optional.installSpecifier);
 	});
@@ -1960,7 +2107,9 @@ exec '${npmPath}' "$@"
 	for (const manager of ['pnpm', 'yarn', 'bun'] as const) {
 		test(`prints the ${manager} install set and applicable note`, async () => {
 			await using managerRemote = await createGitFixture(undefined, ['--bare']);
-			await using fixture = await createChainWorkspace(`output-${manager}`, managerRemote.path);
+			const remoteUrl = 'git@github.com:owner/repo.git';
+			await using fixture = await createChainWorkspace(`output-${manager}`, remoteUrl);
+			await mockGitSshTransport(fixture, managerRemote.path);
 			await fixture.rm('package-lock.json');
 			if (manager === 'pnpm') {
 				await fixture.writeFile('pnpm-workspace.yaml', 'packages:\n  - packages/*\n');
@@ -1983,9 +2132,10 @@ exec '${npmPath}' "$@"
 				PATH: `${commands.path}${path.delimiter}${process.env.PATH}`,
 			});
 			expect('exitCode' in result).toBe(false);
-			expect(result.stdout).toContain(`${manager} add '`);
+			const revision = `npm/output-${manager}-@test/adapter`;
+			const prefix = manager === 'yarn' ? '@test/adapter@' : '';
+			expect(result.stdout.split('\n')).toContain(`  ${manager} add '${prefix}git+ssh://git@github.com/owner/repo.git#${revision}'`);
 			if (manager === 'yarn') {
-				expect(result.stdout).toContain('@test/adapter@git+file://');
 				expect(result.stdout).toContain('approvedGitRepositories');
 			} else if (manager === 'pnpm') {
 				expect(result.stdout).toContain('blockExoticSubdeps: false');
@@ -1993,23 +2143,6 @@ exec '${npmPath}' "$@"
 				expect(result.stdout).not.toContain('blockExoticSubdeps');
 				expect(result.stdout).not.toContain('allow-git');
 			}
-		});
-	}
-
-	for (const [remoteUrl, packageName, warning] of [
-		['git@github.com:owner/repo.git', 'adapter', false],
-		['https://gitlab.com/owner/repo.git', 'adapter', false],
-		['git@bitbucket.org:owner/repo.git', 'adapter', false],
-		['https://git.example.test/owner/repo.git', 'adapter', true],
-		['https://git.example.test/owner/repo.git', 'core', false],
-	] as const) {
-		test(`warns for non-hosted install sets: ${remoteUrl} ${packageName}`, async () => {
-			await using warningRemote = await createGitFixture(undefined, ['--bare']);
-			await using fixture = await createChainWorkspace('warning', remoteUrl);
-			await fixture.git('config', [`url.${warningRemote.path}.insteadOf`, remoteUrl]);
-			const result = await gitPublish(fixture.getPath(`packages/${packageName}`), ['--fresh']);
-			expect('exitCode' in result).toBe(false);
-			expect(result.stderr.includes('npm ignores commit pins for non-hosted Git URLs')).toBe(warning);
 		});
 	}
 
@@ -2056,7 +2189,7 @@ exec '${npmPath}' "$@"
 		const jsonStart = result.stderr.lastIndexOf('\n{\n  "source"');
 		expect(jsonStart).toBeGreaterThan(-1);
 		const json = JSON.parse(result.stderr.slice(jsonStart));
-		expect(json.installSets).toStrictEqual({
+		expect(json.installSets).toMatchObject({
 			'@test/adapter': {
 				required: ['@test/adapter', '@test/core', '@test/broker'],
 				optional: [],
@@ -2082,7 +2215,7 @@ exec '${npmPath}' "$@"
 			const item = json.packages.find((entry: { name: string }) => entry.name === name);
 			expect(item.branch).toBe(branch);
 			expect(item.commit).toBe(commit);
-			expect(item.installSpecifier.endsWith(`#${commit}`)).toBe(true);
+			expect(item.installSpecifier.endsWith(`#${branch}`)).toBe(true);
 		}
 	});
 
@@ -2110,7 +2243,7 @@ exec '${npmPath}' "$@"
 				name: 'standalone',
 				branch: 'npm/standalone',
 				commit,
-				installSpecifier: `git+file://${standaloneRemote.path}#${commit}`,
+				installSpecifier: `git+file://${standaloneRemote.path}#npm/standalone`,
 				role: 'root',
 				reused: false,
 			}],
@@ -2118,6 +2251,8 @@ exec '${npmPath}' "$@"
 				standalone: {
 					required: ['standalone'],
 					optional: [],
+					installSpecifiers: [`git+file://${standaloneRemote.path}#npm/standalone`],
+					installCommand: `npm i 'git+file://${standaloneRemote.path}#npm/standalone'`,
 				},
 			},
 			aliases: { standalone: {} },
@@ -2285,6 +2420,11 @@ exec '${npmPath}' "$@"
 				title: 'rejects invalid rendered workspace branches before creating refs',
 				template: 'preview/invalid..{package}',
 				error: 'Invalid publish branch "preview/invalid..@test/core".',
+			},
+			{
+				title: 'rejects qualified bare selectors for every planned workspace branch',
+				template: 'refs/tags/{package}',
+				error: 'Invalid publish branch "refs/tags/@test/core".',
 			},
 		]) {
 		test(title, async () => {
@@ -2608,7 +2748,8 @@ exec sh -c "$*"
 		await git('config', ['ssh.variant', 'simple']);
 
 		const adapterPath = path.join(fixture.path, 'packages/adapter');
-		const gitPublishProcess = await gitPublish(adapterPath);
+		await using output = await createFixture();
+		const gitPublishProcess = await gitPublish(adapterPath, ['--json', output.getPath('result.json')]);
 		expect('exitCode' in gitPublishProcess).toBe(false);
 
 		const branches = {
@@ -2630,23 +2771,23 @@ exec sh -c "$*"
 		}
 
 		const brokerManifest = JSON.parse(await remoteGit('show', [`${branches.broker}:package.json`]));
-		expect(brokerManifest.dependencies['@test/core']).toBe(`${packageManagerRemoteUrl}#${shas.core}`);
+		expect(brokerManifest.dependencies['@test/core']).toBe(`${packageManagerRemoteUrl}#${branches.core}`);
 		const adapterManifest = JSON.parse(await remoteGit('show', [`${branches.adapter}:package.json`]));
-		expect(adapterManifest.dependencies['@test/broker']).toBe(`${packageManagerRemoteUrl}#${shas.broker}`);
+		expect(adapterManifest.dependencies['@test/broker']).toBe(`${packageManagerRemoteUrl}#${branches.broker}`);
 
-		const adapterSpecifier = `${packageManagerRemoteUrl}#${shas.adapter}`;
-		expect(gitPublishProcess.stdout).toContain(`npm install '${adapterSpecifier}'`);
+		const { installSets } = await output.readJson<{
+			installSets: Record<string, { installSpecifiers: string[] }>;
+		}>('result.json');
+		expect(gitPublishProcess.stdout).toContain(`npm install '${packageManagerRemoteUrl}#${branches.adapter}'\n`);
+		expect(installSets['@test/adapter']!.installSpecifiers).toStrictEqual([`${packageManagerRemoteUrl}#${branches.adapter}`]);
 
 		await using consumerFixture = await createFixture({
 			'package.json': JSON.stringify({
 				name: 'test-consumer',
 				version: '1.0.0',
-				dependencies: {
-					'@test/adapter': adapterSpecifier,
-				},
 			}),
 		});
-		await spawn('pnpm', ['install', '--ignore-scripts'], {
+		await spawn('pnpm', ['add', '--ignore-scripts', ...installSets['@test/adapter']!.installSpecifiers], {
 			cwd: consumerFixture.path,
 			env: {
 				PATH: process.env.PATH,

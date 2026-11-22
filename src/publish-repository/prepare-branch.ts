@@ -1,45 +1,86 @@
-import { SubprocessError } from 'nano-spawn';
+import { getErrorDetails } from '../utils/error.ts';
+import { redactRemote } from '../utils/git-url.ts';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import type { PublishRepository } from './create.ts';
+import type { PublishRemote } from './remote.ts';
+
+const selectorConflicts = (branch: string) => [
+	`refs/${branch}`,
+	`refs/tags/${branch}`,
+	`refs/remotes/${branch}`,
+	`refs/remotes/${branch}/HEAD`,
+	// npm strips /head from refs/pull/*/head (see notes/git-publish/branch-channel.md).
+	...(branch === 'pull' || branch.startsWith('pull/') ? [`refs/${branch}/head`] : []),
+];
 
 export const loadPublishBranches = async (
 	repository: PublishRepository,
+	publishRemote: PublishRemote,
 	branches: {
 		publishBranch: string;
 		localRef: string;
 	}[],
-	fresh: boolean | undefined,
+	mode: 'normal' | 'force' | 'lease',
 	signal: AbortSignal,
-): Promise<Set<string>> => {
-	const existing = new Set<string>();
-	if (fresh) {
-		return existing;
-	}
-	const { gitOptions, fetchRemoteName } = repository;
-	let output: string;
-	try {
-		({ stdout: output } = await spawnAbortable('git', [
+) => {
+	const { gitOptions, fetchRemoteName, pushRemoteName } = repository;
+	const branchReferences = branches.map(branch => ({
+		...branch,
+		headRef: `refs/heads/${branch.publishBranch}`,
+		conflictRefs: selectorConflicts(branch.publishBranch),
+	}));
+	const listReferences = async (name: string, url: string, kind: 'heads' | 'conflicts' | 'both') => {
+		const requestedReferences = new Set(branchReferences.flatMap(({ headRef, conflictRefs }) => [
+			...(kind === 'conflicts' ? [] : [headRef]),
+			...(kind === 'heads' ? [] : conflictRefs),
+		]));
+		const { stdout } = await spawnAbortable('git', [
 			'ls-remote',
-			'--exit-code',
-			'--branches',
-			fetchRemoteName,
-			...branches.map(({ publishBranch }) => `refs/heads/${publishBranch}`),
+			'--refs',
+			...(kind === 'heads' ? ['--branches'] : []),
+			name,
+			...requestedReferences,
 		], {
 			...gitOptions,
 			signal,
-		}));
-	} catch (error) {
-		if (error instanceof SubprocessError && error.exitCode === 2) {
-			return existing;
+		}).catch((error: unknown) => {
+			signal.throwIfAborted();
+			const remoteUrl = redactRemote(url);
+			const reason = kind === 'heads' ? 'to load publish branch history' : 'to check for conflicting refs';
+			throw new Error(`git-publish must list refs on ${JSON.stringify(remoteUrl)} ${reason}. Allow Git read access to this remote.\n${getErrorDetails(error)}`, { cause: error });
+		});
+		const references = new Map<string, string>();
+		for (const line of stdout.split('\n')) {
+			const [sha, ref] = line.split('\t');
+			// ls-remote patterns can also match at a slash boundary inside a ref.
+			if (ref && requestedReferences.has(ref)) {
+				references.set(ref, sha!);
+			}
 		}
-		throw error;
-	}
-	const references = new Set(output.split('\n').map(line => line.split('\t')[1]));
+		return references;
+	};
+	const separateConflictLookup = mode === 'normal' && fetchRemoteName !== pushRemoteName;
+	const references = mode === 'normal'
+		? await listReferences(fetchRemoteName, publishRemote.historyUrl, separateConflictLookup ? 'heads' : 'both')
+		: await listReferences(pushRemoteName, publishRemote.pushUrl, mode === 'lease' ? 'both' : 'conflicts');
+	const pushReferences = separateConflictLookup
+		? await listReferences(pushRemoteName, publishRemote.pushUrl, 'conflicts')
+		: references;
+	const remoteTips = new Map<string, string>();
 	const refspecs: string[] = [];
-	for (const { publishBranch, localRef } of branches) {
-		if (references.has(`refs/heads/${publishBranch}`)) {
-			existing.add(publishBranch);
-			refspecs.push(`refs/heads/${publishBranch}:${localRef}`);
+	for (const {
+		publishBranch, localRef, headRef, conflictRefs,
+	} of branchReferences) {
+		const conflict = conflictRefs.find(ref => pushReferences.has(ref));
+		if (conflict) {
+			throw new Error(`Remote ref ${JSON.stringify(conflict)} conflicts with publish branch ${JSON.stringify(publishBranch)}. A package manager can resolve this ref instead of the branch.`);
+		}
+		const tip = references.get(headRef);
+		if (tip) {
+			remoteTips.set(publishBranch, tip);
+			if (mode === 'normal') {
+				refspecs.push(`${headRef}:${localRef}`);
+			}
 		}
 	}
 	if (refspecs.length > 0) {
@@ -48,5 +89,5 @@ export const loadPublishBranches = async (
 			signal,
 		});
 	}
-	return existing;
+	return remoteTips;
 };

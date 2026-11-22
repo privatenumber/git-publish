@@ -1,10 +1,10 @@
 # Remote URLs
 
-**Decision.** Install URLs, manifest pins, and branch-history lookups name the repository that receives the push. The transport comes from the fetch URL when possible. git-publish does not include credentials in published manifests, `--json`, or the remote URLs it prints. Verified 2026-11-07.
+**Decision.** Install URLs and manifest branch references use the selected push destination's identity. The transport comes from the fetch URL when possible. See the rewrite limitations below.
 
 ## Push destination identity
 
-A commit-pinned URL is only valid if it names a repository that contains the commit, and after a push only the push destination is guaranteed to. So when a remote fetches from one repository and pushes to another (for example `origin` fetches upstream and `remote.origin.pushurl` points at a fork), git-publish uses the push destination.
+A branch selector must name the repository that receives the published branch. When `origin` fetches upstream and `remote.origin.pushurl` points at a fork, git-publish uses the fork.
 
 - **Same repository, different transports** (HTTPS fetch, SSH push): the fetch URL is used, because it is usually the consumer-friendly transport.
 - **Different repositories on the same hosted provider** (github.com, gitlab.com, bitbucket.org): the fetch URL's transport with the push destination's owner and repository, for example fetch `https://github.com/upstream/r.git` plus push `git@github.com:me/r.git` gives `https://github.com/me/r.git`.
@@ -17,6 +17,32 @@ Git-publish detects configured remotes with `git remote get-url --push --all -- 
 **Known limitation:** an `insteadOf` rule that rewrites an upstream URL to a different repository makes install URLs name the upstream. Transport-only rewrites (`https://github.com/` to `git@github.com:`) keep the same identity and work. Revisit if a user reports the repository-changing case.
 
 Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts) ("selects install and history URLs by destination identity", "prints the fork with the fetch transport for a hosted triangular remote", "rejects multiple url destinations before packing", "rejects multiple pushurl destinations before packing"), [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts) ("publishes and reloads a workspace closure from the push destination").
+
+The [conflict check](./branch-channel.md#remote-refs-that-can-conflict) uses the same remote name as the push. It shares a lookup with branch history only when both use the same remote name. The push uses `--no-follow-tags` to avoid creating a conflicting annotated tag after the check.
+
+## Open scope questions
+
+The remote-resolution work from rounds 4–13 is preserved on the local branch `feat/install-selected-package-remote-wip` (not pushed). The branch-channel change retains `develop`'s remote handling. Each case below is pending a scope decision.
+
+| Case | Open question |
+| --- | --- |
+| Empty rewrite | When a literal `pushInsteadOf` rewrite is empty, should git-publish fall back to the fetch URL? How should it handle other empty effective URLs? |
+| Chained rewrite | How can transport avoid applying `insteadOf` a second time after Git selects a push URL with `pushInsteadOf`? |
+| Relative `pushInsteadOf` | How should matching and path resolution work when the isolated client runs in a different directory from the source checkout? |
+| Command-scope remote (A) | With `remote.fixture.url` and `remote.fixture.pushurl` defined only through `GIT_CONFIG_COUNT`, native `git push fixture` used `pushurl`; git-publish published to the fetch URL on [`35cc906`](https://github.com/privatenumber/git-publish/commit/35cc906). CI jobs can use this setup to avoid editing `.git/config`. Support would require distinguishing these remotes from literal paths and deciding which command-scope settings to carry into the isolated client. |
+| Trailing CR in a local path | Which Git output paths need LF-only delimiter removal to preserve a trailing CR in the path? |
+| Scheme aliases (C) | With HTTPS and SSH aliases for the same hosted repository rewritten to different repositories, native Git resolves the URLs independently. On [`35cc906`](https://github.com/privatenumber/git-publish/commit/35cc906), git-publish pushed to the right repository but used fetch-side history and printed the fetch alias. Supporting split destinations without changing ordinary HTTPS/SSH pairs would require deciding when resolved URLs override configured identity. |
+| Generic SSH `.git` suffix | Should `ssh://host/repo` and `ssh://host/repo.git` count as different repositories on servers that expose both? |
+| Local-path alias | Should the printed `git+file:` URL use the rewritten local path when the original alias may not resolve for consumers? |
+| `pushInsteadOf` and conflict checks | When the push rewrite applies in the isolated client, `ls-remote` reads the remote's fetch URL but `push` uses the rewritten URL. Should the check resolve the push destination separately? |
+
+Round 14 found two known defects in the WIP branch: applying `path.resolve` after Git expands a URL can change the destination of a path containing a symlink followed by `..`; replaying a valueless command-scope `commit.gpgsign` as an empty string can silently disable signing.
+
+The [npm Unicode-whitespace ref spelling limitation](./branch-channel.md#remote-refs-that-can-conflict) is also open. Supporting it would require following npm's ref parsing for generated or imported tags.
+
+One alternative to expanding git-publish's own lookup and identity rules is to run `ls-remote`, `fetch`, and `push` through the source repository's Git config while making the isolated objects available to it. This is an option, not a plan. It would still need to protect source refs and config, align the check with the push, and choose the install URL.
+
+Status: undecided; not supported by tests.
 
 ## Decision: require one push URL for every publication
 
@@ -61,7 +87,7 @@ app@ /private/tmp/work/app
 └── core@1.0.0 (git+file:///tmp/work/core#32abc94467ac5f33574461b2288b24d8136b408c)
 ```
 
-Reported as [npm/cli#10249](https://github.com/npm/cli/issues/10249), which contains the full reproducer. Within one install set every package appears at one commit, so a set is unaffected; mixing sets from different publications can keep the wrong commit. git-publish therefore warns when a multi-package install set uses a remote that is not on GitHub, GitLab, or Bitbucket. GitHub URLs are compared with their commit and behave correctly.
+Reported as [npm/cli#10249](https://github.com/npm/cli/issues/10249), which contains the full reproducer. The [branch-channel design](./branch-channel.md) uses the same branch selector in the command and runtime manifests, so the comparison cannot conflate two different selectors emitted for the same package in one publication. npm can still keep an old commit if the consumer retains a direct SHA pin or mixes in a different selector for the same package and URL. Replace old direct pins with the printed branch commands when migrating.
 
 ## npm needs the remote's HEAD to resolve
 

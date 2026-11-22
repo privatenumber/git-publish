@@ -43,6 +43,22 @@ export const createGitFixture = async (
 	return Object.assign(fixture, { git });
 };
 
+export const mockGitSshTransport = async (
+	fixture: Awaited<ReturnType<typeof createGitFixture>>,
+	destination: string,
+) => {
+	await fixture.writeFile('.git/mock-ssh', String.raw`#!/bin/sh
+case "$2" in
+	git-upload-pack\ *) exec git-upload-pack '${destination}' ;;
+	git-receive-pack\ *) exec git-receive-pack '${destination}' ;;
+	*) exit 1 ;;
+esac
+`);
+	await fs.chmod(fixture.getPath('.git/mock-ssh'), 0o755);
+	await fixture.git('config', ['core.sshCommand', fixture.getPath('.git/mock-ssh')]);
+	await fixture.git('config', ['ssh.variant', 'simple']);
+};
+
 export const gitWorktree = async (
 	repoPath: string,
 	branchName: string,

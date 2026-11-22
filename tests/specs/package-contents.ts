@@ -921,7 +921,7 @@ describe('Package contents', async () => {
 			const coreCommit = await setup.remote.git('rev-parse', ['npm/version-sha-workspace-core']);
 			const app = await setup.readManifest('npm/version-sha-workspace-app');
 			expect(app.version).toBe(`1.0.0+sha-${shortCommit}`);
-			expect(app.dependencies.core).toBe(`git+file://${setup.remote.path}#${coreCommit}`);
+			expect(app.dependencies.core).toBe(`git+file://${setup.remote.path}#npm/version-sha-workspace-core`);
 			const core = await setup.readManifest('npm/version-sha-workspace-core');
 			expect(core.version).toBe(`2.0.0+sha-${shortCommit}`);
 
@@ -934,6 +934,18 @@ describe('Package contents', async () => {
 			onTestFail(() => console.log(republished.output));
 			expect('exitCode' in republished).toBe(false);
 			expect(await setup.remote.git('rev-parse', ['npm/version-sha-workspace-core'])).toBe(coreCommit);
+			expect(await setup.remote.git('rev-parse', ['npm/version-sha-workspace-app'])).toBe(appCommit);
+			expect(await setup.readManifest('npm/version-sha-workspace-app')).toStrictEqual(app);
+
+			await setup.fixture.writeFile('packages/core/index.js', 'module.exports = 2;');
+			await setup.fixture.git('add', ['packages/core/index.js']);
+			await setup.fixture.git('commit', ['-m', 'Change core only']);
+			const updated = await gitPublish(setup.fixture.getPath('packages/app'), ['--version-sha']);
+			onTestFail(() => console.log(updated.output));
+			expect('exitCode' in updated).toBe(false);
+			const updatedShortCommit = await setup.fixture.git('rev-parse', ['--short', 'HEAD']);
+			const updatedCore = await setup.readManifest('npm/version-sha-workspace-core');
+			expect(updatedCore.version).toBe(`2.0.0+sha-${updatedShortCommit}`);
 			expect(await setup.remote.git('rev-parse', ['npm/version-sha-workspace-app'])).toBe(appCommit);
 			expect(await setup.readManifest('npm/version-sha-workspace-app')).toStrictEqual(app);
 		});

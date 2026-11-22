@@ -318,12 +318,16 @@ describe('Publication graph', () => {
 				packageName: node.key,
 				branch: node.branch,
 				commit: 'abc',
-				installSpecifier: 'git+https://example.test/repo#abc',
+				installSpecifier: `git+https://example.test/repo#${node.branch}`,
 			},
 			files: [],
 			unpublishedFilesFieldEntries: [],
 			reusedExistingCommit: false,
 			version: '1.0.0',
+			installPolicy: {
+				git: [],
+				remote: false,
+			},
 			peerDependencies: {},
 			dependencies: [],
 			peers: [],
@@ -336,14 +340,17 @@ describe('Publication graph', () => {
 			nodes,
 			peers: graph.peers,
 		};
-		const result = createWorkspaceResult(plan, preparations, 'main', 'abc');
+		const remote = 'https://example.test/repo';
+		const result = createWorkspaceResult(plan, preparations, 'main', 'abc', 'npm', remote);
 		expect(result.aliases).toStrictEqual({ app: { alias: 'core' } });
 		expect(result.installSets.app).toStrictEqual({
 			required: ['app'],
 			optional: ['core'],
+			installSpecifiers: ['git+https://example.test/repo#npm/app'],
+			installCommand: "npm install 'git+https://example.test/repo#npm/app'",
 		});
-		const optionalOutput = formatWorkspaceResult(result, 'npm', 'https://example.test/repo');
-		expect(optionalOutput).toContain("Optional peers alias: install with npm install 'alias@git+https://example.test/repo#abc'");
+		const optionalOutput = formatWorkspaceResult(result);
+		expect(optionalOutput).toContain("Optional peers alias: install with npm install 'alias@git+https://example.test/repo#npm/core'");
 		expect(optionalOutput).not.toContain('Optional workspace dependencies core install transitively');
 		const app = nodes.find(node => node.key === 'app')!;
 		graph.peers[0]!.optional = false;
@@ -353,27 +360,37 @@ describe('Publication graph', () => {
 			target: 'core',
 			specification: 'workspace:*',
 		});
-		const requiredResult = createWorkspaceResult(plan, preparations, 'main', 'abc');
+		const requiredResult = createWorkspaceResult(plan, preparations, 'main', 'abc', 'npm', remote);
 		expect(requiredResult.aliases).toStrictEqual({
 			app: {
 				runtime: 'core',
 				alias: 'core',
 			},
 		});
-		for (const manager of ['npm', 'pnpm', 'yarn', 'bun'] as const) {
-			const output = formatWorkspaceResult(requiredResult, manager, 'https://example.test/repo');
-			expect(output).toContain('runtime@git+https://example.test/repo#abc');
-			expect(output).toContain('alias@git+https://example.test/repo#abc');
-			expect(output).not.toContain('core@git+https://example.test/repo#abc');
+		for (const [manager, specifier] of [
+			['npm', 'git+https://example.test/repo#npm/app'],
+			['pnpm', 'git+https://example.test/repo#npm/app'],
+			['yarn', 'app@git+https://example.test/repo#npm/app'],
+			['bun', 'git+https://example.test/repo#npm/app'],
+		] as const) {
+			const mixedResult = createWorkspaceResult(plan, preparations, 'main', 'abc', manager, remote);
+			expect(mixedResult.installSets.app!.installSpecifiers).toStrictEqual([
+				specifier,
+				'alias@git+https://example.test/repo#npm/core',
+			]);
 		}
-		app.dependencies.push({
-			key: 'core',
+		app.dependencies.pop();
+		nodes.find(node => node.key === 'core')!.dependencies.push({
+			key: 'app',
 			field: 'dependencies',
-			target: 'core',
+			target: 'app',
 			specification: 'workspace:*',
 		});
-		const output = formatWorkspaceResult(createWorkspaceResult(plan, preparations, 'main', 'abc'), 'yarn', 'https://example.test/repo');
-		expect(output).toContain('core@git+https://example.test/repo#abc');
+		const cycleResult = createWorkspaceResult(plan, preparations, 'main', 'abc', 'npm', remote);
+		expect(cycleResult.installSets.app!.installSpecifiers).toStrictEqual([
+			'git+https://example.test/repo#npm/app',
+			'alias@git+https://example.test/repo#npm/core',
+		]);
 	});
 
 	test('installs the required closure of an optional peer', async () => {
@@ -388,9 +405,19 @@ describe('Publication graph', () => {
 				name: 'adapter',
 				version: '1.0.0',
 				peerDependencies: { core: 'workspace:*' },
+				optionalDependencies: { extra: 'workspace:*' },
 			},
 			core: {
 				name: 'core',
+				version: '1.0.0',
+			},
+			extra: {
+				name: 'extra',
+				version: '1.0.0',
+				peerDependencies: { platform: 'workspace:*' },
+			},
+			platform: {
+				name: 'platform',
 				version: '1.0.0',
 			},
 		});
@@ -409,12 +436,16 @@ describe('Publication graph', () => {
 				packageName: node.key,
 				branch: node.branch,
 				commit: node.key,
-				installSpecifier: `git+https://example.test/repo#${node.key}`,
+				installSpecifier: `git+https://example.test/repo#${node.branch}`,
 			},
 			files: [],
 			unpublishedFilesFieldEntries: [],
 			reusedExistingCommit: false,
 			version: '1.0.0',
+			installPolicy: {
+				git: node.key === 'adapter' ? [['external', 'git+https://example.test/external#main']] : [],
+				remote: node.key === 'adapter',
+			},
 			peerDependencies: {},
 			dependencies: [],
 			peers: [],
@@ -426,9 +457,11 @@ describe('Publication graph', () => {
 			selection: 'explicit',
 			nodes,
 			peers: graph.peers,
-		}, preparations, 'main', 'abc');
-		const output = formatWorkspaceResult(result, 'npm', 'https://example.test/repo');
-		expect(output).toContain("Optional peers adapter: install with npm install 'git+https://example.test/repo#adapter' 'git+https://example.test/repo#core'");
+		}, preparations, 'main', 'abc', 'npm', 'https://example.test/repo');
+		const output = formatWorkspaceResult(result);
+		expect(output).toContain("Optional peers adapter: install with npm install 'git+https://example.test/repo#npm/adapter' 'git+https://example.test/repo#npm/core'");
+		expect(output).not.toContain('#npm/platform');
+		expect(output).toContain('For optional peers: npm 12+: add --allow-git=all and --allow-remote=all');
 		expect(output).not.toContain('Optional workspace dependencies core install transitively');
 	});
 
@@ -465,12 +498,16 @@ describe('Publication graph', () => {
 				packageName: node.key,
 				branch: node.branch,
 				commit: node.key,
-				installSpecifier: `git+https://example.test/repo#${node.key}`,
+				installSpecifier: `git+https://example.test/repo#${node.branch}`,
 			},
 			files: [],
 			unpublishedFilesFieldEntries: [],
 			reusedExistingCommit: false,
 			version: '1.0.0',
+			installPolicy: {
+				git: node.key === 'app' ? [['external', 'git+https://example.test/external#main']] : [],
+				remote: false,
+			},
 			peerDependencies: {},
 			dependencies: [],
 			peers: [],
@@ -484,10 +521,10 @@ describe('Publication graph', () => {
 				selection: 'explicit',
 				nodes,
 				peers: graph.peers,
-			}, preparations, 'main', 'abc');
-			const output = formatWorkspaceResult(result, 'npm', 'https://example.test/repo');
-			expect(output).toContain('Optional workspace dependencies b install transitively');
-			expect(output).toContain("Optional peers c: install with npm install 'git+https://example.test/repo#c'");
+			}, preparations, 'main', 'abc', 'npm', 'https://example.test/repo');
+			const output = formatWorkspaceResult(result);
+			expect(output).toContain('Optional workspace dependencies b are attempted transitively and may be skipped by the package manager. If a required peer is missing, use the peer command below to supply it.');
+			expect(output).toContain("Optional peers c: install with npm install 'git+https://example.test/repo#npm/c'");
 		}
 	});
 

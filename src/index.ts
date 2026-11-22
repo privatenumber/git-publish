@@ -13,7 +13,7 @@ import {
 import { readJson } from './utils/read-json.ts';
 import { detectPackageManager } from './utils/detect-package-manager.ts';
 import {
-	getGitHubRepositoryName, isHostedGitRemote, redactRemote,
+	getGitHubRepositoryName, redactRemote,
 } from './utils/git-url.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
 import { planPackagePublicationPush } from './package-publication/push.ts';
@@ -235,7 +235,6 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 					publishRemote,
 					pushMode,
 					source,
-					fresh,
 					versionShas,
 				}, signal);
 				const repositoryName = plan.kind === 'standalone' && getGitHubRepositoryName(remoteUrl);
@@ -254,7 +253,12 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 		});
 		if (publication) {
 			const result = createWorkspaceResult(
-				publication.plan, publication.preparations, source.name, source.commit,
+				publication.plan,
+				publication.preparations,
+				source.name,
+				source.commit,
+				packageManager,
+				remoteUrl,
 			);
 			const { presentation: _presentation, ...jsonResult } = result;
 			const json = `${stringify(jsonResult, null, 2)}\n`;
@@ -265,12 +269,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 					jsonWriteError = error;
 				});
 			}
-			if (!isHostedGitRemote(remoteUrl) && Object.values(result.installSets).some(set => (
-				set.required.length + set.optional.length > 1
-			))) {
-				console.warn('Warning: npm ignores commit pins for non-hosted Git URLs when the same package appears at different commits.');
-			}
-			console.log(`\n${formatWorkspaceResult(result, packageManager, remoteUrl, argv.flags.json)}`);
+			console.log(`\n${formatWorkspaceResult(result)}`);
 			if (jsonWriteError) {
 				console.error(`Publication succeeded, but could not write JSON file ${stringify(argv.flags.json)}: ${redactRemote(jsonWriteError.message)}. Publication details follow:`);
 				console.error(json.trimEnd());

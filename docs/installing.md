@@ -4,7 +4,7 @@ After a push, `git-publish` prints the install command for your package manager.
 
 ## Install commands
 
-A package with no internal workspace dependencies installs from the branch:
+Install a published package from its branch:
 
 ```sh
 npm i 'owner/repo#npm/main'
@@ -16,9 +16,15 @@ For Yarn, the command uses `add` and includes the package name, which modern Yar
 yarn add 'my-package@https://github.com/owner/repo.git#npm/main'
 ```
 
-A monorepo package prints one command that installs its whole set of packages as root dependencies, each pinned to its publish commit. Run the complete command; installing only the selected package needs broader consumer settings. Packages reachable only through optional dependencies install transitively.
+Install URLs use the bare branch name (`#<branch>`). Before packing, `git-publish` [validates rendered branch names](./cli.md#branches) and checks for conflicting refs, such as a same-named tag or a pull request ref that a package manager could resolve instead of the branch. The check can miss unusual ref spellings and cannot prevent someone from adding a conflicting ref later.
 
-Install URLs name the repository that receives the push. When a remote fetches from an upstream repository and pushes to your fork, the install URLs point at the fork.
+If a `pushInsteadOf` rule applies to the publish client's remote, the conflict check reads that remote's fetch URL while the push uses the rewritten URL. The check may therefore read a different repository.
+
+For a monorepo package, the command includes the selected package and any required internal peers. Package managers install runtime dependencies transitively from the branch URLs in the published manifests. They also attempt optional workspace dependencies, but may skip them, for example when a required peer is missing. Use the printed peer command to supply that peer when applicable. If a package appears both in the main command and as a runtime dependency, both use the same Git specifier.
+
+With Yarn Plug'n'Play and `pnpFallbackMode: none`, installing a peer at the root does not supply it through an intermediate package. If `a` depends on `b` and `b` needs peer `c`, declare `c` as a peer of `a` too so Yarn can pass the root's `c` through.
+
+With an explicit push URL to a fork, install URLs point at the fork rather than the upstream repository. For publications with internal dependencies, the command uses the same Git URL form as the manifest. Yarn also keeps explicit GitHub SSH URLs for single packages because it expands GitHub shorthand to HTTPS.
 
 ## Package manager settings
 
@@ -26,15 +32,22 @@ Current package managers restrict Git dependencies by default. The consumer's pr
 
 | Package manager | Setting |
 | --- | --- |
-| npm 12+ | `--allow-git=root` on the install command, or `allow-git=root` in `.npmrc`. Optional transitive Git dependencies need `allow-git=all`. |
-| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` for an install set with more than one package. For one command: `pnpm add --config.block-exotic-subdeps=false <specifiers>` ([setting](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps)) |
-| Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install |
+| npm 12+ | Use `--allow-git=root` for direct Git installs. Use `--allow-git=all` when npm fetches a Git dependency that the command does not list with the same specifier. Add `--allow-remote=all` if npm also installs dependencies or required peers from direct HTTP(S) tarball URLs. The same settings work in `.npmrc` without `--`. |
+| pnpm 11+ | `blockExoticSubdeps: false` in `pnpm-workspace.yaml` when runtime or optional dependencies use Git or direct tarball URLs. Local `file:` dependencies do not require this setting. pnpm 12.21.0 also allows auto-installed required peers with these URLs without changing the setting. For one command: `pnpm add --config.block-exotic-subdeps=false <specifiers>` ([setting](https://pnpm.io/settings/dependency-resolution#blockexoticsubdeps)) |
+| Yarn 4 | The repository in `approvedGitRepositories` in `.yarnrc.yml`, for every Git install. Local-file remotes do not work with Yarn 4.18.1: it rejects `git+file:` URLs even when approved. Use an HTTPS or SSH remote instead. |
+| Bun | No Git dependency setting required |
 
-For Git servers other than GitHub, GitLab, and Bitbucket, npm can ignore commit pins when the same package appears at different commits. `git-publish` warns when an install set contains several packages and the remote is on another host.
+For npm installs from a non-hosted remote, the remote's `HEAD` must point to an existing branch. A new bare remote that only receives publish branches may still point to an unborn default branch. Set `HEAD` on the server to an existing branch. See the [npm remote HEAD requirement](../notes/git-publish/remote-urls.md#npm-needs-the-remotes-head-to-resolve).
 
 ## Updating
 
-A lockfile pins the commit, so a normal install keeps the old version. To move to a newer publish of a branch, run your package manager's update command, such as `npm update <name>`, `pnpm update <name>`, `bun update <name>`, or `yarn up -R <name>`. For a monorepo install set, run the newly printed command.
+Publish branches work like a prerelease dist-tag such as `beta`: a fresh install selects the current branch tips, while your lockfile pins the commits it resolved. A normal locked reinstall does not advance them.
+
+To refresh the whole channel, update every channel package by its install key, including transitive dependencies. For an unaliased `core` dependency, run `npm update app core`, `pnpm update app core`, `bun update app core`, or `yarn up -R app core`. If `app` declares `core` under the key `my-core`, run `npm update app my-core`: `npm update app core` can leave the alias at its old commit. A fresh install with neither the previous lockfile nor `node_modules` also resolves the current tips, but can update unrelated dependencies. Deleting only the lockfile can leave npm using the commits already installed in `node_modules`.
+
+If you are migrating from a commit-pinned publication, replace any direct commit pins with the newly printed branch commands. Then update the channel packages by install key, for example `npm update app my-core` if `app` declares `core` as `my-core`.
+
+A saved command is not a snapshot. If an internal peer was published on its own with an incompatible version, the package manager can report a peer mismatch. Publish versions that satisfy the peer range before updating the consumer.
 
 ## Private repositories
 

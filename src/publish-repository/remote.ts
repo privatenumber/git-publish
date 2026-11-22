@@ -87,12 +87,14 @@ export const configurePublishTransport = async ({
 	fetchRemoteName: string;
 	pushRemoteName: string;
 }) => {
-	if (isLocalGitUrl(publishRemote.historyUrl)) {
-		const uploadPack = await getStdout(spawn('git', ['config', '--get', `remote.${fetchRemoteName}.uploadpack`], gitOptions)).catch(() => 'git-upload-pack');
-		await spawn('git', ['config', `remote.${fetchRemoteName}.uploadpack`, getGitServerCommand(publishRemote.historyUrl, uploadPack)], gitOptions);
-	}
-	if (isLocalGitUrl(publishRemote.pushUrl)) {
-		const receivePack = await getStdout(spawn('git', ['config', '--get', `remote.${pushRemoteName}.receivepack`], gitOptions)).catch(() => 'git-receive-pack');
-		await spawn('git', ['config', `remote.${pushRemoteName}.receivepack`, getGitServerCommand(publishRemote.pushUrl, receivePack)], gitOptions);
+	for (const [url, key, defaultCommand] of [
+		[publishRemote.historyUrl, `remote.${fetchRemoteName}.uploadpack`, 'git-upload-pack'],
+		[publishRemote.pushUrl, `remote.${pushRemoteName}.uploadpack`, 'git-upload-pack'],
+		[publishRemote.pushUrl, `remote.${pushRemoteName}.receivepack`, 'git-receive-pack'],
+	] as const) {
+		if (isLocalGitUrl(url)) {
+			const command = await getStdout(spawn('git', ['config', '--get', key], gitOptions)).catch(() => defaultCommand);
+			await spawn('git', ['config', key, getGitServerCommand(url, command)], gitOptions);
+		}
 	}
 };

@@ -7,6 +7,7 @@ import { toPackageManagerGitUrl } from '../utils/git-url.ts';
 import type { WorkspacePeer, PublishGraphEdge } from '../workspace-publication/graph.ts';
 import type { WorkspacePackage } from '../workspace-publication/discover.ts';
 import { importTarball, type File } from './import-tarball.ts';
+import { getInstallPolicy } from './install-policy.ts';
 import { validatePackedManifest, type PackedManifestValidationContext } from './validate.ts';
 import { getVersionShaCommit, type VersionSha } from './version-sha.ts';
 
@@ -25,6 +26,7 @@ export type PackagePreparation = {
 	unpublishedFilesFieldEntries: string[];
 	reusedExistingCommit: boolean;
 	version: string | undefined;
+	installPolicy: ReturnType<typeof getInstallPolicy>;
 	peerDependencies: Partial<Record<string, string>>;
 	dependencies: PublishGraphEdge[];
 	peers: WorkspacePeer[];
@@ -107,7 +109,7 @@ const canReuseParent = async (
 	return namesSourceCommit(subject, namedCommit);
 };
 
-export const toInstallSpecifier = (fetchUrl: string, commit: string) => `${toPackageManagerGitUrl(fetchUrl)}#${commit}`;
+export const toInstallSpecifier = (fetchUrl: string, branch: string) => `${toPackageManagerGitUrl(fetchUrl)}#${branch}`;
 
 export const preparePackagePublication = async ({
 	packageName,
@@ -116,10 +118,9 @@ export const preparePackagePublication = async ({
 	importRef,
 	parent,
 	branch,
-	fetchUrl,
 	commitMessage,
 	dependencyEdges,
-	dependencyPublications,
+	installSpecifiers,
 	validationContext,
 	peers = [],
 	versionSha,
@@ -132,10 +133,9 @@ export const preparePackagePublication = async ({
 	importRef: string;
 	parent: string | undefined;
 	branch: string;
-	fetchUrl: string;
 	commitMessage: string;
 	dependencyEdges: PackagePublicationDependency[];
-	dependencyPublications: ReadonlyMap<string, PackagePublication>;
+	installSpecifiers: ReadonlyMap<string, string>;
 	validationContext: PackedManifestValidationContext;
 	peers?: WorkspacePeer[];
 	versionSha?: VersionSha;
@@ -179,7 +179,7 @@ export const preparePackagePublication = async ({
 		for (const edge of dependencyEdges) {
 			const field = manifest[edge.field];
 			if (field && Object.hasOwn(field, edge.key)) {
-				field[edge.key] = dependencyPublications.get(edge.target)!.installSpecifier;
+				field[edge.key] = installSpecifiers.get(edge.target)!;
 			}
 		}
 		for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
@@ -267,7 +267,7 @@ export const preparePackagePublication = async ({
 			packageName,
 			branch,
 			commit,
-			installSpecifier: toInstallSpecifier(fetchUrl, commit),
+			installSpecifier: installSpecifiers.get(packageName)!,
 		},
 		files,
 		unpublishedFilesFieldEntries: findUnpublishedFilesFieldEntries(
@@ -276,6 +276,10 @@ export const preparePackagePublication = async ({
 		),
 		reusedExistingCommit,
 		version: packedManifest.version,
+		installPolicy: getInstallPolicy(
+			packedManifest,
+			validationContext.packageManager,
+		),
 		peerDependencies: peerDependencies ?? {},
 		dependencies: dependencyEdges.filter(edge => (
 			Object.hasOwn(packedManifest[edge.field] ?? {}, edge.key)

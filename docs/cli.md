@@ -23,7 +23,7 @@ See [Monorepos](./monorepos.md) for what a selection publishes. `skills` is a su
 | --- | --- |
 | `-r, --remote <remote>` | Git remote name or URL to push to. Default: `origin`. See [`--remote`](#--remote) |
 | `-b, --branch <template>` | Branch name or template. See [Branches](#branches) |
-| `-d, --dry` | Validate and print the publication plan. Does not pack, run package hooks, commit, or push |
+| `-d, --dry` | Validate and print the publication plan. Resolves the remote from local Git config but does not contact it, check for conflicting refs, pack, run package hooks, commit, or push |
 | `-o, --fresh` | Publish a single-commit branch, replacing its history with a force-push. See [`--fresh`](#--fresh) |
 | `--version-sha` | Record the source commit in each published `package.json`. See [`--version-sha`](#--version-sha) |
 | `-f, --force` | Allow publishing a private standalone package or a private workspace root |
@@ -64,9 +64,13 @@ git-publish --branch 'preview/{package}'
 
 For one package, a literal branch stays exact: `git-publish --branch preview` publishes to `preview`. A multi-package publication must render a unique branch for every package, so include `{package}` when a literal name would collide.
 
+Every rendered name must be a valid Git branch and use only ASCII letters, digits, and `. _ / @ -`. It must not start with `refs/`, `heads/`, `tags/`, or `remotes/`. Bare `@`, `HEAD` in any case, names made only of uppercase letters and underscores (such as `FETCH_HEAD`), and bare names of 7 to 64 hexadecimal digits are not allowed. These restrictions keep package managers from reading a branch name as another kind of selector. `@` is allowed inside a name, such as `npm/@`. If the default name fails, use a template such as `--branch 'preview/{package}'` or `--branch 'preview/{gitSha}/{package}'`.
+
 ## `--fresh`
 
 By default, `git-publish` adds a commit to the existing branch. Lockfiles record the commit of a Git dependency, not the branch name, and a commit that becomes unreachable from the branch history may be garbage-collected, which breaks those installs. `--fresh` force-pushes a one-commit branch, so use it only when no one depends on the old commits.
+
+Publishing checks for refs that a package manager could resolve instead of a publish branch, even with `--fresh`. This requires Git read access. See [Install commands](./installing.md#install-commands) for the `pushInsteadOf` limitation.
 
 ## `--version-sha`
 
@@ -97,7 +101,7 @@ The added `version` build metadata and `gitHead` together are the version SHA.
 
 ## JSON output
 
-`--json <path>` writes publication details after a successful push. At a workspace root, a default selection of more than three packages prints a summary table instead of install commands; use the JSON file to get each install set.
+`--json <path>` writes publication details after a successful push. `git-publish` prints one command per selected package whether or not you use `--json`. A default selection of more than three packages also prints a status table.
 
 ```json
 {
@@ -110,7 +114,7 @@ The added `version` build metadata and `gitHead` together are the version SHA.
             "name": "@acme/core",
             "branch": "npm/main-@acme/core",
             "commit": "<publish commit>",
-            "installSpecifier": "git+https://github.com/acme/repo.git#<publish commit>",
+            "installSpecifier": "git+https://github.com/acme/repo.git#npm/main-@acme/core",
             "role": "root",
             "reused": false
         }
@@ -120,7 +124,11 @@ The added `version` build metadata and `gitHead` together are the version SHA.
             "required": [
                 "@acme/core"
             ],
-            "optional": []
+            "optional": [],
+            "installSpecifiers": [
+                "acme/repo#npm/main-@acme/core"
+            ],
+            "installCommand": "npm i 'acme/repo#npm/main-@acme/core'"
         }
     },
     "aliases": {
@@ -131,8 +139,9 @@ The added `version` build metadata and `gitHead` together are the version SHA.
 
 - `source.commit` is the full source commit ID.
 - Each package's `role` is `root`, `dependency`, or `peer`. `reused` is `true` when the existing publication commit was unchanged.
-- Each install set lists the required and optional package names for one selected package. Look up their commit-pinned specifiers in `packages`.
-- `aliases` maps each selected package to its internal runtime and peer aliases and their target package names. Install commands include required aliases as root arguments.
+- Each package's `installSpecifier` is its moving bare-branch Git URL, as used in published manifests. Its `commit` records what this run published. The consumer lockfile, not the install specifier, pins the resolved commit.
+- Each install set lists the `required` and `optional` package names in the selected package's dependency closure. `installSpecifiers` contains the unquoted root arguments for the detected package manager. `installCommand` is the shell-quoted command printed by the CLI, without package manager settings. It lists only the selected package and required internal peers, all by branch.
+- `aliases` maps each selected package's internal runtime and peer aliases to their target package names. The command lists required peer aliases. Runtime aliases remain in the published manifests.
 
 ## `skills`
 
