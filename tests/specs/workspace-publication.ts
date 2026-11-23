@@ -25,7 +25,8 @@ describe('Workspace publication', async () => {
 		test(fail
 			? 'aborts a sibling pack without hiding the original failure or pushing'
 			: 'runs independent prepack hooks concurrently', async () => {
-			// Both hooks wait for each other, so force two packs on machines with fewer CPUs.
+			// Each hook waits for a marker that another pack writes, or in the failure variant, a
+			// marker that never appears. Force two packs on machines with fewer CPUs.
 			await using cpus = await createFixture({
 				'six-cpus.cjs': "require('node:os').availableParallelism = () => 6; require('node:module').syncBuiltinESMExports();",
 			});

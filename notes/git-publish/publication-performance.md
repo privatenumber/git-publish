@@ -8,7 +8,7 @@ Measure changes with [`bench/`](../../bench/README.md), which compares builds in
 
 [`publishWorkspaceClosure`](../../src/workspace-publication/publish.ts) starts package tasks in dependency order, up to a concurrency limit described in [Concurrency limit](#concurrency-limit). Each pack uses a detached checkout from a [pool](../../src/publish-repository/create.ts). The pool creates checkouts on demand, resets and cleans them before each use, and removes them at the end. Only creation is serialized: simultaneous `git worktree add` calls can read one another's incomplete registrations.
 
-Manifests use [branch references](./branch-channel.md), so packing does not need to wait for dependencies. Each task returns its checkout before waiting for the dependency preparations it needs to validate packed versions and import a publication commit. Concurrent imports share the Git object store but write distinct refs and do not use a checkout's index. After all tasks finish, the CLI validates peer ranges and checks that no hook changed the source checkout before it pushes. If a task fails, the group cancels the other tasks and waits for them to stop before disposing of the checkouts.
+Manifests use [branch references](./branch-channel.md), so packing does not need to wait for dependencies. Each task returns its checkout before waiting for the dependency preparations it needs to validate packed versions and import a publication commit. Concurrent imports share the Git object store but write distinct refs and do not use a checkout's index. After all tasks finish, the CLI validates peer ranges. For workspace plans, it then checks that the source checkout's HEAD and tracked files did not change before it pushes. This check does not detect changes to ignored or untracked files. If a task fails, the group cancels the other tasks and waits for them to stop before disposing of the checkouts.
 
 ### Generated workspace
 
@@ -45,12 +45,12 @@ Each configuration ran three times in rotating order. Each run published to a fr
 
 Before each round, the run waited until the 1-minute load average was 6 or lower. The loads at the start of the three rounds were 4.34, 5.42, and 4.99. No other benchmark or test run was active.
 
-| Scenario | Sequential (`d872c42`) | Default parallelism (7) | Cap of three |
+| Scenario | Sequential (`d872c42`) | Earlier default at `93cbf11`, `min(CPUs, packages)` = 7 | Cap of three |
 | --- | ---: | ---: | ---: |
 | First publish | 12.61 s (11.76–14.14 s) | 12.52 s (11.74–13.46 s) | 9.38 s (9.05–10.03 s) |
 | Unchanged republish | 14.20 s (14.20–14.40 s) | 11.81 s (11.75–11.89 s) | 9.91 s (8.83–10.36 s) |
 
-Every package had the same published Git tree ID in every run, and every republish retained the branch tips. Default parallelism did not improve the first-publish median in this workspace. The cap of three was faster than both alternatives in every round for both scenarios.
+Every package had the same published Git tree ID in every run, and every republish retained the branch tips. The earlier default of 7 did not improve the first-publish median in this workspace. The cap of three was faster than both alternatives in every round for both scenarios.
 
 No single long build bounds the wall time. In a first publish with all seven packages at once, the per-package task times were 2, 2, 6, 7, 8, 9, and 10 s. With a cap of three, the same packages took 1 to 4 s each. Every build slows when seven run together, which suggests that the concurrent build hooks contend for CPU or I/O. The comparison of more caps below chose the limit.
 
@@ -67,7 +67,7 @@ Workspace with build hooks: three rotating rounds per cap, with round loads of 3
 | 3 | 9.87 s (9.78–10.48 s) | 9.17 s (8.75–9.60 s) |
 | 4 | 9.88 s (9.69–11.37 s) | 9.66 s (8.95–9.86 s) |
 | 5 | 10.22 s (9.57–11.15 s) | 11.36 s (9.40–11.42 s) |
-| 7 (earlier session) | 12.52 s (11.74–13.46 s) | 11.81 s (11.75–11.89 s) |
+| 7 (earlier default at `93cbf11`, earlier session) | 12.52 s (11.74–13.46 s) | 11.81 s (11.75–11.89 s) |
 
 Generated workspace without hooks: load average 2.74 at the start. The sequential row comes from the comparison above.
 
@@ -85,9 +85,9 @@ Every hook-workspace run produced the same published trees as the sequential bui
 
 Decision: git-publish packs at most `Math.min(Math.max(1, Math.floor(os.availableParallelism() / 3)), packageCount)` packages at once.
 
-- Build hooks are multi-threaded, so one pack occupies several cores. With hooks, throughput was flat from 2 to 4 packs and dropped from 5.
+- This is a workload-dependent heuristic. Build hooks are often multi-threaded, as the pkgroll (esbuild) hooks measured here are, so one pack can occupy several cores. With those hooks, throughput was flat from 2 to 4 packs and dropped from 5.
 - Without hooks, most of the gain arrived by 4 packs.
-- On 12 CPUs, the divisor gives 4. Machines with 5 CPUs or fewer, such as 4-vCPU CI runners, pack sequentially instead of oversubscribing.
+- On 12 CPUs, the divisor gives 4, the current default on this machine. Machines with 5 CPUs or fewer, such as 4-vCPU CI runners, pack sequentially. The divisor does not prevent oversubscription in general: a hook with more threads than the measured ones can still oversubscribe.
 
 This limit is verified on one 12-CPU machine only. Revisit it if a slower or faster machine shows a different knee.
 
@@ -117,4 +117,8 @@ A republish with no changes costs almost as much as a first publish. git-publish
 ## Consequences for workspaces
 
 - Before `prepack` runs, git-publish copies the package's files that npm would pack, as listed by `npm-packlist`, from the source checkout into the isolated checkout ([`pack-package.ts`](../../src/utils/pack-package.ts)). These are the `files` list, including existing build output, and entries npm always packs, such as `main` and `bin`. Other untracked files are not copied. When a `prepack` hook rebuilds all of the output that the package publishes, a workspace build before publishing does the same work again. When a hook relies on output that the workspace build created, the workspace build is required.
-- Each pack has its own checkout, but lifecycle hooks still share the source checkout's symlinked `node_modules`. Hooks that write to a shared cache or build output must not assume that another package's hook has finished.
+
+## Limitations
+
+- Hooks of different packages run at the same time and share the source checkout's symlinked `node_modules`, as scripts run by `pnpm -r run` do. A hook that writes a shared cache non-atomically can race with another package's hook. Workaround: publish those packages in separate runs.
+- After one pack fails, git-publish sends SIGTERM to the process groups of the other running packs and waits for them to exit ([`spawn-abortable.ts`](../../src/utils/spawn-abortable.ts)). A hook that ignores SIGTERM keeps the CLI waiting. A second Ctrl-C exits the CLI, and its exit handler sends SIGKILL to the pack groups ([`runWithSignals`](../../src/index.ts)).

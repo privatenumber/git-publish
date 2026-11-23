@@ -184,9 +184,9 @@ export const publishWorkspaceClosure = async ({
 				throw error;
 			}
 		};
-		// Build hooks are multi-threaded, so one pack occupies several cores. On 12 CPUs,
-		// throughput with hooks was flat from 2 to 4 packs and dropped from 5.
-		// Machines with up to 5 CPUs pack sequentially instead of oversubscribing.
+		// Heuristic: build hooks are often multi-threaded, so one pack can occupy several cores.
+		// On one 12-CPU machine, throughput with pkgroll hooks was flat from 2 to 4 packs and
+		// dropped from 5. The best limit depends on the workload. Up to 5 CPUs packs sequentially.
 		const concurrency = Math.min(
 			Math.max(1, Math.floor(os.availableParallelism() / 3)),
 			plan.nodes.length,
