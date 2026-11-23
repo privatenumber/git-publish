@@ -6,7 +6,7 @@ Measure changes with [`bench/`](../../bench/README.md), which compares builds in
 
 ## Where the time goes
 
-[`publishWorkspaceClosure`](../../src/workspace-publication/publish.ts) starts package tasks in dependency order, up to the smaller of the available CPU count and the package count. Each pack uses a detached checkout from a [pool](../../src/publish-repository/create.ts). The pool creates checkouts on demand, resets and cleans them before each use, and removes them at the end. Only creation is serialized: simultaneous `git worktree add` calls can read one another's incomplete registrations.
+[`publishWorkspaceClosure`](../../src/workspace-publication/publish.ts) starts package tasks in dependency order, up to a concurrency limit described in [Concurrency limit](#concurrency-limit). Each pack uses a detached checkout from a [pool](../../src/publish-repository/create.ts). The pool creates checkouts on demand, resets and cleans them before each use, and removes them at the end. Only creation is serialized: simultaneous `git worktree add` calls can read one another's incomplete registrations.
 
 Manifests use [branch references](./branch-channel.md), so packing does not need to wait for dependencies. Each task returns its checkout before waiting for the dependency preparations it needs to validate packed versions and import a publication commit. Concurrent imports share the Git object store but write distinct refs and do not use a checkout's index. After all tasks finish, the CLI validates peer ranges and checks that no hook changed the source checkout before it pushes. If a task fails, the group cancels the other tasks and waits for them to stop before disposing of the checkouts.
 
@@ -52,7 +52,44 @@ Before each round, the run waited until the 1-minute load average was 6 or lower
 
 Every package had the same published Git tree ID in every run, and every republish retained the branch tips. Default parallelism did not improve the first-publish median in this workspace. The cap of three was faster than both alternatives in every round for both scenarios.
 
-No single long build bounds the wall time. In a first publish with all seven packages at once, the per-package task times were 2, 2, 6, 7, 8, 9, and 10 s. With a cap of three, the same packages took 1 to 4 s each. Every build slows when seven run together, which suggests that the concurrent build hooks contend for CPU or I/O. This workspace alone does not establish a general cap. The implementation keeps the CPU-based limit.
+No single long build bounds the wall time. In a first publish with all seven packages at once, the per-package task times were 2, 2, 6, 7, 8, 9, and 10 s. With a cap of three, the same packages took 1 to 4 s each. Every build slows when seven run together, which suggests that the concurrent build hooks contend for CPU or I/O. The comparison of more caps below chose the limit.
+
+### Concurrency sweep
+
+Measured on Mon Nov 23 2026 on the same machine, an M2 Max with 8 performance cores, 4 efficiency cores, and 64 GB of memory. Both workloads used the same setup as the comparisons above, and the cap was overridden in the benchmark CLI process only. Each run waited until the 1-minute load average was 6 or lower.
+
+Workspace with build hooks: three rotating rounds per cap, with round loads of 3.66, 5.37, and 5.99. Caps 1 and 7 come from the earlier session above, with round loads of 4.34, 5.42, and 4.99, so compare those two rows only roughly.
+
+| Cap | First publish | Unchanged republish |
+| ---: | ---: | ---: |
+| 1 (sequential, earlier session) | 12.61 s (11.76–14.14 s) | 14.20 s (14.20–14.40 s) |
+| 2 | 10.72 s (10.43–11.26 s) | 8.82 s (8.58–8.88 s) |
+| 3 | 9.87 s (9.78–10.48 s) | 9.17 s (8.75–9.60 s) |
+| 4 | 9.88 s (9.69–11.37 s) | 9.66 s (8.95–9.86 s) |
+| 5 | 10.22 s (9.57–11.15 s) | 11.36 s (9.40–11.42 s) |
+| 7 (earlier session) | 12.52 s (11.74–13.46 s) | 11.81 s (11.75–11.89 s) |
+
+Generated workspace without hooks: load average 2.74 at the start. The sequential row comes from the comparison above.
+
+| Cap | First publish | Unchanged republish |
+| ---: | ---: | ---: |
+| 1 (sequential, earlier run) | 4.76 s | 4.21 s |
+| 2 | 2.99 s (2.95–3.04 s) | 2.70 s (2.67–2.73 s) |
+| 3 | 2.53 s (2.51–2.60 s) | 2.28 s (2.28–2.35 s) |
+| 4 | 2.16 s (2.13–2.18 s) | 1.98 s (1.97–2.05 s) |
+| 12 | 2.01 s (1.99–2.04 s) | 1.87 s (1.86–1.90 s) |
+
+Every hook-workspace run produced the same published trees as the sequential build, and every republish retained the branch tips.
+
+### Concurrency limit
+
+Decision: git-publish packs at most `Math.min(Math.max(1, Math.floor(os.availableParallelism() / 3)), packageCount)` packages at once.
+
+- Build hooks are multi-threaded, so one pack occupies several cores. With hooks, throughput was flat from 2 to 4 packs and dropped from 5.
+- Without hooks, most of the gain arrived by 4 packs.
+- On 12 CPUs, the divisor gives 4. Machines with 5 CPUs or fewer, such as 4-vCPU CI runners, pack sequentially instead of oversubscribing.
+
+This limit is verified on one 12-CPU machine only. Revisit it if a slower or faster machine shows a different knee.
 
 ### Earlier profile of a private workspace with build hooks
 

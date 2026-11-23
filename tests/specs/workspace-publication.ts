@@ -1,9 +1,8 @@
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import fs from 'node:fs/promises';
 import {
-	describe, test, expect, onFinish, onTestFail, skip,
+	describe, test, expect, onFinish, onTestFail,
 } from 'manten';
 import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
@@ -26,9 +25,10 @@ describe('Workspace publication', async () => {
 		test(fail
 			? 'aborts a sibling pack without hiding the original failure or pushing'
 			: 'runs independent prepack hooks concurrently', async () => {
-			if (os.availableParallelism() < 2) {
-				skip('Requires two available CPUs');
-			}
+			// Both hooks wait for each other, so force two packs on machines with fewer CPUs.
+			await using cpus = await createFixture({
+				'six-cpus.cjs': "require('node:os').availableParallelism = () => 6; require('node:module').syncBuiltinESMExports();",
+			});
 			await using markers = await createFixture();
 			await using temporary = await createFixture();
 			await using remote = await createGitFixture(undefined, ['--bare']);
@@ -83,6 +83,7 @@ check();
 				PACK_MARKERS: markers.path,
 				TMPDIR: temporary.path,
 				NODE_DISABLE_COMPILE_CACHE: '1',
+				NODE_OPTIONS: `--require ${JSON.stringify(cpus.getPath('six-cpus.cjs'))}`,
 			});
 			onTestFail(() => console.log(result.output));
 			if (fail) {

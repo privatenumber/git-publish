@@ -184,6 +184,13 @@ export const publishWorkspaceClosure = async ({
 				throw error;
 			}
 		};
+		// Build hooks are multi-threaded, so one pack occupies several cores. On 12 CPUs,
+		// throughput with hooks was flat from 2 to 4 packs and dropped from 5.
+		// Machines with up to 5 CPUs pack sequentially instead of oversubscribing.
+		const concurrency = Math.min(
+			Math.max(1, Math.floor(os.availableParallelism() / 3)),
+			plan.nodes.length,
+		);
 		// Start in dependency order. Release the checkout before waiting for packed versions.
 		await task('Packages', async () => {
 			try {
@@ -197,7 +204,7 @@ export const publishWorkspaceClosure = async ({
 						},
 						failureOutputOptions,
 					)),
-					{ concurrency: Math.min(os.availableParallelism(), plan.nodes.length) },
+					{ concurrency },
 				);
 			} finally {
 				// The group rejects on the first failure, before cancelled tasks finish.
