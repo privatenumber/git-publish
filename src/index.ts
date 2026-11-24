@@ -16,7 +16,6 @@ import {
 	getGitHubRepositoryName, redactRemote,
 } from './utils/git-url.ts';
 import { getPublishRemote } from './publish-repository/remote.ts';
-import { planPackagePublicationPush } from './package-publication/push.ts';
 import {
 	formatSkippedPrivatePackages, planStandalonePublication, planWorkspacePublication,
 	type WorkspacePublicationPlan,
@@ -192,7 +191,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 	await assertSourceUnchanged(source);
 	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
 	const remoteUrl = publishRemote.installUrl;
-	const pushMode = planPackagePublicationPush(plan, fresh);
+	const pushMode = fresh ? 'lease' : 'normal';
 	// Built before the dry-run return so a dry run rejects invalid versions too
 	const versionShas = new Map(argv.flags.versionSha
 		? plan.nodes.map(node => [node.key, createVersionSha(

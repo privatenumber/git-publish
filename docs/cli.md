@@ -85,7 +85,7 @@ Every rendered name must be a valid Git branch and use only ASCII letters, digit
 
 ## `--fresh`
 
-By default, `git-publish` adds a commit to the existing branch. Lockfiles record the commit of a Git dependency, not the branch name, and a commit that becomes unreachable from the branch history may be garbage-collected, which breaks those installs. `--fresh` force-pushes a one-commit branch, so use it only when no one depends on the old commits.
+By default, `git-publish` adds a commit to the existing branch. Lockfiles record the commit of a Git dependency, not the branch name, and a commit that becomes unreachable from the branch history may be garbage-collected, which breaks those installs. `--fresh` force-pushes a one-commit branch, so use it only when no one depends on the old commits. The push fails if someone else updates the branch while `git-publish` runs, so it never discards a commit it did not see.
 
 Publishing checks for refs that a package manager could resolve instead of a publish branch, even with `--fresh`. This requires Git read access. See [Install commands](./installing.md#install-commands) for the `pushInsteadOf` limitation.
 

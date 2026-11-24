@@ -1,6 +1,7 @@
 import { getErrorDetails } from '../utils/error.ts';
 import { redactRemote } from '../utils/git-url.ts';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
+import type { PackagePublicationPushMode } from '../package-publication/push.ts';
 import type { PublishRepository } from './create.ts';
 import type { PublishRemote } from './remote.ts';
 
@@ -20,7 +21,7 @@ export const loadPublishBranches = async (
 		publishBranch: string;
 		localRef: string;
 	}[],
-	mode: 'normal' | 'force' | 'lease',
+	mode: PackagePublicationPushMode,
 	signal: AbortSignal,
 ) => {
 	const { gitOptions, fetchRemoteName, pushRemoteName } = repository;
@@ -59,10 +60,11 @@ export const loadPublishBranches = async (
 		}
 		return references;
 	};
-	const separateConflictLookup = mode === 'normal' && fetchRemoteName !== pushRemoteName;
+	// A triangular remote reads history from the fetch URL and checks conflicts on the push URL
+	const separateConflictLookup = mode === 'normal' && publishRemote.historyUrl !== publishRemote.pushUrl;
 	const references = mode === 'normal'
 		? await listReferences(fetchRemoteName, publishRemote.historyUrl, separateConflictLookup ? 'heads' : 'both')
-		: await listReferences(pushRemoteName, publishRemote.pushUrl, mode === 'lease' ? 'both' : 'conflicts');
+		: await listReferences(pushRemoteName, publishRemote.pushUrl, 'both');
 	const pushReferences = separateConflictLookup
 		? await listReferences(pushRemoteName, publishRemote.pushUrl, 'conflicts')
 		: references;

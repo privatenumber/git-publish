@@ -18,7 +18,7 @@ Git-publish detects configured remotes with `git remote get-url --push --all -- 
 
 Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts) ("selects install and history URLs by destination identity", "prints the fork with the fetch transport for a hosted triangular remote", "rejects multiple url destinations before packing", "rejects multiple pushurl destinations before packing"), [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts) ("publishes and reloads a workspace closure from the push destination").
 
-The [conflict check](./branch-channel.md#remote-refs-that-can-conflict) uses the same remote name as the push. It shares a lookup with branch history only when both use the same remote name. The push uses `--no-follow-tags` to avoid creating a conflicting annotated tag after the check.
+The [conflict check](./branch-channel.md#remote-refs-that-can-conflict) uses the same remote name as the push. In normal mode it shares one `ls-remote` with branch history when the history URL and the push URL are the same string. When they differ (the same repository through two transports, such as HTTPS fetch and SSH push), history and conflicts use separate lookups. `--fresh` reads no history, so it runs one lookup on the push URL. The push uses `--no-follow-tags` to avoid creating a conflicting annotated tag after the check.
 
 ## Open scope questions
 
@@ -52,7 +52,7 @@ Status: undecided; not supported by tests.
 
 This is a breaking change: multiple push URLs worked in released versions, including v2.5.0 ([#63](https://github.com/privatenumber/git-publish/pull/63)). Standalone and single-package workspace publications no longer mirror to multiple destinations in one invocation, and the partial-outcome report for a failed mirror push is removed. Separate invocations can target each destination, but do not guarantee identical publication commits or atomicity across destinations. Multi-package workspace publications already rejected multiple destinations.
 
-The push strategy still distinguishes normal pushes, standalone force pushes, and workspace force-with-lease pushes. Remote resolution establishes one destination for the rest of the publication.
+The push strategy distinguishes normal pushes and `--fresh` force-with-lease pushes, for standalone and workspace publications alike. Remote resolution establishes one destination for the rest of the publication.
 
 ## Credentials
 

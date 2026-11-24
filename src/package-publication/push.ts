@@ -1,14 +1,9 @@
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import type { PublishRepository } from '../publish-repository/create.ts';
-import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
 import type { PackagePublication } from './prepare.ts';
 
-export type PackagePublicationPushMode = 'normal' | 'force' | 'lease';
-
-export const planPackagePublicationPush = (
-	plan: WorkspacePublicationPlan,
-	fresh: boolean | undefined,
-): PackagePublicationPushMode => (fresh ? (plan.kind === 'standalone' ? 'force' : 'lease') : 'normal');
+// --fresh replaces history, so it leases each branch on the tip the lookup observed
+export type PackagePublicationPushMode = 'normal' | 'lease';
 
 export const pushPackagePublications = async ({
 	repository,
@@ -25,9 +20,7 @@ export const pushPackagePublications = async ({
 }): Promise<void> => {
 	const publications = [...input];
 	const args = ['push', '--no-follow-tags', ...(publications.length > 1 ? ['--atomic'] : [])];
-	if (mode === 'force') {
-		args.push('--force');
-	} else if (mode === 'lease') {
+	if (mode === 'lease') {
 		for (const publication of publications) {
 			args.push(`--force-with-lease=refs/heads/${publication.branch}:${remoteTips.get(publication.branch) ?? ''}`);
 		}
