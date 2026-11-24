@@ -99,7 +99,11 @@ export const planStandalonePublication = async ({
 	if (workspaceDependencies.length > 0) {
 		throw new Error(`Cannot publish packages with workspace dependencies:\n${workspaceDependencies.join('\n')}\nPre-bundle these dependencies before publishing.`);
 	}
-	const name = packageJson.name!;
+	const { name } = packageJson;
+	if (typeof name !== 'string' || !name) {
+		const packageJsonPath = path.relative(gitRootPath, path.join(cwd, 'package.json'));
+		throw new Error(`${packageJsonPath} has no "name". Add a package name before publishing.`);
+	}
 	const branch = publishBranch
 		? renderPackageBranch({
 			template: publishBranch,
