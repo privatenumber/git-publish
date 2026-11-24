@@ -98,14 +98,14 @@ export const createWorkspaceResult = ({
 		].join(' ');
 		const installSpecifiers = getInstallArguments(rootTargets);
 		const settings = getInstallSettings(installed);
-		const lines = [formatCommand(installSpecifiers, settings.flags)];
+		const followUps: string[] = [];
 		const peers = followUpPeers.filter(edge => (
 			(edge.kind === 'optionalPeer' || !required.has(edge.from))
 				&& installed.has(edge.from) && !rootTargets.has(edge.key)
 		));
 		const optionalDependencies = optional.filter(name => installed.has(name));
 		if (optionalDependencies.length > 0) {
-			lines.push(`Optional workspace dependencies ${optionalDependencies.join(', ')} are attempted transitively and may be skipped by the package manager.${peers.length > 0 ? ' If a required peer is missing, use the peer command below to supply it.' : ''}`);
+			followUps.push(`Optional workspace dependencies ${optionalDependencies.join(', ')} are attempted transitively and may be skipped by the package manager.${peers.length > 0 ? ' If a required peer is missing, use the peer command below to supply it.' : ''}`);
 		}
 		if (peers.length > 0) {
 			const optionalPeerTargets = new Map(peers.map(peer => [peer.key, peer.target]));
@@ -124,12 +124,12 @@ export const createWorkspaceResult = ({
 			const peerLabel = `Optional peers ${[...new Set(peers.map(peer => peer.key))].join(', ')}`;
 			const peerCommand = formatCommand(followUp, peerSettings.flags);
 			if (peerSettings.flags.length > 0) {
-				lines.push(`${peerLabel}:`, peerCommand);
+				followUps.push(`${peerLabel}:`, peerCommand);
 			} else {
-				lines.push(`${peerLabel}: install with ${peerCommand}`);
+				followUps.push(`${peerLabel}: install with ${peerCommand}`);
 			}
 			if (peerSettings.note && peerSettings.note !== settings.note) {
-				lines.push(peerSettings.note);
+				followUps.push(peerSettings.note);
 			}
 		}
 		return [root, {
@@ -143,8 +143,11 @@ export const createWorkspaceResult = ({
 			aliases: Object.fromEntries(edges.filter(edge => (
 				all.has(edge.from) && all.has(edge.target) && edge.key !== edge.target
 			)).map(edge => [edge.key, edge.target])),
-			lines,
-			note: settings.note,
+			presentation: {
+				command: formatCommand(installSpecifiers, settings.flags),
+				note: settings.note,
+				followUps,
+			},
 		}] as const;
 	});
 	const installSets = Object.fromEntries(results.map(([root, result]) => (
@@ -171,8 +174,7 @@ export const createWorkspaceResult = ({
 		aliases,
 		presentation: {
 			publishAll: plan.kind === 'workspace' && plan.selection === 'default-roots',
-			installLines: Object.fromEntries(results.map(([root, result]) => [root, result.lines])),
-			installNotes: Object.fromEntries(results.map(([root, result]) => [root, result.note])),
+			installs: Object.fromEntries(results.map(([root, result]) => [root, result.presentation])),
 		},
 	};
 };
@@ -189,30 +191,26 @@ export const formatWorkspaceResult = (result: WorkspaceResult) => {
 		};
 		// A column with one value for every row carries no information
 		const showRole = new Set(result.packages.map(item => item.role)).size > 1;
-		const table = terminalColumns([
-			['Package', 'Branch', 'Commit', 'Status', ...(showRole ? ['Role'] : [])],
-			...result.packages.map(item => [
-				item.name,
-				item.branch,
-				item.commit.slice(0, 7),
-				item.reused ? 'unchanged' : 'published',
-				...(showRole ? [item.role] : []),
-			]),
-		], {
+		const rows = [
+			['Package', 'Branch', 'Commit', 'Status', 'Role'],
+			...result.packages.map(item => [item.name, item.branch, item.commit.slice(0, 7), item.reused ? 'unchanged' : 'published', item.role]),
+		].map(row => (showRole ? row : row.slice(0, -1)));
+		const width = rows[0]!.length;
+		const table = terminalColumns(rows, {
 			stdoutColumns: Number.POSITIVE_INFINITY,
-			columns: [column, column, column, showRole ? column : { width: 'content-width' }, ...(showRole ? [{ width: 'content-width' }] : [])],
+			columns: Array.from({ length: width }).map((_, index) => (index === width - 1 ? { width: 'content-width' } : column)),
 		}).replaceAll(/ +$/gm, '');
 		sections.push(table);
 	}
-	const { installLines, installNotes } = result.presentation;
-	const notes = new Set(Object.values(installNotes));
+	const { installs } = result.presentation;
+	const notes = new Set(Object.values(installs).map(install => install.note));
 	// Print a note shared by every section once, after all of them
 	const sharedNote = roots.length > 1 && notes.size === 1 ? [...notes][0] : undefined;
 	for (const [root, set] of roots) {
 		const title = roots.length === 1 && set.required.length === 1 && set.optional.length === 0 ? 'command' : root;
-		const [command, ...rest] = installLines[root]!;
-		const note = sharedNote ? undefined : installNotes[root];
-		sections.push([`→ Install ${title}`, command, ...(note ? [note] : []), ...rest].join('\n  '));
+		const { command, note, followUps } = installs[root]!;
+		const sectionNote = sharedNote ? undefined : note;
+		sections.push([`→ Install ${title}`, command, ...(sectionNote ? [sectionNote] : []), ...followUps].join('\n  '));
 	}
 	if (sharedNote) {
 		sections.push(sharedNote);
