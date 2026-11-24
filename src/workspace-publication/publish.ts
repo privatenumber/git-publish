@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import type { TaskInnerAPI } from 'tasuku';
 import byteSize from 'byte-size';
@@ -17,7 +18,6 @@ import { pushPackagePublications, type PackagePublicationPushMode } from '../pac
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import { getErrorDetails, writeSubprocessErrorOutput } from '../utils/error.ts';
 import { packPackage } from '../utils/pack-package.ts';
-import { spawnAbortable } from '../utils/spawn-abortable.ts';
 import { assertSourceUnchanged, type Source } from '../utils/git.ts';
 import { formatUnpublishedFilesFieldWarning } from '../utils/unpublished-files-field.ts';
 import { validatePeerRanges } from '../package-publication/validate.ts';
@@ -63,42 +63,44 @@ export const publishWorkspaceClosure = async ({
 			repository, publishRemote, branches, pushMode, signal,
 		);
 		const preparations = new Map<string, PackagePreparation>();
+		const pendingPreparations = new Map<string, Promise<PackagePreparation>>();
 		const targetsByName = new Map(plan.nodes.map(node => [node.key, node.package]));
 		const installSpecifiers = new Map(plan.nodes.map(node => [
 			node.key, toInstallSpecifier(publishRemote.installUrl, node.branch),
 		]));
 		const versionlessFallback = packageManager === 'yarn' ? '0.0.0' : undefined;
-		const processPackage = async (index: number, {
-			streamPreview,
-			setStatus,
-			setWarning,
-			startTime,
-		}: TaskInnerAPI) => {
+		const processPackage = async (index: number, taskApi: TaskInnerAPI) => {
+			const {
+				streamPreview, setStatus, setWarning, startTime, skip,
+			} = taskApi;
+			const packageSignal = AbortSignal.any([signal, taskApi.signal]);
 			const node = plan.nodes[index]!;
 			const versionSha = versionShas.get(node.key);
-			signal.throwIfAborted();
 			startTime();
 			try {
+				packageSignal.throwIfAborted();
 				setStatus('Preparing isolated checkout');
-				const packWorktreeOptions = {
-					cwd: repository.packWorktreePath,
-					env: repository.gitOptions.env,
-					signal,
-				};
-				await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'reset', '--hard', source.commit], packWorktreeOptions);
-				await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'clean', '-fdx'], packWorktreeOptions);
-				setStatus('Packing package and running lifecycle scripts');
-				await assertSourceUnchanged(source);
-				const tarball = await packPackage(
-					packageManager,
-					repository.packWorktreePath,
-					path.join(repository.packTemporaryDirectory, String(index)),
-					node.package.dir,
-					repositoryPath,
-					path.relative(repositoryPath, node.package.dir),
-					versionSha,
-					signal,
+				const tarball = await repository.withPackWorktree(packageSignal, async (worktreePath) => {
+					setStatus('Packing package and running lifecycle scripts');
+					await assertSourceUnchanged(source);
+					return packPackage(
+						packageManager,
+						worktreePath,
+						path.join(repository.packTemporaryDirectory, String(index)),
+						node.package.dir,
+						repositoryPath,
+						path.relative(repositoryPath, node.package.dir),
+						versionSha,
+						packageSignal,
+					);
+				});
+				const dependencies = await Promise.allSettled(
+					node.dependencies.map(edge => pendingPreparations.get(edge.target)!),
 				);
+				if (dependencies.some(dependency => dependency.status === 'rejected')) {
+					skip();
+				}
+				packageSignal.throwIfAborted();
 				setStatus('Preparing publication commit');
 				const targets = new Map<string, { dir: string;
 					version?: string;
@@ -137,7 +139,7 @@ export const publishWorkspaceClosure = async ({
 					peers: plan.peers.filter(peer => peer.from === node.key),
 					versionSha,
 					gitOptions: repository.gitOptions,
-					signal,
+					signal: packageSignal,
 				});
 				preparations.set(node.key, preparation);
 				if (plan.kind === 'standalone') {
@@ -175,19 +177,41 @@ export const publishWorkspaceClosure = async ({
 				}
 				return preparation;
 			} catch (error) {
+				if (packageSignal.aborted) {
+					skip();
+				}
 				writeSubprocessErrorOutput(streamPreview, error);
 				throw error;
 			}
 		};
-		// Each preparation consumes earlier dependency publications and shares the checkout.
-		await task('Packages', async () => task.group(
-			createTask => plan.nodes.map((node, index) => createTask(
-				node.key,
-				async taskApi => processPackage(index, taskApi),
-				failureOutputOptions,
-			)),
-			{ concurrency: 1 },
-		));
+		// Heuristic: build hooks are often multi-threaded, so one pack can occupy several cores.
+		// On one 12-CPU machine, throughput with pkgroll hooks was flat from 2 to 4 packs and
+		// dropped from 5. The best limit depends on the workload. Up to 5 CPUs packs sequentially.
+		const concurrency = Math.min(
+			Math.max(1, Math.floor(os.availableParallelism() / 3)),
+			plan.nodes.length,
+		);
+		// Start in dependency order. Release the checkout before waiting for packed versions.
+		await task('Packages', async () => {
+			try {
+				await task.group(
+					createTask => plan.nodes.map((node, index) => createTask(
+						node.key,
+						(taskApi) => {
+							const preparation = processPackage(index, taskApi);
+							pendingPreparations.set(node.key, preparation);
+							return preparation;
+						},
+						failureOutputOptions,
+					)),
+					{ concurrency },
+				);
+			} finally {
+				// The group rejects on the first failure, before cancelled tasks finish.
+				await Promise.allSettled(pendingPreparations.values());
+			}
+		});
+		signal.throwIfAborted();
 		const packed = {
 			...plan,
 			nodes: plan.nodes.map(node => ({
@@ -211,6 +235,10 @@ export const publishWorkspaceClosure = async ({
 		};
 		validatePeerRanges(effective, preparations);
 		const packageCount = effective.nodes.length;
+		// A hook may have changed the source after another package's pre-pack check.
+		if (plan.kind === 'workspace') {
+			await assertSourceUnchanged(source);
+		}
 		signal.throwIfAborted();
 		await task(
 			`Pushing ${packageCount} ${packageCount === 1 ? 'package' : 'packages'}${packageCount === 1 ? '' : ' together'}`,

@@ -9,7 +9,7 @@ import {
 } from './remote.ts';
 
 export type PublishRepository = {
-	packWorktreePath: string;
+	withPackWorktree<T>(signal: AbortSignal, pack: (worktreePath: string) => Promise<T>): Promise<T>;
 	packTemporaryDirectory: string;
 	gitOptions: SpawnOptions;
 	pushRemoteName: string;
@@ -32,7 +32,6 @@ export const createPublishRepository = async ({
 	const fetchRemoteName = 'publish-source';
 	const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'git-publish-'));
 	const publishRepositoryPath = path.join(temporaryDirectory, 'publish-repository');
-	const packWorktreePath = path.join(temporaryDirectory, 'pack-worktree');
 	const packTemporaryDirectory = path.join(temporaryDirectory, 'pack');
 	const gitEnvironment = {
 		GIT_CONFIG_SYSTEM: path.join(temporaryDirectory, 'system-config'),
@@ -43,14 +42,17 @@ export const createPublishRepository = async ({
 		env: gitEnvironment,
 	};
 	const pushRemoteName = 'publish';
-	let packWorktreeCreated = false;
+	const packWorktrees: string[] = [];
+	const idlePackWorktrees: string[] = [];
+	let nextPackWorktree = 0;
+	let worktreeCreation = Promise.resolve();
 
 	let disposal: Promise<void> | undefined;
 	const dispose = () => {
 		disposal ??= (async () => {
 			const cleanupErrors: unknown[] = [];
-			if (packWorktreeCreated) {
-				await spawn('git', ['worktree', 'remove', '--force', packWorktreePath], gitOptions).catch(error => cleanupErrors.push(error));
+			for (const worktreePath of packWorktrees) {
+				await spawn('git', ['worktree', 'remove', '--force', worktreePath], gitOptions).catch(error => cleanupErrors.push(error));
 			}
 			await fs.rm(temporaryDirectory, {
 				recursive: true,
@@ -93,11 +95,6 @@ export const createPublishRepository = async ({
 			fetchRemoteName,
 			pushRemoteName,
 		});
-		await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--force', '--detach', packWorktreePath, sourceCommitId], {
-			...gitOptions,
-			signal,
-		});
-		packWorktreeCreated = true;
 	} catch (error) {
 		try {
 			await dispose();
@@ -109,7 +106,37 @@ export const createPublishRepository = async ({
 	}
 
 	return {
-		packWorktreePath,
+		async withPackWorktree(packSignal, pack) {
+			// The caller bounds concurrent leases. Reuse an idle checkout before creating one.
+			let worktreePath = idlePackWorktrees.pop();
+			if (worktreePath === undefined) {
+				worktreePath = path.join(temporaryDirectory, `pack-worktree-${nextPackWorktree}`);
+				nextPackWorktree += 1;
+				const checkout = worktreePath;
+				// Git scans existing registrations during add, including ones still being written.
+				const creation = worktreeCreation.then(async () => {
+					await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--force', '--detach', checkout, sourceCommitId], {
+						...gitOptions,
+						signal: packSignal,
+					});
+					packWorktrees.push(checkout);
+				});
+				worktreeCreation = creation.catch(() => {});
+				await creation;
+			}
+			try {
+				const worktreeOptions = {
+					cwd: worktreePath,
+					env: gitEnvironment,
+					signal: packSignal,
+				};
+				await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'reset', '--hard', sourceCommitId], worktreeOptions);
+				await spawnAbortable('git', ['-c', 'core.hooksPath=/dev/null', 'clean', '-fdx'], worktreeOptions);
+				return await pack(worktreePath);
+			} finally {
+				idlePackWorktrees.push(worktreePath);
+			}
+		},
 		packTemporaryDirectory,
 		gitOptions,
 		pushRemoteName,
