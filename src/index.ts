@@ -133,6 +133,27 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 		},
 		help: {
 			description: packageMeta.description,
+			// cleye omits root parameters from the generated usage once commands exist
+			usage: [
+				`  ${packageMeta.name} [flags...] [packages...]`,
+				`  ${packageMeta.name} skills [flags...]`,
+			],
+			examples: [
+				'  # Publish the current package to the branch npm/<current branch>',
+				`  ${packageMeta.name}`,
+				'',
+				'  # Publish selected workspace packages and their workspace dependencies',
+				`  ${packageMeta.name} @acme/core @acme/cli`,
+				'',
+				'  # Print the publication plan without packing or pushing',
+				`  ${packageMeta.name} --dry`,
+				'',
+				'  # Replace the branch history with one commit',
+				`  ${packageMeta.name} --fresh`,
+				'',
+				'  # Write publication details and install commands to a JSON file',
+				`  ${packageMeta.name} --json publication.json`,
+			],
 		},
 	});
 	if (argv.command) {
@@ -222,9 +243,10 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 	if (dry) {
 		await task(publicationTitle, async ({ setStatus }) => {
 			setStatus('Dry run');
-			if (plan.kind === 'standalone') {
-				console.log(`Pushing branch ${stringify(publishBranch)} to remote ${stringify(redactRemote(remote))}`);
-			}
+			const branches = plan.kind === 'standalone'
+				? `branch ${stringify(publishBranch)}`
+				: `${plan.nodes.length} ${plan.nodes.length === 1 ? 'branch' : 'branches'}`;
+			console.log(`Would push ${branches} to remote ${stringify(redactRemote(remote))}`);
 		});
 		return;
 	}
@@ -241,13 +263,18 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 					source,
 					versionShas,
 				}, signal);
-				const repositoryName = plan.kind === 'standalone' && getGitHubRepositoryName(remoteUrl);
-				if (repositoryName) {
+				if (plan.kind === 'standalone') {
 					const publishedCommit = prepared.preparations.get(plan.nodes[0]!.key)!.publication.commit;
-					const branchLink = terminalLink(publishBranch, `https://github.com/${repositoryName}/tree/${publishBranch}`, { fallback: false });
-					const commitLink = terminalLink(publishedCommit.slice(0, 7), `https://github.com/${repositoryName}/commit/${publishedCommit}`, { fallback: false });
+					const publishedShortCommit = publishedCommit.slice(0, 7);
+					const repositoryName = getGitHubRepositoryName(remoteUrl);
+					const branchLink = repositoryName
+						? terminalLink(publishBranch, `https://github.com/${repositoryName}/tree/${publishBranch}`, { fallback: false })
+						: publishBranch;
+					const commitLink = repositoryName
+						? terminalLink(publishedShortCommit, `https://github.com/${repositoryName}/commit/${publishedCommit}`, { fallback: false })
+						: publishedShortCommit;
 					setTitle(`Successfully published branch: ${branchLink} ${dim(`(${commitLink})`)}`);
-				} else if (plan.kind === 'workspace') {
+				} else {
 					setTitle(`Published ${rootsDescription} from ${stringify(source.name)}`);
 				}
 				return prepared;
@@ -256,14 +283,14 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 			process.exitCode ||= 1;
 		});
 		if (publication) {
-			const result = createWorkspaceResult(
-				publication.plan,
-				publication.preparations,
-				source.name,
-				source.commit,
+			const result = createWorkspaceResult({
+				plan: publication.plan,
+				preparations: publication.preparations,
+				ref: source.name,
+				commit: source.commit,
 				packageManager,
-				remoteUrl,
-			);
+				fetchUrl: remoteUrl,
+			});
 			const { presentation: _presentation, ...jsonResult } = result;
 			const json = `${stringify(jsonResult, null, 2)}\n`;
 			let jsonWriteError: Error | undefined;

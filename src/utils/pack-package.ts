@@ -96,16 +96,25 @@ const copyContained = async (
 	}
 };
 
-export const packPackage = async (
-	packageManager: PackageManager,
-	packWorktreePath: string,
-	packDestinationDirectory: string,
-	cwd: string,
-	gitRootPath: string,
-	gitSubdirectory: string,
-	manifestFields: Readonly<Record<string, string>> | undefined,
-	signal: AbortSignal,
-): Promise<string> => {
+export const packPackage = async ({
+	packageManager,
+	packWorktreePath,
+	packDestinationDirectory,
+	cwd,
+	gitRootPath,
+	gitSubdirectory,
+	manifestFields,
+	signal,
+}: {
+	packageManager: PackageManager;
+	packWorktreePath: string;
+	packDestinationDirectory: string;
+	cwd: string;
+	gitRootPath: string;
+	gitSubdirectory: string;
+	manifestFields: Readonly<Record<string, string>> | undefined;
+	signal: AbortSignal;
+}): Promise<string> => {
 	const isMonorepo = gitSubdirectory.length > 0;
 	const packWorktreePackageRoot = path.join(packWorktreePath, gitSubdirectory);
 	const checkoutRealPath = await fs.realpath(packWorktreePath);
