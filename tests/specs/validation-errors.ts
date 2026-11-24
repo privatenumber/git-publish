@@ -208,6 +208,26 @@ exec "${gitPath}" "$@"
 		expect(await temporaryFixture.readdir('')).toStrictEqual([]);
 	});
 
+	test('rejects a package without a name before packing', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package/package.json': JSON.stringify({ version: '1.0.0' }),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const packageDirectory = fixture.getPath('package');
+
+		const dryRun = await gitPublish(packageDirectory, ['--dry']);
+		expect(('exitCode' in dryRun) && dryRun.exitCode).toBe(1);
+		expect(dryRun.stderr).toBe('Error: package/package.json has no "name". Add a package name before publishing.');
+
+		const run = await gitPublish(packageDirectory);
+		expect(('exitCode' in run) && run.exitCode).toBe(1);
+		expect(run.stderr).toBe('Error: package/package.json has no "name". Add a package name before publishing.');
+		expect(await remote.git('for-each-ref')).toBe('');
+	});
+
 	test('Workspace dependencies', async () => {
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
