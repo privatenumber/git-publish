@@ -8,10 +8,11 @@ import spawn from 'nano-spawn';
 import { createFixture } from 'fs-fixture';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
+import { testConcurrency } from '../utils/test-concurrency.ts';
 
 type GitFixture = Awaited<ReturnType<typeof createGitFixture>>;
 
-describe('Package contents', async () => {
+await describe('Package contents', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
@@ -570,7 +571,7 @@ describe('Package contents', async () => {
 		]);
 	});
 
-	describe('Version SHA', () => {
+	await describe('Version SHA', () => {
 		const createVersionShaFixture = async (
 			files: Parameters<typeof createGitFixture>[0],
 			branch: string,
@@ -1006,5 +1007,5 @@ describe('Package contents', async () => {
 			expect(manifest.dependencies).toStrictEqual({ b: '^2.0.0' });
 			expect(manifest.peerDependencies).toStrictEqual({ b: '>=1.0.0' });
 		});
-	});
-});
+	}, { parallel: testConcurrency });
+}, { parallel: testConcurrency });

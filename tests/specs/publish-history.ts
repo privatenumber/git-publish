@@ -7,8 +7,9 @@ import {
 import { createFixture } from 'fs-fixture';
 import { createGit, createGitFixture, mockGitSshTransport } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
+import { testConcurrency } from '../utils/test-concurrency.ts';
 
-describe('Publish history', async () => {
+await describe('Publish history', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
@@ -639,4 +640,4 @@ describe('Publish history', async () => {
 		expect('exitCode' in freshPublish).toBe(false);
 		expect(await git('branch', ['--list', 'git-publish-*'])).toBe('');
 	});
-});
+}, { parallel: testConcurrency });

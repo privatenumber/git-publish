@@ -7,8 +7,9 @@ import { detectPackageManager } from '../../src/utils/detect-package-manager.ts'
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
+import { testConcurrency } from '../utils/test-concurrency.ts';
 
-describe('Lifecycle hooks', async () => {
+await describe('Lifecycle hooks', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
@@ -304,14 +305,14 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 				scripts: { prepack: missingBinary },
 			}, null, 2),
 		}, ['--initial-branch=test-pack-and-cleanup-error-output']);
-		await using hookFixture = await createFixture();
+		await using cleanupFailureHook = await createCleanupFailureHook();
 		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
 
 		const gitPublishProcess = await gitPublish(fixture.path, [], {
-			NODE_OPTIONS: await createCleanupFailureHook(hookFixture),
+			NODE_OPTIONS: cleanupFailureHook.nodeOptions,
 		});
 
 		expect('exitCode' in gitPublishProcess).toBe(true);
@@ -319,4 +320,4 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 		expect(gitPublishProcess.output).toContain('Test cleanup failure at');
 		expect(gitPublishProcess.output).not.toContain('→ Install command');
 	});
-});
+}, { parallel: testConcurrency });

@@ -11,8 +11,9 @@ import {
 } from '../../src/package-publication/prepare.ts';
 import { validatePackedManifest, validatePackedWorkspaceDependencies } from '../../src/package-publication/validate.ts';
 import { createGitFixture } from '../utils/create-git.ts';
+import { testConcurrency } from '../utils/test-concurrency.ts';
 
-describe('Package publication', () => {
+await describe('Package publication', () => {
 	test('validates unplanned local paths against the package boundary', () => {
 		const context = {
 			from: '/repo/packages/app',
@@ -522,4 +523,4 @@ describe('Package publication', () => {
 			installSpecifier: 'git+file:///remote.git#npm/adapter',
 		});
 	});
-});
+}, { parallel: testConcurrency });

@@ -1,8 +1,9 @@
 import { describe, test, expect } from 'manten';
 import { createFixture } from 'fs-fixture';
 import { discoverWorkspacePackages, findWorkspacePackages } from '../../src/workspace-publication/discover.ts';
+import { testConcurrency } from '../utils/test-concurrency.ts';
 
-describe('Workspace discovery', () => {
+await describe('Workspace discovery', () => {
 	test('discovers npm workspace packages', async () => {
 		await using fixture = await createFixture({
 			'package.json': JSON.stringify({
@@ -185,4 +186,4 @@ describe('Workspace discovery', () => {
 
 		expect(await findWorkspacePackages(fixture.path, 'npm')).toBeUndefined();
 	});
-});
+}, { parallel: testConcurrency });

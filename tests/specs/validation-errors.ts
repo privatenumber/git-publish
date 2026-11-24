@@ -5,8 +5,9 @@ import { createFixture } from 'fs-fixture';
 import which from 'which';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
+import { testConcurrency } from '../utils/test-concurrency.ts';
 
-describe('Error cases', () => {
+await describe('Error cases', () => {
 	test('explains that a repository with no commits must be committed before publishing', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
@@ -306,4 +307,4 @@ Pre-bundle these dependencies before publishing.`);
 		expect('exitCode' in result).toBe(false);
 		expect(JSON.parse(await remote.git('show', ['npm/main:package.json'])).private).toBe(true);
 	});
-});
+}, { parallel: testConcurrency });

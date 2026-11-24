@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, test, expect } from 'manten';
+import { testConcurrency } from '../utils/test-concurrency.ts';
 
 const cliPath = fileURLToPath(new URL('../../dist/index.js', import.meta.url));
 const skillUrl = new URL('../../skills/git-publish/SKILL.md', import.meta.url);
@@ -49,7 +50,7 @@ const withTemporaryDirectory = async (callback: (directory: string) => Promise<v
 	}
 };
 
-describe('skills', () => {
+await describe('skills', () => {
 	test('prints the bundled skill', async () => {
 		expect(await run(['skills'])).toStrictEqual({
 			exitCode: 0,
@@ -100,4 +101,4 @@ describe('skills', () => {
 			expect(await fs.readFile(path.join(destination, 'SKILL.md'), 'utf8')).toBe(await fs.readFile(skillUrl, 'utf8'));
 		});
 	});
-});
+}, { parallel: testConcurrency });

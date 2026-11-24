@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'manten';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
+import { testConcurrency } from '../utils/test-concurrency.ts';
 
-describe('Standalone branch templates', () => {
+await describe('Standalone branch templates', () => {
 	test('rejects ambiguous bare selectors during planning, including dry runs', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
@@ -90,4 +91,4 @@ describe('Standalone branch templates', () => {
 			expect(await remoteGit('show', [`${branch(sourceCommit)}:package.json`])).toContain('test-package');
 		});
 	}
-});
+}, { parallel: testConcurrency });

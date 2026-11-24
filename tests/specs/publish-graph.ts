@@ -11,6 +11,7 @@ import {
 	findWorkspacePackageDirectory,
 	selectWorkspacePackage,
 } from '../../src/workspace-publication/graph.ts';
+import { testConcurrency } from '../utils/test-concurrency.ts';
 
 const planWorkspacePublication = async (...args: Parameters<typeof planWorkspace>) => {
 	const plan = await planWorkspace(...args);
@@ -36,7 +37,7 @@ const discoverTestWorkspace = async (packages: Record<string, unknown>) => {
 	return discoverWorkspacePackages(fixture.path, 'npm');
 };
 
-describe('Publication graph', () => {
+await describe('Publication graph', () => {
 	test('resolves file and link sibling paths as internal runtime and peer edges', async () => {
 		const workspace = await discoverTestWorkspace({
 			app: {
@@ -1195,4 +1196,4 @@ describe('Publication graph', () => {
 		expect(findWorkspacePackageDirectory(workspace, fixture.getPath('packages/app/src'))?.name).toBe('@test/app');
 		expect(findWorkspacePackageDirectory(workspace, fixture.path)).toBeUndefined();
 	});
-});
+}, { parallel: testConcurrency });

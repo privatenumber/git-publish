@@ -11,12 +11,13 @@ import { createGit, createGitFixture, mockGitSshTransport } from '../utils/creat
 import { gitPublish } from '../utils/git-publish.ts';
 import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
 import { createYarnEnvironment } from '../utils/yarn-environment.ts';
+import { testConcurrency } from '../utils/test-concurrency.ts';
 
 // npm is not always next to process.execPath (pnpm-managed Node runtimes ship
 // without it). Absolute, because the shims run from other directories.
 const npmPath = path.resolve(await which('npm'));
 
-describe('Workspace publication', async () => {
+await describe('Workspace publication', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
@@ -2402,9 +2403,9 @@ exec '${npmPath}' "$@"
 	test('retains publication success when cleanup fails', async () => {
 		const branchName = 'test-workspace-cleanup-failure';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path);
-		await using hookFixture = await createFixture();
+		await using cleanupFailureHook = await createCleanupFailureHook();
 		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), [], {
-			NODE_OPTIONS: await createCleanupFailureHook(hookFixture),
+			NODE_OPTIONS: cleanupFailureHook.nodeOptions,
 		});
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
@@ -2882,4 +2883,4 @@ exec sh -c "$*"
 			expect(lockfile).toContain(sha);
 		}
 	});
-});
+}, { parallel: testConcurrency });
