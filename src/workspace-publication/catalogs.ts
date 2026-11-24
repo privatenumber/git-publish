@@ -27,8 +27,7 @@ const isCatalogs = (entry: unknown): entry is Record<string, Record<string, stri
 	isObject(entry) && Object.values(entry).every(isStringMap)
 );
 
-const parseCatalogConfiguration = (output: string, manager: string): CatalogConfiguration => {
-	const value = parseCatalogJson(output, manager);
+const assertCatalogConfiguration = (value: unknown, manager: string): CatalogConfiguration => {
 	if (!isObject(value)
 		|| (value.catalog !== undefined && !isStringMap(value.catalog))
 		|| (value.catalogs !== undefined && !isCatalogs(value.catalogs))) {
@@ -36,6 +35,10 @@ const parseCatalogConfiguration = (output: string, manager: string): CatalogConf
 	}
 	return value as CatalogConfiguration;
 };
+
+const parseCatalogConfiguration = (output: string, manager: string) => (
+	assertCatalogConfiguration(parseCatalogJson(output, manager), manager)
+);
 
 const findCatalogReferences = (candidate: WorkspacePackage) => (
 	(['dependencies', 'optionalDependencies', 'peerDependencies'] as const).flatMap(field => (
@@ -56,21 +59,14 @@ const loadYarnCatalogs = async (
 	] as const;
 	const results = await Promise.all(queries.map(async (query) => {
 		const output = await getStdout(spawn('yarn', ['config', 'get', query, '--json'], { cwd: directory }));
-		const value = parseCatalogJson(output, 'Yarn');
-		if (query === 'catalog' ? !isStringMap(value) : !isCatalogs(value)) {
-			throw new Error('Could not read Yarn catalog configuration.');
-		}
-		return { [query]: value };
+		return { [query]: parseCatalogJson(output, 'Yarn') };
 	}));
-	return Object.assign({}, ...results);
+	return assertCatalogConfiguration(Object.assign({}, ...results), 'Yarn');
 };
 
 const readBunCatalogs = (rootPackage: WorkspacePackage | undefined): CatalogConfiguration => {
-	const root = rootPackage?.packageJson as (WorkspacePackage['packageJson'] & {
-		catalog?: Record<string, string>;
-		catalogs?: Record<string, Record<string, string>>;
-		workspaces?: { catalog?: Record<string, string>;
-			catalogs?: Record<string, Record<string, string>>; };
+	const root = rootPackage?.packageJson as (CatalogConfiguration & {
+		workspaces?: string[] | CatalogConfiguration;
 	}) | undefined;
 	const workspaces = root?.workspaces;
 	return {
