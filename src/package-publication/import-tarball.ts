@@ -2,9 +2,9 @@ import { createReadStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { buffer } from 'node:stream/consumers';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import spawn, { type Options } from 'nano-spawn';
-import gunzip from 'gunzip-maybe';
 import tar from 'tar-stream';
 import { getStdout } from '../utils/get-stdout.ts';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
@@ -118,7 +118,12 @@ export const importTarball = async ({
 	});
 	const generate = async function* () {
 		const extract = tar.extract();
-		const extraction = pipeline(createReadStream(tarball), gunzip(), extract, { signal });
+		const extraction = pipeline(
+			createReadStream(tarball),
+			zlib.createGunzip(),
+			extract,
+			{ signal },
+		);
 		let nextMark = 0;
 		let originalManifest: { mark: number;
 			size: number; } | undefined;
