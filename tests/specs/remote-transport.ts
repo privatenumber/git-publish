@@ -7,9 +7,8 @@ import { getPublicationUrls } from '../../src/publish-repository/destination.ts'
 import { getPublishRemote } from '../../src/publish-repository/remote.ts';
 import { createGit, createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
-import { testConcurrency } from '../utils/test-concurrency.ts';
 
-await describe('Remote transport', async () => {
+describe('Remote transport', async () => {
 	test('rejects a whitespace-containing remote before dry-run output', async () => {
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
@@ -658,4 +657,4 @@ await describe('Remote transport', async () => {
 		])).toBe(false);
 		expect(await remoteGit('rev-parse', [`npm/${branchName}`])).toBeTruthy();
 	});
-}, { parallel: testConcurrency });
+});

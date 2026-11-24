@@ -1,6 +1,6 @@
 # Signal tests
 
-Run the signal-handling tests before starting the concurrent publication tests. The [test entry point](../../tests/index.ts) awaits the import of the [signal spec](../../tests/specs/signals.ts), and the signal spec awaits its `Signals` group. In [manten 2.0.0](https://github.com/privatenumber/manten/blob/v2.0.0/README.md#L108-L151), awaiting a group waits for its children. The rest of the suite then runs with [bounded concurrency](./test-suite.md#bounded-concurrency).
+Run the signal-handling tests before starting the concurrent publication tests. The [test entry point](../../tests/index.ts) awaits the import of the [signal spec](../../tests/specs/signals.ts), and the signal spec awaits its `Signals` group. In [manten 2.0.0](https://github.com/privatenumber/manten/blob/v2.0.0/README.md#L108-L151), awaiting a group waits for its children. The rest of the suite still runs concurrently.
 
 The tests send signals only after the Git smudge filter or npm prepack hook announces readiness. A watchdog starts at CLI spawn, not during Git fixture setup. An exit before readiness fails with the wait name, elapsed time, exit status, and CLI output. A live CLI that never becomes ready or never finishes after a signal fails at the watchdog. Neither case needs a retry or a longer deadline.
 

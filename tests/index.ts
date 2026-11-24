@@ -1,25 +1,5 @@
 import { describe, onFinish } from 'manten';
 import { isolateEnvironment } from './utils/isolate-environment.ts';
-import { specConcurrency } from './utils/test-concurrency.ts';
-
-const specs = [
-	'./specs/skills.ts',
-	'./specs/workspace-discovery.ts',
-	'./specs/workspace-publication.ts',
-	'./specs/package-publication.ts',
-	'./specs/branch-template.ts',
-	'./specs/standalone-branch-template.ts',
-	'./specs/publish-graph.ts',
-	'./specs/github-remotes.ts',
-	'./specs/error.ts',
-	'./specs/git-config.ts',
-	'./specs/validation-errors.ts',
-	'./specs/remote-transport.ts',
-	'./specs/publish-history.ts',
-	'./specs/package-managers.ts',
-	'./specs/package-contents.ts',
-	'./specs/lifecycle-hooks.ts',
-];
 
 describe('git-publish', async () => {
 	const home = await isolateEnvironment();
@@ -27,14 +7,20 @@ describe('git-publish', async () => {
 
 	// The signal spec awaits its tests before the other specs start spawning Git and npm.
 	await import('./specs/signals.ts');
-
-	// Each spec awaits its groups, so an import settles when the spec's tests finish.
-	// manten's parallel option would not work here: a limited group can finish while
-	// child groups still wait for a slot.
-	const queue = specs.values();
-	await Promise.all(Array.from({ length: specConcurrency }, async () => {
-		for (const spec of queue) {
-			await import(spec);
-		}
-	}));
+	import('./specs/skills.ts');
+	import('./specs/workspace-discovery.ts');
+	import('./specs/workspace-publication.ts');
+	import('./specs/package-publication.ts');
+	import('./specs/branch-template.ts');
+	import('./specs/standalone-branch-template.ts');
+	import('./specs/publish-graph.ts');
+	import('./specs/github-remotes.ts');
+	import('./specs/error.ts');
+	import('./specs/git-config.ts');
+	import('./specs/validation-errors.ts');
+	import('./specs/remote-transport.ts');
+	import('./specs/publish-history.ts');
+	import('./specs/package-managers.ts');
+	import('./specs/package-contents.ts');
+	import('./specs/lifecycle-hooks.ts');
 });

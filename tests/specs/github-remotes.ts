@@ -4,9 +4,8 @@ import { describe, test, expect } from 'manten';
 import {
 	getGitHubInstallSpecifier, getGitHubRepositoryName, isHostedGitRemote, toPackageManagerGitUrl,
 } from '../../src/utils/git-url.ts';
-import { testConcurrency } from '../utils/test-concurrency.ts';
 
-await describe('package manager Git URLs', () => {
+describe('package manager Git URLs', () => {
 	for (const [input, expected] of [
 		['https://user:secret@example.test/repo.git', 'git+https://example.test/repo.git'],
 		['git://user:secret@example.test/repo.git', 'git://example.test/repo.git'],
@@ -69,9 +68,9 @@ await describe('package manager Git URLs', () => {
 			}
 		});
 	}
-}, { parallel: testConcurrency });
+});
 
-await describe('GitHub remotes', () => {
+describe('GitHub remotes', () => {
 	test('recognizes authenticated GitHub URLs as hosted', () => {
 		expect(isHostedGitRemote('https://token@github.com/o/r.git')).toBe(true);
 	});
@@ -118,4 +117,4 @@ await describe('GitHub remotes', () => {
 			'main',
 		)).toBeUndefined();
 	});
-}, { parallel: testConcurrency });
+});

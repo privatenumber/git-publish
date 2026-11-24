@@ -5,9 +5,8 @@ import { createFixture } from 'fs-fixture';
 import which from 'which';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
-import { testConcurrency } from '../utils/test-concurrency.ts';
 
-await describe('Error cases', () => {
+describe('Error cases', () => {
 	test('explains that a repository with no commits must be committed before publishing', async () => {
 		await using remote = await createGitFixture(undefined, ['--bare']);
 		await using fixture = await createGitFixture({
@@ -209,6 +208,26 @@ exec "${gitPath}" "$@"
 		expect(await temporaryFixture.readdir('')).toStrictEqual([]);
 	});
 
+	test('rejects a package without a name before packing', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package/package.json': JSON.stringify({ version: '1.0.0' }),
+		});
+		await fixture.git('add', ['.']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		await fixture.git('remote', ['add', 'origin', remote.path]);
+		const packageDirectory = fixture.getPath('package');
+
+		const dryRun = await gitPublish(packageDirectory, ['--dry']);
+		expect(('exitCode' in dryRun) && dryRun.exitCode).toBe(1);
+		expect(dryRun.stderr).toBe('Error: package/package.json has no "name". Add a package name before publishing.');
+
+		const run = await gitPublish(packageDirectory);
+		expect(('exitCode' in run) && run.exitCode).toBe(1);
+		expect(run.stderr).toBe('Error: package/package.json has no "name". Add a package name before publishing.');
+		expect(await remote.git('for-each-ref')).toBe('');
+	});
+
 	test('Workspace dependencies', async () => {
 		await using fixture = await createGitFixture({
 			'package.json': JSON.stringify({
@@ -307,4 +326,4 @@ Pre-bundle these dependencies before publishing.`);
 		expect('exitCode' in result).toBe(false);
 		expect(JSON.parse(await remote.git('show', ['npm/main:package.json'])).private).toBe(true);
 	});
-}, { parallel: testConcurrency });
+});

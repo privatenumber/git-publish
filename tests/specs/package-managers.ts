@@ -10,9 +10,8 @@ import {
 import { createGitFixture, mockGitSshTransport } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
 import { createYarnEnvironment } from '../utils/yarn-environment.ts';
-import { testConcurrency } from '../utils/test-concurrency.ts';
 
-await describe('Package managers', async () => {
+describe('Package managers', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
 	onFinish(() => remoteFixture.rm());
 	const { git: remoteGit } = remoteFixture;
@@ -52,7 +51,7 @@ await describe('Package managers', async () => {
 		});
 	}
 
-	await describe('bun', () => {
+	describe('bun', () => {
 		test('installs and locks a transitive publish branch containing an @ segment', async () => {
 			await using remote = await createGitFixture(undefined, ['--bare', '--initial-branch=main']);
 			await using fixture = await createGitFixture({
@@ -161,9 +160,9 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 			expect('exitCode' in gitPublishProcess).toBe(false);
 			expect(await remoteGit('show', [`npm/${branchName}:build-output.txt`])).toBe('built');
 		});
-	}, { parallel: testConcurrency });
+	});
 
-	await describe('Install command', () => {
+	describe('Install command', () => {
 		for (const [packageManager, lockfile, command, specifierPrefix] of [
 			['npm', 'package-lock.json', 'npm i', 'owner/repository#'],
 			['pnpm', 'pnpm-lock.yaml', 'pnpm i', 'owner/repository#'],
@@ -218,9 +217,9 @@ exec npm "$@"
 				expect(result.stdout.includes('blockExoticSubdeps')).toBe(packageManager === 'pnpm');
 			});
 		}
-	}, { parallel: testConcurrency });
+	});
 
-	await describe('Yarn', () => {
+	describe('Yarn', () => {
 		test('rejects Yarn 1 before pushing', async () => {
 			await using remote = await createGitFixture(undefined, ['--bare']);
 			await using commands = await createFixture({
@@ -317,9 +316,9 @@ exec npm "$@"
 			expect(files.split('\n')).toStrictEqual(['dist/index.js', 'package.json']);
 			expect(await remoteGit('show', [`${publishedBranch}:dist/index.js`])).toBe('built');
 		});
-	}, { parallel: testConcurrency });
+	});
 
-	await describe('pnpm', () => {
+	describe('pnpm', () => {
 		test('catalog protocol is resolved', async () => {
 			const branchName = 'test-pnpm-catalog';
 			const msVersion = '2.1.3';
@@ -510,5 +509,5 @@ exec npm "$@"
 			const outputContent = await remoteGit('show', [`${publishedBranch}:dist/output.txt`]);
 			expect(outputContent.trim()).toBe('built');
 		});
-	}, { parallel: testConcurrency });
-}, { parallel: testConcurrency });
+	});
+});

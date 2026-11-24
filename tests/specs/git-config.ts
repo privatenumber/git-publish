@@ -4,9 +4,8 @@ import { createFixture } from 'fs-fixture';
 import spawn from 'nano-spawn';
 import { getGitConfig, parseGitConfig, serializeGitConfig } from '../../src/publish-repository/git-config.ts';
 import { createGitFixture } from '../utils/create-git.ts';
-import { testConcurrency } from '../utils/test-concurrency.ts';
 
-await describe('Git configuration', () => {
+describe('Git configuration', () => {
 	test('round trips ordered entries through Git', async () => {
 		await using fixture = await createFixture();
 		const sourceConfigPath = fixture.getPath('source-config');
@@ -78,4 +77,4 @@ await describe('Git configuration', () => {
 			},
 		]));
 	});
-}, { parallel: testConcurrency });
+});

@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'manten';
 import { renderPackageBranch } from '../../src/package-publication/branch.ts';
-import { testConcurrency } from '../utils/test-concurrency.ts';
 
-await describe('Branch templates', () => {
+describe('Branch templates', () => {
 	for (const {
 		title,
 		template,
@@ -42,4 +41,4 @@ await describe('Branch templates', () => {
 			packageName: '@test/adapter',
 		})).toThrow('Unknown branch template placeholder "{version}". Supported placeholders: {gitRef}, {gitSha}, {package}.');
 	});
-}, { parallel: testConcurrency });
+});
