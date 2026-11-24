@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
@@ -11,10 +12,28 @@ export type PublishRemote = {
 	configuredName?: string;
 };
 
+// A mistyped remote name parses as a relative path, so report a missing path as a missing remote
+const assertLocalRemoteExists = async (repositoryPath: string, remote: string) => {
+	try {
+		await fs.stat(path.resolve(repositoryPath, remote));
+		return;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+			throw error;
+		}
+	}
+	const remoteList = await getStdout(spawn('git', ['remote'], { cwd: repositoryPath }));
+	const remotes = remoteList.split('\n').filter(Boolean);
+	const subject = /^[\w.-]+$/.test(remote) ? `No Git remote named ${JSON.stringify(remote)}` : 'The selected remote is not a configured Git remote or an existing path';
+	const configured = remotes.length > 0
+		? `Configured remotes: ${remotes.join(', ')}.`
+		: 'This repository has no configured remotes.';
+	throw new Error(`${subject}. ${configured} Pass a configured remote name or a Git URL with --remote.`);
+};
+
 export const getPublishRemote = async (
 	repositoryPath: string,
 	remote: string,
-	usesDefaultRemote: boolean,
 ): Promise<PublishRemote> => {
 	const options = { cwd: repositoryPath };
 	const label = /^[\w.-]+$/.test(remote) ? `Remote ${JSON.stringify(remote)}` : 'Selected remote';
@@ -30,14 +49,14 @@ export const getPublishRemote = async (
 	// Git rejects valueless keys, which git config --null cannot distinguish from empty values.
 	const expandedPush = await spawn('git', ['remote', 'get-url', '--push', '--all', '--', remote], options).then(({ stdout }) => stdout).catch((error: unknown) => {
 		if (error instanceof SubprocessError && error.exitCode === 2) {
-			if (usesDefaultRemote) {
-				throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
-			}
 			return undefined;
 		}
 		throw new Error(`${label} has invalid Git remote configuration.`);
 	});
 	const configuredName = expandedPush === undefined ? undefined : remote;
+	if (configuredName === undefined && isLocalGitUrl(remote) && !remote.startsWith('file://')) {
+		await assertLocalRemoteExists(repositoryPath, remote);
+	}
 	const urls = configuredName === undefined ? [remote] : await getAll(`remote.${remote}.url`);
 	if (urls.length === 0) {
 		throw new Error(`${label} has no fetch URL configured or remaining after an empty URL reset.`);
