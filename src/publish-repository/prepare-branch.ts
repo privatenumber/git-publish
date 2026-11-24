@@ -60,11 +60,13 @@ export const loadPublishBranches = async (
 		}
 		return references;
 	};
-	// A triangular remote reads history from the fetch URL and checks conflicts on the push URL
-	const separateConflictLookup = mode === 'normal' && publishRemote.historyUrl !== publishRemote.pushUrl;
-	const references = mode === 'normal'
-		? await listReferences(fetchRemoteName, publishRemote.historyUrl, separateConflictLookup ? 'heads' : 'both')
-		: await listReferences(pushRemoteName, publishRemote.pushUrl, 'both');
+	// --fresh replaces history, so it reads the branch tips it leases from the push destination
+	const [historyName, historyUrl] = mode === 'normal'
+		? [fetchRemoteName, publishRemote.historyUrl]
+		: [pushRemoteName, publishRemote.pushUrl];
+	// Conflicts are checked where the push lands, which can differ from where history is read
+	const separateConflictLookup = historyUrl !== publishRemote.pushUrl;
+	const references = await listReferences(historyName, historyUrl, separateConflictLookup ? 'heads' : 'both');
 	const pushReferences = separateConflictLookup
 		? await listReferences(pushRemoteName, publishRemote.pushUrl, 'conflicts')
 		: references;
