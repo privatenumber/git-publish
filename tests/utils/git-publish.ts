@@ -9,6 +9,6 @@ export const gitPublish = (
 	environment: NodeJS.ProcessEnv = {},
 ) => spawn(gitPublishPath, args, {
 	cwd,
-	// nano-spawn adds these to process.env, which tests/index.ts isolates from the developer's
+	// nano-spawn merges this into process.env, which tests/index.ts isolates
 	env: environment,
 }).catch(error => error as SubprocessError);
