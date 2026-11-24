@@ -54,7 +54,6 @@ describe('Publication graph', () => {
 			const graph = createPublishGraph(workspace, ['app'], {
 				policy: {
 					plainRanges: manager !== 'pnpm',
-					plainPeers: true,
 				},
 			});
 			expect(graph.nodes.find(node => node.key === 'app')!.dependencies[0]?.target).toBe('core');
@@ -81,7 +80,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		expect(graph.nodes.find(node => node.key === 'app')!.dependencies).toStrictEqual([
@@ -306,7 +304,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		const nodes = graph.nodes.map(node => ({
@@ -421,7 +418,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		const nodes = graph.nodes.map(node => ({
@@ -486,7 +482,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		const nodes = graph.nodes.map(node => ({
@@ -540,7 +535,6 @@ describe('Publication graph', () => {
 		expect(() => createPublishGraph(workspace, ['app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		})).toThrow('^2.0.0');
 	});
@@ -568,7 +562,6 @@ describe('Publication graph', () => {
 		expect(createPublishGraph(workspace, ['app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		}).nodes.map(node => node.key)).toStrictEqual(['app']);
 	});
@@ -611,7 +604,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['@hunk/session-broker-bun'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 
@@ -648,7 +640,6 @@ describe('Publication graph', () => {
 		expect(createPublishGraph(workspace, ['@test/core'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		}).nodes.map(node => node.key)).toStrictEqual(['@test/core']);
 	});
@@ -686,7 +677,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['@test/app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/core', '@test/a', '@test/b', '@test/app']);
@@ -712,7 +702,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['@test/app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/core', '@test/app']);
@@ -743,7 +732,6 @@ describe('Publication graph', () => {
 		expect(createPublishGraph(workspace, ['@test/app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		}).nodes.map(node => node.key)).toStrictEqual(['@test/app']);
 	});
@@ -766,7 +754,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['@test/app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app', '@test/core']);
@@ -798,7 +785,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['@test/app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app', '@test/core']);
@@ -829,7 +815,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['@test/app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app', '@test/core']);
@@ -856,7 +841,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['@test/app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/app']);
@@ -887,7 +871,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['@test/app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/actual', '@test/app']);
@@ -918,7 +901,6 @@ describe('Publication graph', () => {
 		const graph = createPublishGraph(workspace, ['@test/app'], {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		});
 		expect(graph.nodes.map(node => node.key)).toStrictEqual(['@test/core', '@test/app']);
@@ -945,7 +927,6 @@ describe('Publication graph', () => {
 			expect(createPublishGraph(workspace, ['@test/app'], {
 				policy: {
 					plainRanges: true,
-					plainPeers: true,
 				},
 			}).nodes.map(node => node.key)).toStrictEqual(['@test/core', '@test/app']);
 		});
@@ -972,7 +953,6 @@ describe('Publication graph', () => {
 				createPublishGraph(workspace, ['@test/app'], {
 					policy: {
 						plainRanges: true,
-						plainPeers: true,
 					},
 				});
 			} catch (error) {
@@ -1032,7 +1012,6 @@ describe('Publication graph', () => {
 			createPublishGraph(workspace, ['@test/duplicate'], {
 				policy: {
 					plainRanges: true,
-					plainPeers: true,
 				},
 			});
 		} catch (error) {
@@ -1065,7 +1044,6 @@ describe('Publication graph', () => {
 		const options = {
 			policy: {
 				plainRanges: true,
-				plainPeers: true,
 			},
 		};
 		expect(createPublishGraph(workspace, ['app'], options).nodes.map(node => node.key)).toEqual(['app']);
@@ -1095,7 +1073,6 @@ describe('Publication graph', () => {
 			createPublishGraph(workspace, ['@test/app'], {
 				policy: {
 					plainRanges: true,
-					plainPeers: true,
 				},
 			});
 		} catch (error) {
@@ -1122,7 +1099,6 @@ describe('Publication graph', () => {
 			createPublishGraph(workspace, ['@test/app'], {
 				policy: {
 					plainRanges: true,
-					plainPeers: true,
 				},
 			});
 		} catch (error) {
@@ -1155,7 +1131,6 @@ describe('Publication graph', () => {
 			createPublishGraph(workspace, ['@test/a'], {
 				policy: {
 					plainRanges: true,
-					plainPeers: true,
 				},
 			});
 		} catch (error) {

@@ -3,9 +3,9 @@ import semver from 'semver';
 import type { PackageJson } from '@npmcli/package-json';
 import type { PackageManager } from '../utils/detect-package-manager.ts';
 import type { WorkspacePublicationPlan } from '../workspace-publication/plan.ts';
-import { parseWorkspaceSpecification, type WorkspacePeer } from '../workspace-publication/graph.ts';
+import { parseWorkspaceSpecification, type PublishGraphEdge, type WorkspacePeer } from '../workspace-publication/graph.ts';
 import { satisfiesPackedPeer } from '../workspace-publication/satisfies-range.ts';
-import type { PackagePreparation, PackagePublicationDependency } from './prepare.ts';
+import type { PackagePreparation } from './prepare.ts';
 
 const { stringify } = JSON;
 const absoluteOrHomePath = /^(?:[/\\~]|[a-z]:)/i;
@@ -34,7 +34,7 @@ export const validatePackedWorkspaceDependencies = (packageName: string, manifes
 export const validatePackedManifest = (
 	packageName: string,
 	manifest: PackageJson,
-	dependencyEdges: PackagePublicationDependency[],
+	dependencyEdges: PublishGraphEdge[],
 	peers: WorkspacePeer[],
 	context: PackedManifestValidationContext,
 ) => {

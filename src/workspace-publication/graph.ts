@@ -132,7 +132,6 @@ export const createPublishGraph = (
 	{ policy, resolveSpecification }: {
 		policy: {
 			plainRanges: boolean;
-			plainPeers: boolean;
 		};
 		resolveSpecification?: (from: WorkspacePackage, key: string, specification: string) => string;
 	},
@@ -197,7 +196,8 @@ export const createPublishGraph = (
 			return byDirectory.get(path.resolve(from.dir, specification.slice(specification.indexOf(':') + 1)));
 		}
 		if (
-			(peer ? policy.plainPeers : policy.plainRanges)
+			// Peers always match plain ranges; regular dependencies follow the package manager's policy.
+			(peer || policy.plainRanges)
 			&& byName.get(key)?.some(candidate => candidate.packageJson.version
 				&& satisfiesWorkspaceRange(candidate.packageJson.version, specification))
 		) {
