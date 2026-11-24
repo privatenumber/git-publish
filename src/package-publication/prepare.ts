@@ -32,8 +32,6 @@ export type PackagePreparation = {
 	peers: WorkspacePeer[];
 };
 
-export type PackagePublicationDependency = PublishGraphEdge;
-
 export const formatPublicationMessage = (
 	packageName: string | undefined,
 	sourceName: string,
@@ -134,7 +132,7 @@ export const preparePackagePublication = async ({
 	parent: string | undefined;
 	branch: string;
 	commitMessage: string;
-	dependencyEdges: PackagePublicationDependency[];
+	dependencyEdges: PublishGraphEdge[];
 	installSpecifiers: ReadonlyMap<string, string>;
 	validationContext: PackedManifestValidationContext;
 	peers?: WorkspacePeer[];

@@ -157,62 +157,25 @@ export const packPackage = async (
 	// Symlink node_modules so hooks have access to dependencies
 	// Note: Remove any existing node_modules directory in worktree first
 	// (git might have checked it out)
-	if (isMonorepo) {
-		// Root node_modules
-		const rootNodeModulesTarget = path.join(packWorktreePath, 'node_modules');
-		await fs.rm(rootNodeModulesTarget, {
+	const linkNodeModules = async (sourceDirectory: string, targetDirectory: string) => {
+		const target = path.join(targetDirectory, 'node_modules');
+		await fs.rm(target, {
 			recursive: true,
 			force: true,
 		});
 		try {
-			await fs.symlink(
-				path.join(gitRootPath, 'node_modules'),
-				rootNodeModulesTarget,
-				'dir',
-			);
+			await fs.symlink(path.join(sourceDirectory, 'node_modules'), target, 'dir');
 		} catch (error: unknown) {
 			// If node_modules doesn't exist, ignore (pack will likely fail later)
 			if (!hasErrorCode(error, 'ENOENT')) {
 				throw error;
 			}
 		}
-
-		// Package node_modules (if exists)
-		const packageNodeModulesTarget = path.join(packWorktreePackageRoot, 'node_modules');
-		await fs.rm(packageNodeModulesTarget, {
-			recursive: true,
-			force: true,
-		});
-		try {
-			await fs.symlink(
-				path.join(cwd, 'node_modules'),
-				packageNodeModulesTarget,
-				'dir',
-			);
-		} catch (error: unknown) {
-			if (!hasErrorCode(error, 'ENOENT')) {
-				throw error;
-			}
-		}
-	} else {
-		// Regular package node_modules
-		const nodeModulesTarget = path.join(packWorktreePackageRoot, 'node_modules');
-		await fs.rm(nodeModulesTarget, {
-			recursive: true,
-			force: true,
-		});
-		try {
-			await fs.symlink(
-				path.join(cwd, 'node_modules'),
-				nodeModulesTarget,
-				'dir',
-			);
-		} catch (error: unknown) {
-			if (!hasErrorCode(error, 'ENOENT')) {
-				throw error;
-			}
-		}
+	};
+	if (isMonorepo) {
+		await linkNodeModules(gitRootPath, packWorktreePath);
 	}
+	await linkNodeModules(cwd, packWorktreePackageRoot);
 
 	const binaryPaths = new Set([
 		path.join(cwd, 'node_modules', '.bin'),

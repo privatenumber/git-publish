@@ -62,4 +62,4 @@ Build the selected package and all of its required workspace dependencies, and m
 
 If packages need custom preparation, add or adjust their `prepack` scripts in your fork. Each package can use its own command. Commit the manifest and source changes first: `git-publish` packs the committed source. Gitignored build output does not need to be committed.
 
-Package hooks run in an isolated checkout that is cleaned between packages. Only the current package's untracked files are copied from the source checkout, using an approximation of npm's pack rules. A hook that needs a sibling's generated output must build it itself or use committed output.
+Package hooks run in an isolated checkout that is cleaned between packages. Only the current package's untracked files are copied from the source checkout, using an approximation of npm's pack rules. A hook that needs a sibling's generated output must build it itself or use committed output. Hooks of different packages may run at the same time.
