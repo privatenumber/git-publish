@@ -114,6 +114,27 @@ These private observations are an evidence gap for readers without access to the
 
 A republish with no changes costs almost as much as a first publish. git-publish compares the tree it imports from the packed tarball with the existing branch tip ([`prepare.ts`](../../src/package-publication/prepare.ts)), so it must pack every package, including running its hooks, before it knows the package is unchanged.
 
+## Remote connections
+
+Over SSH to GitHub, each remote connection costs about 2 s, so git-publish keeps the count low ([`prepare-branch.ts`](../../src/publish-repository/prepare-branch.ts), [`publish.ts`](../../src/workspace-publication/publish.ts)):
+
+1. One `ls-remote` reads the publish branch heads and the [conflicting refs](./branch-channel.md#remote-refs-that-can-conflict). A second lookup runs only in normal mode when the history URL differs from the push URL (see [Remote URLs](./remote-urls.md)).
+2. One `fetch --depth=1` runs when a publish branch already exists. `--fresh` skips it.
+3. One `push` runs, unless every publication reuses its branch's existing commit. Then the CLI prints that the branch is already up to date and does not push. `--fresh` never reuses a commit, because it does not read history, so it always pushes. It uses `--force-with-lease` with the tip that the lookup observed, and an empty expected value for a branch that did not exist.
+
+Counts traced with a `git` wrapper on `PATH` on Tue Nov 24 2026, before (`59bd484`) and after this change:
+
+| Scenario | Before | After |
+| --- | ---: | ---: |
+| First publish, standalone or workspace | 3 | 2 |
+| Unchanged republish, standalone or workspace | 4 | 2 |
+| Changed republish | 4 | 3 |
+| `--fresh`, standalone or workspace | 2 | 2 |
+| Push URL in another repository (fork), first / unchanged | 3 / 4 | 2 / 2 |
+| Same repository, two transports, first / unchanged | 3 / 4 | 3 / 3 |
+
+**Trade-off of the skipped push (maintainer-approved Tue Nov 24 2026).** Before, the push of an unchanged commit failed as a non-fast-forward when another publisher moved the branch between the lookup and the push. Without the push, git-publish does not detect this and reports success, while the branch holds the other publisher's commit. Revisit if concurrent publishers to one branch become a supported workflow.
+
 ## Consequences for workspaces
 
 - Before `prepack` runs, git-publish copies the package's files that npm would pack, as listed by `npm-packlist`, from the source checkout into the isolated checkout ([`pack-package.ts`](../../src/utils/pack-package.ts)). These are the `files` list, including existing build output, and entries npm always packs, such as `main` and `bin`. Other untracked files are not copied. When a `prepack` hook rebuilds all of the output that the package publishes, a workspace build before publishing does the same work again. When a hook relies on output that the workspace build created, the workspace build is required.

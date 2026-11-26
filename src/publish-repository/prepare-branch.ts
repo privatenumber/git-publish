@@ -1,6 +1,7 @@
 import { getErrorDetails } from '../utils/error.ts';
 import { redactRemote } from '../utils/git-url.ts';
 import { spawnAbortable } from '../utils/spawn-abortable.ts';
+import type { PackagePublicationPushMode } from '../package-publication/push.ts';
 import type { PublishRepository } from './create.ts';
 import type { PublishRemote } from './remote.ts';
 
@@ -20,7 +21,7 @@ export const loadPublishBranches = async (
 		publishBranch: string;
 		localRef: string;
 	}[],
-	mode: 'normal' | 'force' | 'lease',
+	mode: PackagePublicationPushMode,
 	signal: AbortSignal,
 ) => {
 	const { gitOptions, fetchRemoteName, pushRemoteName } = repository;
@@ -59,10 +60,13 @@ export const loadPublishBranches = async (
 		}
 		return references;
 	};
-	const separateConflictLookup = mode === 'normal' && fetchRemoteName !== pushRemoteName;
-	const references = mode === 'normal'
-		? await listReferences(fetchRemoteName, publishRemote.historyUrl, separateConflictLookup ? 'heads' : 'both')
-		: await listReferences(pushRemoteName, publishRemote.pushUrl, mode === 'lease' ? 'both' : 'conflicts');
+	// --fresh replaces history, so it reads the branch tips it leases from the push destination
+	const [historyName, historyUrl] = mode === 'normal'
+		? [fetchRemoteName, publishRemote.historyUrl]
+		: [pushRemoteName, publishRemote.pushUrl];
+	// Conflicts are checked where the push lands, which can differ from where history is read
+	const separateConflictLookup = historyUrl !== publishRemote.pushUrl;
+	const references = await listReferences(historyName, historyUrl, separateConflictLookup ? 'heads' : 'both');
 	const pushReferences = separateConflictLookup
 		? await listReferences(pushRemoteName, publishRemote.pushUrl, 'conflicts')
 		: references;

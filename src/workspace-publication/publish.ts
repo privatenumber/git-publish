@@ -240,13 +240,28 @@ export const publishWorkspaceClosure = async ({
 			await assertSourceUnchanged(source);
 		}
 		signal.throwIfAborted();
+		const effectivePreparations = effective.nodes.map(node => preparations.get(node.key)!);
+		// Every branch already points at its publication commit. Skipping the push
+		// saves a connection but cannot detect a concurrent update since the lookup
+		if (effectivePreparations.every(preparation => preparation.reusedExistingCommit)) {
+			await task(
+				packageCount === 1
+					? `Branch ${JSON.stringify(effective.nodes[0]!.branch)} is already up to date`
+					: `All ${packageCount} branches are already up to date`,
+				async ({ setStatus }) => setStatus('Skipped push'),
+			);
+			return {
+				plan: effective,
+				preparations,
+			};
+		}
 		await task(
 			`Pushing ${packageCount} ${packageCount === 1 ? 'package' : 'packages'}${packageCount === 1 ? '' : ' together'}`,
 			async ({ streamPreview }) => {
 				try {
 					await pushPackagePublications({
 						repository,
-						publications: effective.nodes.map(node => preparations.get(node.key)!.publication),
+						publications: effectivePreparations.map(preparation => preparation.publication),
 						mode: pushMode,
 						remoteTips,
 						signal,

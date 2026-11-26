@@ -617,6 +617,65 @@ describe('Publish history', async () => {
 		expect(Number(commitCount)).toBe(1);
 	});
 
+	test('skips the push when an unchanged republish reuses the remote commit', async () => {
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				files: ['index.js'],
+			}),
+			'index.js': 'export const version = 1;',
+		}, ['--initial-branch=unchanged']);
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', destination.path]);
+		expect('exitCode' in await gitPublish(fixture.path)).toBe(false);
+		const published = await destination.git('rev-parse', ['npm/unchanged']);
+
+		// Any push now fails, so a successful republish proves it did not push
+		await destination.writeFile('hooks/pre-receive', '#!/bin/sh\necho "push rejected by test" >&2\nexit 1\n');
+		await fs.chmod(destination.getPath('hooks/pre-receive'), 0o755);
+		await fixture.writeFile('notes.txt', 'not packed');
+		await git('add', ['notes.txt']);
+		await git('commit', ['-m', 'Unpacked change']);
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		expect(result.output).toContain('Branch "npm/unchanged" is already up to date');
+		expect(result.output).not.toContain('push rejected by test');
+		expect(await destination.git('rev-parse', ['npm/unchanged'])).toBe(published);
+	});
+
+	test('--fresh does not overwrite a concurrent update to a standalone branch', async () => {
+		await using destination = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'app',
+				version: '1.0.0',
+				// Runs after the branch lookup and before the push
+				scripts: { prepack: `git --git-dir=${JSON.stringify(destination.path)} update-ref refs/heads/npm/fresh-lease refs/heads/concurrent` },
+			}),
+		}, ['--initial-branch=fresh-lease']);
+		const { git } = fixture;
+		await git('add', ['.']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', destination.path]);
+		await git('push', ['origin', 'HEAD:refs/heads/npm/fresh-lease', 'HEAD:refs/heads/concurrent']);
+		await fixture.writeFile('index.js', 'export const version = 2;');
+		await git('add', ['index.js']);
+		await git('commit', ['-m', 'Concurrent commit']);
+		await git('push', ['origin', 'HEAD:refs/heads/concurrent']);
+		const concurrent = await git('rev-parse', ['HEAD']);
+
+		const result = await gitPublish(fixture.path, ['--fresh']);
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).toContain('stale info');
+		expect(await destination.git('rev-parse', ['npm/fresh-lease'])).toBe(concurrent);
+	});
+
 	test('cleans up temporary branches after orphan publishes', async () => {
 		const branchName = 'test-orphan-branch-cleanup';
 		await using fixture = await createGitFixture({
