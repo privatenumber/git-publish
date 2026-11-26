@@ -312,6 +312,8 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 
 		const gitPublishProcess = await gitPublish(fixture.path, [], {
 			NODE_OPTIONS: await createCleanupFailureHook(hookFixture),
+			// The failed cleanup leaves its temporary directory here, and the fixture removes it
+			TMPDIR: hookFixture.path,
 		});
 
 		expect('exitCode' in gitPublishProcess).toBe(true);

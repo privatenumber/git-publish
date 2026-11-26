@@ -2496,6 +2496,8 @@ exec '${npmPath}' "$@"
 		await using hookFixture = await createFixture();
 		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), [], {
 			NODE_OPTIONS: await createCleanupFailureHook(hookFixture),
+			// The failed cleanup leaves its temporary directory here, and the fixture removes it
+			TMPDIR: hookFixture.path,
 		});
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
