@@ -7,6 +7,7 @@ import { getPublicationUrls } from './destination.ts';
 
 export type PublishRemote = {
 	pushUrl: string;
+	hasExplicitPushUrl: boolean;
 	installUrl: string;
 	historyUrl: string;
 	configuredName?: string;
@@ -92,6 +93,7 @@ export const getPublishRemote = async (
 	const publicationUrls = getPublicationUrls(fetchUrl, pushUrl, repositoryPath);
 	return {
 		pushUrl: normalizeLocal(pushUrl),
+		hasExplicitPushUrl: configuredPushUrls.length > 0,
 		installUrl: normalizeLocal(publicationUrls.installUrl),
 		historyUrl: normalizeLocal(publicationUrls.historyUrl),
 		configuredName,

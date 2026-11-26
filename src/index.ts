@@ -156,6 +156,10 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 		await argv.runCommand();
 		return;
 	}
+	// An empty value would resolve to the source repository itself
+	if (argv.flags.remote === '') {
+		throw new Error('--remote requires a remote name or Git URL.');
+	}
 	await assertCleanTree();
 
 	const { ref, commit } = await getSourceCommit();

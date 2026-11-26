@@ -4,7 +4,6 @@ packages:
 allowBuilds:
   esbuild: false
   unrs-resolver: false
-  yarn: false
 
 permissions:
   clean-pkg-json:

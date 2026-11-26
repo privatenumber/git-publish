@@ -906,13 +906,16 @@ exec '${gitPath}' "$@"
 		expect('exitCode' in batched).toBe(false);
 		const log = await fs.readFile(callsPath, 'utf8');
 		const calls = log.trim().split('\n');
+		// The internal remote names are random per run
+		const fetchRemote = /^ls-remote --refs --branches (git-publish-source-\S+) /.exec(calls[0]!)![1]!;
+		const pushRemote = /^ls-remote --refs (git-publish-(?!source-)\S+) /.exec(calls[1]!)![1]!;
 		expect(calls.slice(0, 2)).toStrictEqual([
-			['ls-remote', '--refs', '--branches', 'publish-source', ...heads].join(' '),
-			['ls-remote', '--refs', 'publish', ...conflicts.flat()].join(' '),
+			['ls-remote', '--refs', '--branches', fetchRemote, ...heads].join(' '),
+			['ls-remote', '--refs', pushRemote, ...conflicts.flat()].join(' '),
 		]);
 		// Every publication is unchanged, so nothing is pushed
 		expect(calls).toHaveLength(3);
-		expect(calls[2]).toMatch(/^fetch .* publish-source /);
+		expect(calls[2]).toMatch(new RegExp(`^fetch .* ${fetchRemote} `));
 	});
 
 	test('rejects a remote tag on a transitive package branch before packing, except in dry runs', async () => {

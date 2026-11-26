@@ -18,31 +18,43 @@ Git-publish detects configured remotes with `git remote get-url --push --all -- 
 
 Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts) ("selects install and history URLs by destination identity", "prints the fork with the fetch transport for a hosted triangular remote", "rejects multiple url destinations before packing", "rejects multiple pushurl destinations before packing"), [`tests/specs/workspace-publication.ts`](../../tests/specs/workspace-publication.ts) ("publishes and reloads a workspace closure from the push destination").
 
-The [conflict check](./branch-channel.md#remote-refs-that-can-conflict) uses the same remote name as the push. In normal mode it shares one `ls-remote` with branch history when the history URL and the push URL are the same string. When they differ (the same repository through two transports, such as HTTPS fetch and SSH push), history and conflicts use separate lookups. `--fresh` reads no history, so it runs one lookup on the push URL. The push uses `--no-follow-tags` to avoid creating a conflicting annotated tag after the check.
+The [conflict check](./branch-channel.md#remote-refs-that-can-conflict) reads the push URL. In normal mode it shares one `ls-remote` with branch history when the history URL and the push URL are the same string. When they differ (the same repository through two transports, such as HTTPS fetch and SSH push), history and conflicts use separate lookups. `--fresh` reads no history, so it runs one lookup on the push URL. The push uses `--no-follow-tags` to avoid creating a conflicting annotated tag after the check.
 
-## Open scope questions
+## Isolated client remotes
 
-The remote-resolution work from rounds 4–13 is preserved on the local branch `feat/install-selected-package-remote-wip` (not pushed). The branch-channel change retains `develop`'s remote handling. Each case below is pending a scope decision.
+The isolated client adds two remotes: one for branch history (the history URL) and one for the push destination. Their names are random for each run, such as `git-publish-<uuid>` and `git-publish-source-<uuid>`, so inherited configuration for a fixed name, such as `remote.publish.url` set through `GIT_CONFIG_COUNT`, cannot redirect them. When the selected remote has an explicit `remote.<name>.pushurl`, the isolated push remote stores it as a `pushurl` too. Git applies `pushInsteadOf` only to push URLs that come from `url`, so the isolated push goes where the user's own `git push` would go.
 
-| Case | Open question |
-| --- | --- |
-| Empty rewrite | When a literal `pushInsteadOf` rewrite is empty, should git-publish fall back to the fetch URL? How should it handle other empty effective URLs? |
-| Chained rewrite | How can transport avoid applying `insteadOf` a second time after Git selects a push URL with `pushInsteadOf`? |
-| Relative `pushInsteadOf` | How should matching and path resolution work when the isolated client runs in a different directory from the source checkout? |
-| Command-scope remote (A) | With `remote.fixture.url` and `remote.fixture.pushurl` defined only through `GIT_CONFIG_COUNT`, native `git push fixture` used `pushurl`; git-publish published to the fetch URL on [`35cc906`](https://github.com/privatenumber/git-publish/commit/35cc906). CI jobs can use this setup to avoid editing `.git/config`. Support would require distinguishing these remotes from literal paths and deciding which command-scope settings to carry into the isolated client. |
-| Trailing CR in a local path | Which Git output paths need LF-only delimiter removal to preserve a trailing CR in the path? |
-| Scheme aliases (C) | With HTTPS and SSH aliases for the same hosted repository rewritten to different repositories, native Git resolves the URLs independently. On [`35cc906`](https://github.com/privatenumber/git-publish/commit/35cc906), git-publish pushed to the right repository but used fetch-side history and printed the fetch alias. Supporting split destinations without changing ordinary HTTPS/SSH pairs would require deciding when resolved URLs override configured identity. |
-| Generic SSH `.git` suffix | Should `ssh://host/repo` and `ssh://host/repo.git` count as different repositories on servers that expose both? |
-| Local-path alias | Should the printed `git+file:` URL use the rewritten local path when the original alias may not resolve for consumers? |
-| `pushInsteadOf` and conflict checks | When the push rewrite applies in the isolated client, `ls-remote` reads the remote's fetch URL but `push` uses the rewritten URL. Should the check resolve the push destination separately? |
+An empty `--remote` value (`--remote=` or `--remote` with no value) is rejected before any work with `--remote requires a remote name or Git URL.`, including in dry runs. As a URL, the empty string resolves to the source repository itself.
 
-Round 14 found two known defects in the WIP branch: applying `path.resolve` after Git expands a URL can change the destination of a path containing a symlink followed by `..`; replaying a valueless command-scope `commit.gpgsign` as an empty string can silently disable signing.
+Tests: [`tests/specs/remote-transport.ts`](../../tests/specs/remote-transport.ts) ("rejects an empty --remote before packing", "publishes to the selected remote despite inherited settings for old internal remote names", "ignores pushInsteadOf for an explicit pushurl").
 
-The [npm Unicode-whitespace ref spelling limitation](./branch-channel.md#remote-refs-that-can-conflict) is also open. Supporting it would require following npm's ref parsing for generated or imported tags.
+## Decision: unsupported remote setups
 
-One alternative to expanding git-publish's own lookup and identity rules is to run `ls-remote`, `fetch`, and `push` through the source repository's Git config while making the isolated objects available to it. This is an option, not a plan. It would still need to protect source refs and config, align the check with the push, and choose the install URL.
+**Maintainer-decided Tue Nov 24 2026.** The cases below are unsupported. Each line names the report that would justify revisiting it.
 
-Status: undecided; not supported by tests.
+- **Empty rewrite:** a literal `pushInsteadOf` rewrite to an empty value, or another empty effective URL. Revisit when a user reports a configuration that relies on it.
+- **Chained rewrite:** transport can apply `insteadOf` again after Git selects a push URL through `pushInsteadOf`. Revisit when a chained rewrite sends a publication to the wrong repository.
+- **Relative `pushInsteadOf`:** matching and path resolution can differ because the isolated client runs in a different directory from the source checkout. Revisit when a relative rewrite fails for a user.
+- **Command-scope remote:** `remote.<name>.url` and `remote.<name>.pushurl` defined only through `GIT_CONFIG_COUNT`. Native `git push <name>` uses the `pushurl`. `git remote get-url` does not report such a remote, so git-publish rejects the name as an unknown remote, although the error's list of configured remotes includes it. Revisit when a CI setup needs remotes that exist only on the command line.
+- **Trailing CR in a local path:** Git output parsing can drop a trailing carriage return from a path. Revisit when a user reports such a path.
+- **Scheme aliases:** HTTPS and SSH aliases of one hosted repository that `insteadOf` rewrites to different repositories. git-publish pushes to the right repository but reads history from, and prints, the fetch alias. Revisit when a user reports split destinations behind aliases.
+- **Generic SSH `.git` suffix:** `ssh://host/repo` and `ssh://host/repo.git` count as different repositories. Revisit when a server that exposes both forms produces a wrong install URL.
+- **Local-path alias:** the printed `git+file:` URL uses the configured local path, not a rewritten one. Revisit when a consumer cannot resolve the configured alias.
+- **`pushInsteadOf` and conflict checks:** for a remote without an explicit `pushurl`, a `pushInsteadOf` rule applies to the push but not to the `ls-remote` conflict check. Revisit when the check reads a different repository from the one that receives the push.
+
+The [npm Unicode-whitespace ref spelling limitation](./branch-channel.md#remote-refs-that-can-conflict) is also unsupported. Supporting it would require following npm's ref parsing for generated or imported tags.
+
+**Rejected alternative: run remote commands through the source repository's Git config.** Running `ls-remote`, `fetch`, and `push` in the source repository would make Git resolve every rewrite and command-scope remote natively. It is rejected because `git push` there can update remote-tracking refs to objects that exist only in the temporary object store, which leaves the source repository with refs to missing objects.
+
+## Decision: no guard against pushes into the source repository
+
+**Maintainer-decided Tue Nov 24 2026.** git-publish does not check whether the final push destination is the source repository. Such a guard would protect against a misconfigured local destination, such as a path, `file://` URL, symlink, or linked worktree, that resolves to the source repository. It is not implemented because it requires reimplementing Git's repository discovery, including the `<path>.git` fallback and Git-directory identity, in git-publish.
+
+These checks remain:
+
+- An empty `--remote` value is rejected (see [Isolated client remotes](#isolated-client-remotes)).
+- A `--remote` value that is not a configured remote and parses as a local path that does not exist is rejected (see [Push destination identity](#push-destination-identity)).
+- `--fresh` pushes with `--force-with-lease` on the tip that the branch lookup read, so it cannot silently overwrite a branch that changed after the lookup.
 
 ## Decision: require one push URL for every publication
 
