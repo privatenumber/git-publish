@@ -533,7 +533,8 @@ exec "${npmPath}" "$@"
 				required: ['app'],
 				optional: [],
 				installSpecifiers: [specifier],
-				installCommand: `npm i '${specifier}'`,
+				installFlags: ['--allow-git=all'],
+				installCommand: `npm i --allow-git=all '${specifier}'`,
 			});
 			expect(json.packages.map((item: { name: string }) => item.name)).toStrictEqual(['app']);
 			const installOutput = result.stdout.slice(result.stdout.indexOf('→ Install'));
@@ -1810,9 +1811,11 @@ exec '${npmPath}' "$@"
 		const lines = result.stdout.split('\n');
 		const header = lines.find(line => line.startsWith('Package '))!;
 		const row = lines.find(line => line.startsWith('extra-a '))!;
-		expect(row).toMatch(/^extra-a +npm\/all-extra-a +[\da-f]{7} +published +root$/);
-		expect(['Branch', 'Commit', 'Status', 'Role'].map(title => header.indexOf(title)))
-			.toStrictEqual(['npm/', /[\da-f]{7} /, 'published', 'root'].map(cell => row.search(cell)));
+		// Every row is a root, so the Role column is omitted
+		expect(header).toMatch(/^Package +Branch +Commit +Status$/);
+		expect(row).toMatch(/^extra-a +npm\/all-extra-a +[\da-f]{7} +published$/);
+		expect(['Branch', 'Commit', 'Status'].map(title => header.indexOf(title)))
+			.toStrictEqual(['npm/', /[\da-f]{7} /, 'published'].map(cell => row.search(cell)));
 		expect(result.stdout).not.toContain('Use --json');
 		expect(lines.filter(line => line.startsWith('→ Install '))).toStrictEqual([
 			'→ Install @test/adapter',
@@ -2089,8 +2092,8 @@ exec '${npmPath}' "$@"
 			commit: await fixture.git('rev-parse', ['HEAD']),
 		});
 		const repository = `git+${pathToFileURL(setRemote.path).href}`;
-		const aCommand = `npm install '${repository}#npm/sets-a' '${repository}#npm/sets-core'`;
-		const bCommand = `npm install '${repository}#npm/sets-b'`;
+		const aCommand = `npm install --allow-git=all '${repository}#npm/sets-a' '${repository}#npm/sets-core'`;
+		const bCommand = `npm install --allow-git=all '${repository}#npm/sets-b'`;
 		const core = data.packages.find(item => item.name === 'core')!;
 		const manifest = JSON.parse(await setRemote.git('show', ['npm/sets-b:package.json']));
 		expect(core.installSpecifier).toBe(`${repository}#npm/sets-core`);
@@ -2098,24 +2101,27 @@ exec '${npmPath}' "$@"
 		const runtimeAndPeer = JSON.parse(await setRemote.git('show', ['npm/sets-a:package.json']));
 		expect(runtimeAndPeer.dependencies.core).toBe(core.installSpecifier);
 		expect(runtimeAndPeer.peerDependencies.core).toBe('^1.0.0');
-		const cCommand = `npm install '${repository}#npm/sets-c' '${core.installSpecifier}'`;
+		const cCommand = `npm install --allow-git=all '${repository}#npm/sets-c' '${core.installSpecifier}'`;
 		expect(data.installSets).toStrictEqual({
 			a: {
 				required: ['a', 'core'],
 				optional: [],
 				installSpecifiers: [`${repository}#npm/sets-a`, `${repository}#npm/sets-core`],
+				installFlags: ['--allow-git=all'],
 				installCommand: aCommand,
 			},
 			b: {
 				required: ['b', 'core'],
 				optional: [],
 				installSpecifiers: [`${repository}#npm/sets-b`],
+				installFlags: ['--allow-git=all'],
 				installCommand: bCommand,
 			},
 			c: {
 				required: ['c', 'core', 'b'],
 				optional: [],
 				installSpecifiers: [`${repository}#npm/sets-c`, core.installSpecifier],
+				installFlags: ['--allow-git=all'],
 				installCommand: cCommand,
 			},
 		});
@@ -2126,9 +2132,10 @@ exec '${npmPath}' "$@"
 			['b', bCommand],
 			['c', cCommand],
 		] as const) {
-			const printedCommand = command.replace('npm install ', 'npm install --allow-git=all ');
-			expect(result.stdout).toContain(`→ Install ${name}\n  ${printedCommand}\n  npm 12+: set allow-git=all in .npmrc`);
+			expect(result.stdout).toContain(`→ Install ${name}\n  ${command}\n`);
 		}
+		// Every section shares the note, so it is printed once
+		expect(result.stdout.split('npm 12+: set allow-git=all in .npmrc')).toHaveLength(2);
 
 		// npm 12.2.2 expects the advertised HEAD to resolve, even with an explicit selector.
 		await setRemote.git('symbolic-ref', ['HEAD', 'refs/heads/npm/sets-core']);
@@ -2419,7 +2426,8 @@ exec '${npmPath}' "$@"
 					required: ['standalone'],
 					optional: [],
 					installSpecifiers: [`git+file://${standaloneRemote.path}#npm/standalone`],
-					installCommand: `npm i 'git+file://${standaloneRemote.path}#npm/standalone'`,
+					installFlags: ['--allow-git=all'],
+					installCommand: `npm i --allow-git=all 'git+file://${standaloneRemote.path}#npm/standalone'`,
 				},
 			},
 			aliases: { standalone: {} },
@@ -2479,7 +2487,7 @@ exec '${npmPath}' "$@"
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(gitPublishProcess.stdout).toContain(`Published "@test/adapter" from "${branchName}"`);
-		expect(gitPublishProcess.stdout).toContain('Packages');
+		expect(gitPublishProcess.stdout).not.toContain('Packages');
 		expect(gitPublishProcess.stdout).toContain('@test/core');
 		expect(gitPublishProcess.stdout).toMatch(/@test\/core[^\n]*\(\d+(?:\.\d+)?(?:ms|s)\)/);
 		expect(gitPublishProcess.stdout).toContain('@test/broker');
@@ -2490,6 +2498,33 @@ exec '${npmPath}' "$@"
 			gitPublishProcess.stdout.lastIndexOf(`Published "@test/adapter" from "${branchName}"`),
 		);
 		expect(gitPublishProcess.stdout.split('→ Install @test/adapter')).toHaveLength(2);
+	});
+
+	test('prints a pack failure under the failing package, not under a group task', async () => {
+		await using failRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('pack-failure', failRemote.path, {
+			corePrepack: 'node -e "process.exit(1)"',
+		});
+		const result = await gitPublish(fixture.getPath('packages/adapter'));
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(true);
+		expect(result.output).not.toContain('Packages');
+		const failure = /Command failed with exit code 1: npm pack/g;
+		expect(result.output).toMatch(/✖ @test\/core [^\n]*\n {4}→ Command failed with exit code 1: npm pack/);
+		// tasuku also sets the error on each ancestor task, so the root repeats it once
+		expect(result.output.match(failure)).toHaveLength(2);
+	});
+
+	test('prints an install note shared by every section once, after the sections', async () => {
+		await using noteRemote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createChainWorkspace('shared-note', noteRemote.path);
+		const result = await gitPublish(fixture.path);
+		onTestFail(() => console.log(result.output));
+		expect('exitCode' in result).toBe(false);
+		const note = 'npm 12+: set allow-git=all in .npmrc to avoid EALLOWGIT on npm ci, clean installs, and updates.';
+		expect(result.stdout.split(note)).toHaveLength(2);
+		expect(result.stdout.trimEnd().endsWith(`\n\n${note}`)).toBe(true);
+		expect(result.stdout.split('→ Install ')).toHaveLength(4);
 	});
 
 	test('retains publication success when cleanup fails', async () => {
@@ -2546,7 +2581,7 @@ exec '${npmPath}' "$@"
 		const gitPublishProcess = await gitPublish(repositoryPath);
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
-		expect(gitPublishProcess.stdout).toContain('Publishing source "inner" → "npm/inner"');
+		expect(gitPublishProcess.stdout).toMatch(/Successfully published branch: npm\/inner \([\da-f]{7}\)/);
 		expect(await nestedRemoteGit('show', ['npm/inner:package.json'])).toContain('@test/inner');
 	});
 

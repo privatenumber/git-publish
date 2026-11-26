@@ -83,16 +83,16 @@ export const publishWorkspaceClosure = async ({
 				const tarball = await repository.withPackWorktree(packageSignal, async (worktreePath) => {
 					setStatus('Packing package and running lifecycle scripts');
 					await assertSourceUnchanged(source);
-					return packPackage(
+					return packPackage({
 						packageManager,
-						worktreePath,
-						path.join(repository.packTemporaryDirectory, String(index)),
-						node.package.dir,
-						repositoryPath,
-						path.relative(repositoryPath, node.package.dir),
-						versionSha,
-						packageSignal,
-					);
+						packWorktreePath: worktreePath,
+						packDestinationDirectory: path.join(repository.packTemporaryDirectory, String(index)),
+						cwd: node.package.dir,
+						gitRootPath: repositoryPath,
+						gitSubdirectory: path.relative(repositoryPath, node.package.dir),
+						manifestFields: versionSha,
+						signal: packageSignal,
+					});
 				});
 				const dependencies = await Promise.allSettled(
 					node.dependencies.map(edge => pendingPreparations.get(edge.target)!),
@@ -192,25 +192,23 @@ export const publishWorkspaceClosure = async ({
 			plan.nodes.length,
 		);
 		// Start in dependency order. Release the checkout before waiting for packed versions.
-		await task('Packages', async () => {
-			try {
-				await task.group(
-					createTask => plan.nodes.map((node, index) => createTask(
-						node.key,
-						(taskApi) => {
-							const preparation = processPackage(index, taskApi);
-							pendingPreparations.set(node.key, preparation);
-							return preparation;
-						},
-						failureOutputOptions,
-					)),
-					{ concurrency },
-				);
-			} finally {
-				// The group rejects on the first failure, before cancelled tasks finish.
-				await Promise.allSettled(pendingPreparations.values());
-			}
-		});
+		try {
+			await task.group(
+				createTask => plan.nodes.map((node, index) => createTask(
+					node.key,
+					(taskApi) => {
+						const preparation = processPackage(index, taskApi);
+						pendingPreparations.set(node.key, preparation);
+						return preparation;
+					},
+					failureOutputOptions,
+				)),
+				{ concurrency },
+			);
+		} finally {
+			// The group rejects on the first failure, before cancelled tasks finish.
+			await Promise.allSettled(pendingPreparations.values());
+		}
 		signal.throwIfAborted();
 		const packed = {
 			...plan,

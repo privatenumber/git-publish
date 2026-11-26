@@ -145,7 +145,10 @@ The added `version` build metadata and `gitHead` together are the version SHA.
             "installSpecifiers": [
                 "acme/repo#npm/main-@acme/core"
             ],
-            "installCommand": "npm i 'acme/repo#npm/main-@acme/core'"
+            "installFlags": [
+                "--allow-git=all"
+            ],
+            "installCommand": "npm i --allow-git=all 'acme/repo#npm/main-@acme/core'"
         }
     },
     "aliases": {
@@ -157,7 +160,7 @@ The added `version` build metadata and `gitHead` together are the version SHA.
 - `source.commit` is the full source commit ID.
 - Each package's `role` is `root`, `dependency`, or `peer`. `reused` is `true` when the existing publication commit was unchanged.
 - Each package's `installSpecifier` is its moving bare-branch Git URL, as used in published manifests. Its `commit` records what this run published. The consumer lockfile, not the install specifier, pins the resolved commit.
-- Each install set lists the `required` and `optional` package names in the selected package's dependency closure. `installSpecifiers` contains the unquoted root arguments for the detected package manager. `installCommand` is a shell-quoted command template without package manager settings. The terminal output adds the [npm or pnpm flags](./installing.md#package-manager-settings): always `--allow-git=all` or `--config.block-exotic-subdeps=false`, and npm's `--allow-remote=all` when a published manifest uses a direct tarball URL. Both list only the selected package and required internal peers, all by branch.
+- Each install set lists the `required` and `optional` package names in the selected package's dependency closure. `installSpecifiers` contains the unquoted root arguments for the detected package manager. `installFlags` contains the [npm or pnpm flags](./installing.md#package-manager-settings) that the install needs: always `--allow-git=all` or `--config.block-exotic-subdeps=false`, and npm's `--allow-remote=all` when a published manifest uses a direct tarball URL. It is empty for Yarn and Bun. `installCommand` is the shell-quoted command that the terminal prints, with these flags. The install set lists only the selected package and required internal peers, all by branch.
 - `aliases` maps each selected package's internal runtime and peer aliases to their target package names. The command lists required peer aliases. Runtime aliases remain in the published manifests.
 
 ## `skills`

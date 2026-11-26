@@ -335,13 +335,21 @@ describe('Publication graph', () => {
 			peers: graph.peers,
 		};
 		const remote = 'https://example.test/repo';
-		const result = createWorkspaceResult(plan, preparations, 'main', 'abc', 'npm', remote);
+		const result = createWorkspaceResult({
+			plan,
+			preparations,
+			ref: 'main',
+			commit: 'abc',
+			packageManager: 'npm',
+			fetchUrl: remote,
+		});
 		expect(result.aliases).toStrictEqual({ app: { alias: 'core' } });
 		expect(result.installSets.app).toStrictEqual({
 			required: ['app'],
 			optional: ['core'],
 			installSpecifiers: ['git+https://example.test/repo#npm/app'],
-			installCommand: "npm install 'git+https://example.test/repo#npm/app'",
+			installFlags: ['--allow-git=all'],
+			installCommand: "npm install --allow-git=all 'git+https://example.test/repo#npm/app'",
 		});
 		const optionalOutput = formatWorkspaceResult(result);
 		expect(optionalOutput).toContain("Optional peers alias:\n  npm install --allow-git=all 'alias@git+https://example.test/repo#npm/core'");
@@ -354,7 +362,14 @@ describe('Publication graph', () => {
 			target: 'core',
 			specification: 'workspace:*',
 		});
-		const requiredResult = createWorkspaceResult(plan, preparations, 'main', 'abc', 'npm', remote);
+		const requiredResult = createWorkspaceResult({
+			plan,
+			preparations,
+			ref: 'main',
+			commit: 'abc',
+			packageManager: 'npm',
+			fetchUrl: remote,
+		});
 		expect(requiredResult.aliases).toStrictEqual({
 			app: {
 				runtime: 'core',
@@ -367,7 +382,14 @@ describe('Publication graph', () => {
 			['yarn', 'app@git+https://example.test/repo#npm/app'],
 			['bun', 'git+https://example.test/repo#npm/app'],
 		] as const) {
-			const mixedResult = createWorkspaceResult(plan, preparations, 'main', 'abc', manager, remote);
+			const mixedResult = createWorkspaceResult({
+				plan,
+				preparations,
+				ref: 'main',
+				commit: 'abc',
+				packageManager: manager,
+				fetchUrl: remote,
+			});
 			expect(mixedResult.installSets.app!.installSpecifiers).toStrictEqual([
 				specifier,
 				'alias@git+https://example.test/repo#npm/core',
@@ -380,7 +402,14 @@ describe('Publication graph', () => {
 			target: 'app',
 			specification: 'workspace:*',
 		});
-		const cycleResult = createWorkspaceResult(plan, preparations, 'main', 'abc', 'npm', remote);
+		const cycleResult = createWorkspaceResult({
+			plan,
+			preparations,
+			ref: 'main',
+			commit: 'abc',
+			packageManager: 'npm',
+			fetchUrl: remote,
+		});
 		expect(cycleResult.installSets.app!.installSpecifiers).toStrictEqual([
 			'git+https://example.test/repo#npm/app',
 			'alias@git+https://example.test/repo#npm/core',
@@ -447,15 +476,29 @@ describe('Publication graph', () => {
 			selection: 'explicit',
 			nodes,
 			peers: graph.peers,
-		} satisfies Parameters<typeof createWorkspaceResult>[0];
-		const npm = createWorkspaceResult(plan, preparations, 'main', 'abc', 'npm', 'https://example.test/repo');
+		} satisfies Parameters<typeof createWorkspaceResult>[0]['plan'];
+		const npm = createWorkspaceResult({
+			plan,
+			preparations,
+			ref: 'main',
+			commit: 'abc',
+			packageManager: 'npm',
+			fetchUrl: 'https://example.test/repo',
+		});
 		const output = formatWorkspaceResult(npm);
 		expect(output).toContain("npm install --allow-git=all 'git+https://example.test/repo#npm/app'\n");
 		expect(output).toContain("Optional peers adapter:\n  npm install --allow-git=all --allow-remote=all 'git+https://example.test/repo#npm/adapter' 'git+https://example.test/repo#npm/core'\n  npm 12+: set allow-git=all and allow-remote=all in .npmrc to avoid EALLOWGIT and EALLOWREMOTE");
 		expect(output).not.toContain('#npm/platform');
 		expect(output).not.toContain('Optional workspace dependencies core install transitively');
 
-		const pnpm = createWorkspaceResult(plan, preparations, 'main', 'abc', 'pnpm', 'https://example.test/repo');
+		const pnpm = createWorkspaceResult({
+			plan,
+			preparations,
+			ref: 'main',
+			commit: 'abc',
+			packageManager: 'pnpm',
+			fetchUrl: 'https://example.test/repo',
+		});
 		const pnpmOutput = formatWorkspaceResult(pnpm);
 		expect(pnpmOutput).toContain("pnpm add --config.block-exotic-subdeps=false 'git+https://example.test/repo#npm/app'\n");
 		expect(pnpmOutput).toContain("Optional peers adapter:\n  pnpm add --config.block-exotic-subdeps=false 'git+https://example.test/repo#npm/adapter' 'git+https://example.test/repo#npm/core'");
@@ -507,13 +550,20 @@ describe('Publication graph', () => {
 		for (const optional of [false, true]) {
 			graph.peers[0]!.optional = optional;
 			const result = createWorkspaceResult({
-				roots: ['app'],
-				kind: 'workspace',
-				rootDirectory: workspace.rootDirectory,
-				selection: 'explicit',
-				nodes,
-				peers: graph.peers,
-			}, preparations, 'main', 'abc', 'npm', 'https://example.test/repo');
+				plan: {
+					roots: ['app'],
+					kind: 'workspace' as const,
+					rootDirectory: workspace.rootDirectory,
+					selection: 'explicit' as const,
+					nodes,
+					peers: graph.peers,
+				},
+				preparations,
+				ref: 'main',
+				commit: 'abc',
+				packageManager: 'npm',
+				fetchUrl: 'https://example.test/repo',
+			});
 			const output = formatWorkspaceResult(result);
 			expect(output).toContain('Optional workspace dependencies b are attempted transitively and may be skipped by the package manager. If a required peer is missing, use the peer command below to supply it.');
 			expect(output).toContain("Optional peers c:\n  npm install --allow-git=all 'git+https://example.test/repo#npm/c'");

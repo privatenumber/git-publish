@@ -9,9 +9,10 @@ export const gitPublish = (
 	environment: NodeJS.ProcessEnv = {},
 ) => spawn(gitPublishPath, args, {
 	cwd,
-	// Remove CI env var which prevents Ink from rendering
 	env: {
 		PATH: process.env.PATH,
+		// Tests match plain text, and CI=true would otherwise turn colors on
+		NO_COLOR: '1',
 		...environment,
 	},
 }).catch(error => error as SubprocessError);
