@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import spawn, { SubprocessError, type Options as SpawnOptions } from 'nano-spawn';
 import { getStdout } from '../utils/get-stdout.ts';
@@ -11,13 +12,27 @@ export type PublishRemote = {
 	configuredName?: string;
 };
 
+// Filesystem paths resolve against the repository root; file:// URLs are absolute
+const isLocalPath = (url: string) => isLocalGitUrl(url) && !url.startsWith('file://');
+
+const pathExists = (target: string) => fs.stat(target).then(
+	() => true,
+	(error: NodeJS.ErrnoException) => {
+		if (error.code !== 'ENOENT') {
+			throw error;
+		}
+		return false;
+	},
+);
+
 export const getPublishRemote = async (
 	repositoryPath: string,
 	remote: string,
-	usesDefaultRemote: boolean,
 ): Promise<PublishRemote> => {
 	const options = { cwd: repositoryPath };
-	const label = /^[\w.-]+$/.test(remote) ? `Remote ${JSON.stringify(remote)}` : 'Selected remote';
+	// A remote value can be a mistyped URL with credentials, so only plain names are printed
+	const isPlainName = /^[\w.-]+$/.test(remote);
+	const label = isPlainName ? `Remote ${JSON.stringify(remote)}` : 'Selected remote';
 	const getAll = (key: string) => spawn('git', ['config', '--null', '--get-all', key], options).then(({ stdout }) => {
 		const values = stdout.split('\0').slice(0, -1);
 		return values.slice(values.lastIndexOf('') + 1);
@@ -30,14 +45,25 @@ export const getPublishRemote = async (
 	// Git rejects valueless keys, which git config --null cannot distinguish from empty values.
 	const expandedPush = await spawn('git', ['remote', 'get-url', '--push', '--all', '--', remote], options).then(({ stdout }) => stdout).catch((error: unknown) => {
 		if (error instanceof SubprocessError && error.exitCode === 2) {
-			if (usesDefaultRemote) {
-				throw new Error(`Git remote ${JSON.stringify(remote)} does not exist`);
-			}
 			return undefined;
 		}
 		throw new Error(`${label} has invalid Git remote configuration.`);
 	});
 	const configuredName = expandedPush === undefined ? undefined : remote;
+	// A mistyped remote name parses as a relative path, so report a missing path as a missing remote
+	if (
+		configuredName === undefined
+		&& isLocalPath(remote)
+		&& !await pathExists(path.resolve(repositoryPath, remote))
+	) {
+		const remoteList = await getStdout(spawn('git', ['remote'], options));
+		const remotes = remoteList.split('\n').filter(Boolean);
+		const subject = isPlainName ? `No Git remote named ${JSON.stringify(remote)}` : 'The selected remote is not a configured Git remote or an existing path';
+		const configured = remotes.length > 0
+			? `Configured remotes: ${remotes.join(', ')}.`
+			: 'This repository has no configured remotes.';
+		throw new Error(`${subject}. ${configured} Pass a configured remote name or a Git URL with --remote.`);
+	}
 	const urls = configuredName === undefined ? [remote] : await getAll(`remote.${remote}.url`);
 	if (urls.length === 0) {
 		throw new Error(`${label} has no fetch URL configured or remaining after an empty URL reset.`);
@@ -57,9 +83,9 @@ export const getPublishRemote = async (
 		throw new Error(`${label} has ${rawPushUrls.length} push URLs. Use one remote per destination or --remote <url>.`);
 	}
 	const pushUrl = rawPushUrls[0]!;
-	const normalizeLocal = (url: string) => (isLocalGitUrl(url) && !url.startsWith('file://')
-		? path.resolve(repositoryPath, url)
-		: url);
+	const normalizeLocal = (url: string) => (
+		isLocalPath(url) ? path.resolve(repositoryPath, url) : url
+	);
 	for (const url of [fetchUrl, pushUrl]) {
 		toPackageManagerGitUrl(url, configuredName);
 	}

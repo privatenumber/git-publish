@@ -72,8 +72,64 @@ describe('Error cases', () => {
 		const gitPublishProcess = await gitPublish(fixture.path);
 
 		expect(('exitCode' in gitPublishProcess) && gitPublishProcess.exitCode).toBe(1);
-		expect(gitPublishProcess.stderr).toBe('Error: Git remote "origin" does not exist');
+		expect(gitPublishProcess.stderr).toBe('Error: No Git remote named "origin". This repository has no configured remotes. Pass a configured remote name or a Git URL with --remote.');
 		expect(await markerFixture.exists('packed')).toBe(false);
+	});
+
+	test('rejects a mistyped remote name in dry and real runs without pushing', async () => {
+		await using markerFixture = await createFixture();
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+				scripts: {
+					prepack: `node -e "require('node:fs').writeFileSync(process.argv[1], 'packed')" "${markerFixture.getPath('packed')}"`,
+				},
+			}),
+		});
+		const { git } = fixture;
+		await git('add', ['package.json']);
+		await git('commit', ['-m', 'Initial commit']);
+		await git('remote', ['add', 'origin', remote.path]);
+		await git('remote', ['add', 'fork', remote.path]);
+		const message = 'Error: No Git remote named "upstream". Configured remotes: fork, origin. Pass a configured remote name or a Git URL with --remote.';
+		for (const args of [['--dry', '-r', 'upstream'], ['-r', 'upstream']]) {
+			const result = await gitPublish(fixture.path, args);
+			expect(('exitCode' in result) && result.exitCode).toBe(1);
+			expect(result.stderr).toBe(message);
+		}
+		expect(await markerFixture.exists('packed')).toBe(false);
+		expect(await remote.git('for-each-ref')).toBe('');
+	});
+
+	test('does not print a remote name that is not a plain name', async () => {
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		});
+		await fixture.git('add', ['package.json']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		const result = await gitPublish(fixture.path, ['--dry', '-r', 'secret token']);
+		expect(('exitCode' in result) && result.exitCode).toBe(1);
+		expect(result.stderr).toBe('Error: The selected remote is not a configured Git remote or an existing path. This repository has no configured remotes. Pass a configured remote name or a Git URL with --remote.');
+	});
+
+	test('publishes to an existing relative local path that is not a configured remote', async () => {
+		await using remote = await createGitFixture(undefined, ['--bare']);
+		await using fixture = await createGitFixture({
+			'package.json': JSON.stringify({
+				name: 'test-pkg',
+				version: '1.0.0',
+			}),
+		}, ['--initial-branch=main']);
+		await fixture.git('add', ['package.json']);
+		await fixture.git('commit', ['-m', 'Initial commit']);
+		const result = await gitPublish(fixture.path, ['-r', path.relative(fixture.path, remote.path)]);
+		expect('exitCode' in result).toBe(false);
+		expect(await remote.git('for-each-ref', ['--format=%(refname)'])).toBe('refs/heads/npm/main');
 	});
 
 	test('Invalid publish branch', async () => {

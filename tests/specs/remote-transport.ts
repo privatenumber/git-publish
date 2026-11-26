@@ -27,7 +27,7 @@ describe('Remote transport', async () => {
 		await using fixture = await createGitFixture();
 		await fixture.git('remote', ['add', 'origin', 'https://host/repo.git']);
 		await fixture.git('config', ['remote.origin.url', 'https://host/repo.git\nsecret']);
-		const result = getPublishRemote(fixture.path, 'origin', true);
+		const result = getPublishRemote(fixture.path, 'origin');
 		await expect(result).rejects.toThrow('Remote "origin" uses a URL');
 		await expect(result).rejects.not.toThrow('secret');
 	});
@@ -35,7 +35,7 @@ describe('Remote transport', async () => {
 	test('names the configured remote when rejecting an IPv6 SCP host', async () => {
 		await using fixture = await createGitFixture();
 		await fixture.git('remote', ['add', 'origin', 'git@[2001:db8::1]:repo.git']);
-		await expect(getPublishRemote(fixture.path, 'origin', true)).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
+		await expect(getPublishRemote(fixture.path, 'origin')).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
 	});
 	test('publishes to a local path containing a hash', async () => {
 		await using destination = await createFixture();
@@ -86,7 +86,7 @@ describe('Remote transport', async () => {
 			await using fixture = await createGitFixture();
 			await fixture.git('remote', ['add', 'origin', 'https://github.com/a/r.git']);
 			await fixture.git('config', ['remote.origin.pushurl', pushUrl]);
-			const result = getPublishRemote(fixture.path, 'origin', true);
+			const result = getPublishRemote(fixture.path, 'origin');
 			await expect(result).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
 			await expect(result).rejects.not.toThrow('secret');
 		});
@@ -112,13 +112,13 @@ describe('Remote transport', async () => {
 
 	test('rejects single-letter helper syntax during remote resolution', async () => {
 		await using fixture = await createGitFixture();
-		await expect(getPublishRemote(fixture.path, 'x::address', false)).rejects.toThrow('The remote URL uses a URL that package managers cannot install from.');
+		await expect(getPublishRemote(fixture.path, 'x::address')).rejects.toThrow('The remote URL uses a URL that package managers cannot install from.');
 	});
 
 	test('names configured remotes without exposing their URLs', async () => {
 		await using fixture = await createGitFixture();
 		await fixture.git('remote', ['add', 'origin', 's3://user:secret@host/r']);
-		const result = getPublishRemote(fixture.path, 'origin', true);
+		const result = getPublishRemote(fixture.path, 'origin');
 		await expect(result).rejects.toThrow('Remote "origin" uses a URL that package managers cannot install from.');
 		await expect(result).rejects.not.toThrow('secret');
 	});
@@ -126,7 +126,7 @@ describe('Remote transport', async () => {
 	if (process.platform !== 'win32') {
 		test('rejects single-letter URL remotes before local normalization', async () => {
 			await using fixture = await createGitFixture();
-			const result = getPublishRemote(fixture.path, 'x://user:secret@host/r', false);
+			const result = getPublishRemote(fixture.path, 'x://user:secret@host/r');
 			await expect(result).rejects.toThrow('The remote URL uses a URL');
 			await expect(result).rejects.not.toThrow('secret');
 		});
@@ -199,7 +199,7 @@ describe('Remote transport', async () => {
 		await using fixture = await createGitFixture();
 		await fixture.git('remote', ['add', 'origin', 'https://example.test/upstream/repo.git']);
 		await fixture.git('config', ['url.https://example.test/fork/.pushInsteadOf', 'https://example.test/upstream/']);
-		const remote = await getPublishRemote(fixture.path, 'origin', true);
+		const remote = await getPublishRemote(fixture.path, 'origin');
 		expect(remote.installUrl).toBe('https://example.test/fork/repo.git');
 		expect(remote.historyUrl).toBe('https://example.test/fork/repo.git');
 	});
@@ -255,7 +255,7 @@ describe('Remote transport', async () => {
 		await using fixture = await createGitFixture();
 		const name = 'https://user:secret@example.test/repo';
 		await fixture.git('config', [`remote.${name}.pushurl`, 'https://example.test/a']);
-		const result = getPublishRemote(fixture.path, name, false);
+		const result = getPublishRemote(fixture.path, name);
 		await expect(result).rejects.toThrow('Selected remote has no fetch URL configured or remaining after an empty URL reset.');
 		await expect(result).rejects.not.toThrow('secret');
 		await expect(result).rejects.not.toThrow('example.test');
@@ -320,7 +320,7 @@ describe('Remote transport', async () => {
 		await fixture.git('remote', ['add', 'origin', 'https://example.test/a.git']);
 		await fixture.git('config', ['--add', 'remote.origin.url', '']);
 		await fixture.git('config', ['--add', 'remote.origin.url', 'https://example.test/b.git']);
-		const remote = await getPublishRemote(fixture.path, 'origin', true);
+		const remote = await getPublishRemote(fixture.path, 'origin');
 		expect(remote.installUrl).toBe('https://example.test/b.git');
 		expect(remote.pushUrl).toBe('https://example.test/b.git');
 	});
@@ -331,7 +331,7 @@ describe('Remote transport', async () => {
 		for (const url of ['https://example.test/b.git', 'https://example.test/c.git', '']) {
 			await fixture.git('config', ['--add', 'remote.origin.pushurl', url]);
 		}
-		const remote = await getPublishRemote(fixture.path, 'origin', true);
+		const remote = await getPublishRemote(fixture.path, 'origin');
 		expect(remote.pushUrl).toBe('https://example.test/a.git');
 	});
 
@@ -340,7 +340,7 @@ describe('Remote transport', async () => {
 		await fixture.git('remote', ['add', 'origin', 'https://example.test/a.git']);
 		await fixture.git('config', ['--add', 'remote.origin.url', '']);
 		await fixture.git('config', ['remote.origin.pushurl', 'https://example.test/b.git']);
-		await expect(getPublishRemote(fixture.path, 'origin', false)).rejects.toThrow('Remote "origin" has no fetch URL configured or remaining after an empty URL reset.');
+		await expect(getPublishRemote(fixture.path, 'origin')).rejects.toThrow('Remote "origin" has no fetch URL configured or remaining after an empty URL reset.');
 	});
 
 	for (const key of ['url', 'pushurl']) {
@@ -372,7 +372,7 @@ describe('Remote transport', async () => {
 		const name = 'https://user:secret@example.test/repo';
 		await fixture.git('config', [`remote.${name}.url`, 'https://example.test/a']);
 		await fs.appendFile(fixture.getPath('.git/config'), `\n[remote "${name}"]\n\tpushurl\n\tpushurl = https://example.test/b\n`);
-		const result = getPublishRemote(fixture.path, name, false);
+		const result = getPublishRemote(fixture.path, name);
 		await expect(result).rejects.toThrow('Selected remote has invalid Git remote configuration.');
 		await expect(result).rejects.not.toThrow('secret');
 		await expect(result).rejects.not.toThrow('example.test');
@@ -413,7 +413,7 @@ describe('Remote transport', async () => {
 		const name = 'https://user:secret@example.test/repo';
 		await fixture.git('config', ['--add', `remote.${name}.url`, 'https://user:other-secret@example.test/a']);
 		await fixture.git('config', ['--add', `remote.${name}.url`, 'https://example.test/b']);
-		const result = getPublishRemote(fixture.path, name, false);
+		const result = getPublishRemote(fixture.path, name);
 		await expect(result).rejects.toThrow('Selected remote has 2 push URLs.');
 		await expect(result).rejects.not.toThrow('secret');
 		await expect(result).rejects.not.toThrow('example.test');

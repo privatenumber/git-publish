@@ -75,7 +75,6 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 };
 
 (async () => {
-	let usedDefaultRemote = false;
 	const argv = cli({
 		name: packageMeta.name,
 		version: packageMeta.version,
@@ -100,10 +99,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 				placeholder: '<remote name or Git URL>',
 				description: 'The Git remote or URL to push to.',
 				default: {
-					value: () => {
-						usedDefaultRemote = true;
-						return 'origin';
-					},
+					value: () => 'origin',
 					description: 'origin',
 				},
 			},
@@ -210,7 +206,7 @@ const runWithSignals = async (run: (signal: AbortSignal) => Promise<void>) => {
 			publishBranch: branch,
 		});
 	await assertSourceUnchanged(source);
-	const publishRemote = await getPublishRemote(gitRootPath, remote, usedDefaultRemote);
+	const publishRemote = await getPublishRemote(gitRootPath, remote);
 	const remoteUrl = publishRemote.installUrl;
 	const pushMode = fresh ? 'lease' : 'normal';
 	// Built before the dry-run return so a dry run rejects invalid versions too
