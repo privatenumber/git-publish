@@ -1,10 +1,6 @@
-import { describe, onFinish } from 'manten';
-import { isolateEnvironment } from './utils/isolate-environment.ts';
+import { describe } from 'manten';
 
 describe('git-publish', async () => {
-	const home = await isolateEnvironment();
-	onFinish(() => home.rm());
-
 	// The signal spec awaits its tests before the other specs start spawning Git and npm.
 	await import('./specs/signals.ts');
 	import('./specs/skills.ts');
