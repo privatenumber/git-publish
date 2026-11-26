@@ -6,7 +6,7 @@ import { createFixture } from 'fs-fixture';
 import { detectPackageManager } from '../../src/utils/detect-package-manager.ts';
 import { createGitFixture } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
-import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
+import { failTemporaryDirectoryRemoval } from '../utils/fail-temporary-directory-removal.ts';
 
 describe('Lifecycle hooks', async () => {
 	const remoteFixture = await createGitFixture(undefined, ['--bare']);
@@ -304,17 +304,14 @@ require('node:fs').writeFileSync('build-output.txt', 'built');
 				scripts: { prepack: missingBinary },
 			}, null, 2),
 		}, ['--initial-branch=test-pack-and-cleanup-error-output']);
-		await using hookFixture = await createFixture();
 		const { git } = fixture;
 		await git('add', ['.']);
 		await git('commit', ['-m', 'Initial commit']);
 		await git('remote', ['add', 'origin', remoteFixture.path]);
 
-		const gitPublishProcess = await gitPublish(fixture.path, [], {
-			NODE_OPTIONS: await createCleanupFailureHook(hookFixture),
-			// The failed cleanup leaves its temporary directory here, and the fixture removes it
-			TMPDIR: hookFixture.path,
-		});
+		// The pack fails, and then git-publish also fails to remove its temporary directory
+		await using cleanupFailure = await failTemporaryDirectoryRemoval();
+		const gitPublishProcess = await gitPublish(fixture.path, [], cleanupFailure.env);
 
 		expect('exitCode' in gitPublishProcess).toBe(true);
 		expect(gitPublishProcess.output).toContain(missingBinary);

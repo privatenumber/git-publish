@@ -9,7 +9,7 @@ import spawn from 'nano-spawn';
 import which from 'which';
 import { createGit, createGitFixture, mockGitSshTransport } from '../utils/create-git.ts';
 import { gitPublish } from '../utils/git-publish.ts';
-import { createCleanupFailureHook } from '../utils/create-cleanup-failure-hook.ts';
+import { failTemporaryDirectoryRemoval } from '../utils/fail-temporary-directory-removal.ts';
 import { createYarnEnvironment } from '../utils/yarn-environment.ts';
 
 // npm is not always next to process.execPath (pnpm-managed Node runtimes ship
@@ -2493,12 +2493,13 @@ exec '${npmPath}' "$@"
 	test('retains publication success when cleanup fails', async () => {
 		const branchName = 'test-workspace-cleanup-failure';
 		await using fixture = await createChainWorkspace(branchName, remoteFixture.path);
-		await using hookFixture = await createFixture();
-		const gitPublishProcess = await gitPublish(path.join(fixture.path, 'packages/adapter'), [], {
-			NODE_OPTIONS: await createCleanupFailureHook(hookFixture),
-			// The failed cleanup leaves its temporary directory here, and the fixture removes it
-			TMPDIR: hookFixture.path,
-		});
+		// The publication succeeds, and then git-publish fails to remove its temporary directory
+		await using cleanupFailure = await failTemporaryDirectoryRemoval();
+		const gitPublishProcess = await gitPublish(
+			path.join(fixture.path, 'packages/adapter'),
+			[],
+			cleanupFailure.env,
+		);
 
 		expect('exitCode' in gitPublishProcess).toBe(false);
 		expect(await remoteGit('rev-parse', [`npm/${branchName}-@test/adapter`])).toBeTruthy();
